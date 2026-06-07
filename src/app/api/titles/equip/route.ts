@@ -11,7 +11,9 @@ export async function POST(req: NextRequest) {
 
     // Unequipping (null/empty) is always allowed.
     if (!key) {
-      await sb.from('profiles').update({ active_title: null }).eq('id', user.id);
+      await sb
+        .from('profiles')
+        .upsert({ id: user.id, hunter_name: user.hunter_name, active_title: null }, { onConflict: 'id' });
       return NextResponse.json({ ok: true, active_title: null });
     }
 
@@ -28,7 +30,20 @@ export async function POST(req: NextRequest) {
     if (!owned) {
       return NextResponse.json({ error: 'Title not unlocked' }, { status: 403 });
     }
-    await sb.from('profiles').update({ active_title: key }).eq('id', user.id);
+    // Upsert (not update) so users whose profiles row never got created
+    // by the on-signup trigger still get their title saved.
+    const { error: upsertErr } = await sb
+      .from('profiles')
+      .upsert(
+        { id: user.id, hunter_name: user.hunter_name, active_title: key },
+        { onConflict: 'id' }
+      );
+    if (upsertErr) {
+      return NextResponse.json(
+        { error: `DB write failed: ${upsertErr.message}` },
+        { status: 500 }
+      );
+    }
     return NextResponse.json({ ok: true, active_title: key });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 401 });
