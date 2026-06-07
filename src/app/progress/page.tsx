@@ -6,6 +6,7 @@ import { SystemWindow } from '@/components/SystemWindow';
 import { getAdminSupabase } from '@/lib/supabase/admin';
 import { MAIN_LIFTS } from '@/lib/program';
 import { ProgressChart } from './ProgressChart';
+import { titleFor } from '@/lib/achievements';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,7 +60,7 @@ export default async function ProgressPage() {
   ).size;
 
   return (
-    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level}>
+    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>
       <SystemWindow title="PROGRESS REPORT" scan>
         <div className="grid grid-cols-3 gap-4 text-center font-mono">
           <Stat label="LEVEL" value={String(stats.level)} />

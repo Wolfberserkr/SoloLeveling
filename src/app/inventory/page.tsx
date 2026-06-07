@@ -4,6 +4,7 @@ import { getStats } from '@/lib/leveling';
 import { AppShell } from '@/components/AppShell';
 import { SystemWindow } from '@/components/SystemWindow';
 import { POWER_UPS, inventory } from '@/lib/powerups';
+import { titleFor } from '@/lib/achievements';
 import { InventoryActions } from './InventoryActions';
 
 export const dynamic = 'force-dynamic';
@@ -17,7 +18,7 @@ export default async function InventoryPage() {
   inv.forEach((i) => { owned[i.def.key] = i.quantity; });
 
   return (
-    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level}>
+    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>
       <SystemWindow title="INVENTORY · POWER-UPS" variant="gold" scan>
         <p className="text-xs font-mono text-[#a9c7e0] mb-4">
           [ Items are earned by clearing dailies, gates, and deload weeks. ]

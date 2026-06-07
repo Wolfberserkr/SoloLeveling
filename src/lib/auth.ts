@@ -5,6 +5,7 @@ export type Hunter = {
   id: string;
   email: string;
   hunter_name: string;
+  active_title: string | null;
 };
 
 export async function signUp(email: string, hunterName: string, password: string) {
@@ -40,7 +41,7 @@ export async function getCurrentHunter(): Promise<Hunter | null> {
   const admin = getAdminSupabase();
   const { data: profile } = await admin
     .from('profiles')
-    .select('hunter_name')
+    .select('hunter_name, active_title')
     .eq('id', user.id)
     .maybeSingle();
   const hunter_name =
@@ -48,7 +49,12 @@ export async function getCurrentHunter(): Promise<Hunter | null> {
     (user.user_metadata?.hunter_name as string) ||
     user.email?.split('@')[0] ||
     'Hunter';
-  return { id: user.id, email: user.email || '', hunter_name };
+  return {
+    id: user.id,
+    email: user.email || '',
+    hunter_name,
+    active_title: profile?.active_title ?? null,
+  };
 }
 
 export async function requireHunter(): Promise<Hunter> {

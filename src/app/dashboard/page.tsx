@@ -5,7 +5,7 @@ import { AppShell } from '@/components/AppShell';
 import { StatusPanel } from '@/components/StatusPanel';
 import { SystemWindow } from '@/components/SystemWindow';
 import { ensureDailyQuests } from '@/lib/quests';
-import { getUnlocked } from '@/lib/achievements';
+import { getUnlocked, titleFor } from '@/lib/achievements';
 import { inventory } from '@/lib/powerups';
 import Link from 'next/link';
 
@@ -23,7 +23,7 @@ export default async function Dashboard() {
   const inv = await inventory(user.id);
 
   return (
-    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level}>
+    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>
       <StatusPanel hunterName={user.hunter_name} stats={stats} />
 
       <div className="grid md:grid-cols-2 gap-6">

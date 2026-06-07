@@ -4,6 +4,7 @@ import { getStats } from '@/lib/leveling';
 import { ensureDailyQuests } from '@/lib/quests';
 import { AppShell } from '@/components/AppShell';
 import { QuestList } from './QuestList';
+import { titleFor } from '@/lib/achievements';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +15,7 @@ export default async function QuestsPage() {
   const quests = await ensureDailyQuests(user.id, stats.level);
 
   return (
-    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level}>
+    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>
       <QuestList initial={quests} streak={stats.streak} />
     </AppShell>
   );

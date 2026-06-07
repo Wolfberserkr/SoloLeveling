@@ -5,6 +5,7 @@ import { AppShell } from '@/components/AppShell';
 import { sessionFor, isDeloadWeek, weekNumberSince } from '@/lib/program';
 import { SessionRunner } from './SessionRunner';
 import { getAdminSupabase } from '@/lib/supabase/admin';
+import { titleFor } from '@/lib/achievements';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,7 +49,7 @@ export default async function SessionPage({ params }: { params: { sessionKey: st
   }
 
   return (
-    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level}>
+    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>
       <SessionRunner
         session={session}
         date={today}

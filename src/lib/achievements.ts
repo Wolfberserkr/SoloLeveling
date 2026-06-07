@@ -52,7 +52,24 @@ export async function unlock(userId: string, key: string): Promise<boolean> {
     title: `[ ACHIEVEMENT UNLOCKED ]  ${def.title}`,
     body: def.description,
   });
+  // Auto-equip the first title the Hunter ever earns.
+  const { data: profile } = await sb
+    .from('profiles')
+    .select('active_title')
+    .eq('id', userId)
+    .maybeSingle();
+  if (!profile?.active_title) {
+    await sb.from('profiles').update({ active_title: key }).eq('id', userId);
+  }
   return true;
+}
+
+// Title lookup helper for UI. Pass an achievement_key, get { title, rarity }.
+export function titleFor(key: string | null | undefined) {
+  if (!key) return null;
+  const def = getDef(key);
+  if (!def) return null;
+  return { key, title: def.title, rarity: def.rarity, icon: def.icon };
 }
 
 export async function getUnlocked(userId: string): Promise<{ key: string; unlocked_at: string }[]> {

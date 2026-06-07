@@ -6,6 +6,7 @@ import { AppShell } from '@/components/AppShell';
 import { SystemWindow } from '@/components/SystemWindow';
 import { PROGRAM, isDeloadWeek, weekNumberSince, DELOAD_EVERY_WEEKS } from '@/lib/program';
 import { getAdminSupabase } from '@/lib/supabase/admin';
+import { titleFor } from '@/lib/achievements';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,7 +30,7 @@ export default async function WorkoutHub() {
   const dayIdx = today.getDay();
 
   return (
-    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level}>
+    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>
       {deload && (
         <SystemWindow title="DELOAD WEEK ACTIVE" variant="gold" scan>
           <p className="text-sm text-[#e6f4ff] mb-2">

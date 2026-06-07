@@ -6,12 +6,30 @@ const TABS = [
   { href: '/dashboard', label: 'STATUS' },
   { href: '/quests', label: 'DAILY QUEST' },
   { href: '/workout', label: 'DUNGEONS' },
+  { href: '/shadows', label: 'ARMY' },
   { href: '/progress', label: 'PROGRESS' },
   { href: '/achievements', label: 'ACHIEVEMENTS' },
   { href: '/inventory', label: 'INVENTORY' },
 ];
 
-export function NavBar({ hunterName, rank, level }: { hunterName: string; rank: string; level: number }) {
+const RARITY_COLOR: Record<string, string> = {
+  common: 'text-[#9ca3af]',
+  rare: 'text-accent-cyan',
+  epic: 'text-accent-purple',
+  legendary: 'text-accent-gold',
+};
+
+export function NavBar({
+  hunterName,
+  rank,
+  level,
+  title,
+}: {
+  hunterName: string;
+  rank: string;
+  level: number;
+  title?: { title: string; rarity: string } | null;
+}) {
   const path = usePathname();
   const router = useRouter();
 
@@ -31,6 +49,14 @@ export function NavBar({ hunterName, rank, level }: { hunterName: string; rank: 
             <div className="font-mono uppercase text-sm tracking-widest glow-text text-accent-cyan">
               {hunterName} <span className="opacity-60">Lv.{level}</span>
             </div>
+            {title && (
+              <div
+                className={`font-mono text-[9px] tracking-[0.25em] uppercase mt-0.5 ${RARITY_COLOR[title.rarity] || 'text-accent-cyan'}`}
+                title="Active title"
+              >
+                « {title.title} »
+              </div>
+            )}
           </div>
         </Link>
         <nav className="flex flex-wrap gap-1 md:gap-1 md:ml-4 flex-1">

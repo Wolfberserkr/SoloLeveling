@@ -3,7 +3,8 @@ import { getCurrentHunter } from '@/lib/auth';
 import { getStats } from '@/lib/leveling';
 import { AppShell } from '@/components/AppShell';
 import { SystemWindow } from '@/components/SystemWindow';
-import { ACHIEVEMENTS, getUnlocked } from '@/lib/achievements';
+import { ACHIEVEMENTS, getUnlocked, titleFor } from '@/lib/achievements';
+import { TitleEquipButton } from './TitleEquipButton';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +15,7 @@ export default async function AchievementsPage() {
   const unlocked = new Map((await getUnlocked(user.id)).map((u) => [u.key, u.unlocked_at]));
 
   return (
-    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level}>
+    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>
       <SystemWindow title={`ACHIEVEMENTS · ${unlocked.size} / ${ACHIEVEMENTS.length}`} scan>
         <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
           {ACHIEVEMENTS.map((a) => {
@@ -37,9 +38,15 @@ export default async function AchievementsPage() {
                 </div>
                 <p className="text-xs mt-2 text-[#a9c7e0]">{a.description}</p>
                 {got && (
-                  <div className="mt-2 text-[10px] font-mono text-accent-cyan">
-                    [ UNLOCKED {new Date(unlocked.get(a.key)!).toLocaleDateString()} ]
-                  </div>
+                  <>
+                    <div className="mt-2 text-[10px] font-mono text-accent-cyan">
+                      [ UNLOCKED {new Date(unlocked.get(a.key)!).toLocaleDateString()} ]
+                    </div>
+                    <TitleEquipButton
+                      achievementKey={a.key}
+                      isActive={user.active_title === a.key}
+                    />
+                  </>
                 )}
               </div>
             );
