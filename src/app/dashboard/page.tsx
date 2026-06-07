@@ -10,6 +10,7 @@ import { inventory } from '@/lib/powerups';
 import { listArmy, totalArmyPower } from '@/lib/shadows';
 import { activeGate } from '@/lib/gates';
 import { GateBanner } from '@/components/GateBanner';
+import { TimezoneSync } from '@/components/TimezoneSync';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -30,6 +31,7 @@ export default async function Dashboard() {
 
   return (
     <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>
+      <TimezoneSync currentTz={user.timezone} />
       <GateBanner initial={gate} />
 
       <StatusPanel

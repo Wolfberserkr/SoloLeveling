@@ -6,6 +6,7 @@
 
 import { getAdminSupabase } from './supabase/admin';
 import { unlock } from './achievements';
+import { getUserTz, todayInTz } from './time';
 
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
 
@@ -58,18 +59,23 @@ export async function maybeExtractShadow(
   ctx: ExtractionContext
 ): Promise<Shadow | null> {
   const sb = getAdminSupabase();
-  const today = new Date().toISOString().slice(0, 10);
+  const tz = await getUserTz(userId);
+  const today = todayInTz(tz);
 
   // Idempotency guard — don't double-extract on a network retry / double-submit.
+  // Window is one calendar day in the user's timezone (loose — we just need to
+  // catch retries within minutes of the original submit).
   const { data: alreadyExtracted } = await sb
     .from('shadows')
-    .select('id')
+    .select('id, extracted_at')
     .eq('user_id', userId)
     .eq('source_session', ctx.session_key)
-    .gte('extracted_at', `${today}T00:00:00Z`)
-    .lte('extracted_at', `${today}T23:59:59Z`)
+    .order('extracted_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
-  if (alreadyExtracted) return null;
+  const sameDay =
+    alreadyExtracted && todayInTz(tz, new Date(alreadyExtracted.extracted_at)) === today;
+  if (sameDay) return null;
 
   // Roll chance: base 25%, +25% deload, +15% per PR (cap at 90%).
   let chance = 0.25;

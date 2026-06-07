@@ -6,6 +6,7 @@ export type Hunter = {
   email: string;
   hunter_name: string;
   active_title: string | null;
+  timezone: string;
 };
 
 export async function signUp(email: string, hunterName: string, password: string) {
@@ -41,7 +42,7 @@ export async function getCurrentHunter(): Promise<Hunter | null> {
   const admin = getAdminSupabase();
   const { data: profile } = await admin
     .from('profiles')
-    .select('hunter_name, active_title')
+    .select('hunter_name, active_title, timezone')
     .eq('id', user.id)
     .maybeSingle();
   const hunter_name =
@@ -54,6 +55,7 @@ export async function getCurrentHunter(): Promise<Hunter | null> {
     email: user.email || '',
     hunter_name,
     active_title: profile?.active_title ?? null,
+    timezone: (profile?.timezone as string) || 'UTC',
   };
 }
 

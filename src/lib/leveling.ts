@@ -1,5 +1,6 @@
 import { getAdminSupabase } from './supabase/admin';
 import { PROGRAM } from './program';
+import { getUserTz, todayInTz, yesterdayInTz, dayOfWeekInTz } from './time';
 
 export const MAX_MANA = 150;
 export const SHIELD_COST = 30;
@@ -163,27 +164,22 @@ export async function bumpStreak(userId: string, today: string): Promise<number>
   return newStreak;
 }
 
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-function yesterdayISO(): string {
-  return new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-}
-
 // Lazy daily-cron run on page load. Idempotent — each step fires at most
-// once per day per user. Order: penalty/shield → meditation → gate spawn.
+// once per day per user (in the user's timezone). Order: penalty/shield →
+// meditation → gate spawn.
 export async function processDailyEvents(userId: string) {
-  await processDailyPenaltyIfNeeded(userId);
-  await processMeditationIfNeeded(userId);
+  const tz = await getUserTz(userId);
+  await processDailyPenaltyIfNeeded(userId, tz);
+  await processMeditationIfNeeded(userId, tz);
   // Lazy import to avoid circular dep (gates.ts imports awardXp from here).
   const { maybeSpawnGate } = await import('./gates');
-  await maybeSpawnGate(userId);
+  await maybeSpawnGate(userId, tz);
 }
 
-async function processDailyPenaltyIfNeeded(userId: string) {
+async function processDailyPenaltyIfNeeded(userId: string, tz: string) {
   const sb = getAdminSupabase();
-  const today = todayISO();
-  const yesterday = yesterdayISO();
+  const today = todayInTz(tz);
+  const yesterday = yesterdayInTz(tz);
 
   const { data: stats } = await sb
     .from('hunter_stats')
@@ -244,9 +240,9 @@ async function processDailyPenaltyIfNeeded(userId: string) {
   });
 }
 
-async function processMeditationIfNeeded(userId: string) {
-  const today = todayISO();
-  const dayIdx = new Date().getDay();
+async function processMeditationIfNeeded(userId: string, tz: string) {
+  const today = todayInTz(tz);
+  const dayIdx = dayOfWeekInTz(tz);
   const isRestDay = !PROGRAM.some((s) => s.day === dayIdx);
   if (!isRestDay) return;
 

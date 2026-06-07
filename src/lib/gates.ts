@@ -6,6 +6,7 @@
 import { getAdminSupabase } from './supabase/admin';
 import { awardXp } from './leveling';
 import { grant } from './powerups';
+import { getUserTz, todayInTz } from './time';
 
 export type GateStatus = 'active' | 'cleared' | 'failed' | 'expired';
 
@@ -109,10 +110,6 @@ export const GATE_TEMPLATES: Template[] = [
 const SPAWN_CHANCE = 0.12; // ~12% per day
 const GATE_DURATION_HOURS = 24;
 
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export async function activeGate(userId: string): Promise<Gate | null> {
   const sb = getAdminSupabase();
   const { data } = await sb
@@ -148,9 +145,9 @@ export async function recentGates(userId: string, limit = 10): Promise<Gate[]> {
   return (data as Gate[]) || [];
 }
 
-export async function maybeSpawnGate(userId: string): Promise<Gate | null> {
+export async function maybeSpawnGate(userId: string, tz?: string): Promise<Gate | null> {
   const sb = getAdminSupabase();
-  const today = todayISO();
+  const today = todayInTz(tz || (await getUserTz(userId)));
 
   // Don't double-roll the same day.
   const { data: stats } = await sb

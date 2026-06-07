@@ -7,6 +7,7 @@ import { SystemWindow } from '@/components/SystemWindow';
 import { PROGRAM, isDeloadWeek, weekNumberSince, DELOAD_EVERY_WEEKS } from '@/lib/program';
 import { getAdminSupabase } from '@/lib/supabase/admin';
 import { titleFor } from '@/lib/achievements';
+import { dayOfWeekInTz } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -26,8 +27,7 @@ export default async function WorkoutHub() {
   const weekNo = weekNumberSince(startDate);
   const deload = isDeloadWeek(weekNo);
 
-  const today = new Date();
-  const dayIdx = today.getDay();
+  const dayIdx = dayOfWeekInTz(user.timezone);
 
   return (
     <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>

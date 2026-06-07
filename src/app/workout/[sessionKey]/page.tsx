@@ -6,6 +6,7 @@ import { sessionFor, isDeloadWeek, weekNumberSince } from '@/lib/program';
 import { SessionRunner } from './SessionRunner';
 import { getAdminSupabase } from '@/lib/supabase/admin';
 import { titleFor } from '@/lib/achievements';
+import { todayInTz } from '@/lib/time';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +17,7 @@ export default async function SessionPage({ params }: { params: { sessionKey: st
   if (!session) notFound();
   const stats = await getStats(user.id);
   const sb = getAdminSupabase();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayInTz(user.timezone);
 
   const { data: profile } = await sb
     .from('profiles')

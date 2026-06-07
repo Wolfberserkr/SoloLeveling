@@ -2,6 +2,7 @@ import { getAdminSupabase } from './supabase/admin';
 import { awardXp, bumpStreak } from './leveling';
 import { checkAchievements } from './achievements';
 import { progressActiveGate } from './gates';
+import { getUserTz, todayInTz } from './time';
 
 export type Quest = {
   id: number;
@@ -27,9 +28,6 @@ export function defaultDailyTemplate(level: number) {
   ];
 }
 
-export function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function rowToQuest(r: any): Quest {
   return {
@@ -45,7 +43,8 @@ function rowToQuest(r: any): Quest {
 
 export async function ensureDailyQuests(userId: string, level: number): Promise<Quest[]> {
   const sb = getAdminSupabase();
-  const date = todayISO();
+  const tz = await getUserTz(userId);
+  const date = todayInTz(tz);
   const { data: existing } = await sb
     .from('daily_quests')
     .select('*')
@@ -85,7 +84,8 @@ export async function logQuestProgress(
   amount: number
 ): Promise<QuestProgressResult> {
   const sb = getAdminSupabase();
-  const date = todayISO();
+  const tz = await getUserTz(userId);
+  const date = todayInTz(tz);
   const { data: row } = await sb
     .from('daily_quests')
     .select('*')
