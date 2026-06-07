@@ -15,11 +15,14 @@ export type Quest = {
 export function defaultDailyTemplate(level: number) {
   const scale = 1 + Math.floor((level - 1) / 5) * 0.1;
   const s = (n: number) => Math.round(n * scale);
+  // Run scales independently: 2 km at level 1, +1 km every 2 levels, capped at 10 km.
+  // Beginner-friendly ramp — reaches 10 km at level 17.
+  const runKm = Math.min(10, 2 + Math.floor((level - 1) / 2));
   return [
     { key: 'pushups', label: 'PUSH-UPS', target: s(100), unit: 'reps' },
     { key: 'situps', label: 'SIT-UPS', target: s(100), unit: 'reps' },
     { key: 'squats', label: 'SQUATS', target: s(100), unit: 'reps' },
-    { key: 'run', label: 'RUN', target: s(10), unit: 'km' },
+    { key: 'run', label: 'RUN', target: runKm, unit: 'km' },
   ];
 }
 
