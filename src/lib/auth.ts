@@ -14,8 +14,16 @@ export async function signUp(email: string, hunterName: string, password: string
     password,
     options: { data: { hunter_name: hunterName } },
   });
-  if (error) throw new Error(error.message);
-  // The DB trigger creates profile + hunter_stats + awakening achievement.
+  if (error) {
+    // Log full error for Vercel function logs so we can diagnose obscure GoTrue messages.
+    console.error('[signUp] Supabase error:', {
+      message: error.message,
+      status: (error as any).status,
+      code: (error as any).code,
+      name: error.name,
+    });
+    throw new Error(`${error.message} (status ${(error as any).status ?? '?'})`);
+  }
   return data.user;
 }
 

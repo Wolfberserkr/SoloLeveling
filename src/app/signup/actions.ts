@@ -9,13 +9,20 @@ export async function signupAction(formData: FormData) {
   if (!email || !hunterName || password.length < 8) {
     redirect('/signup?error=' + encodeURIComponent('Provide a name, email, and 8+ char password.'));
   }
+  let signUpFailed = false;
+  let errMsg = 'Sign-up failed.';
   try {
     await signUp(email, hunterName, password);
-    // Sign in immediately so the session cookie is set (skips email verification gate
-    // if your Supabase project requires confirmation — adjust in Auth > Settings).
-    try { await signIn(email, password); } catch {}
   } catch (e: any) {
-    redirect('/signup?error=' + encodeURIComponent(e.message || 'Sign-up failed.'));
+    console.error('[signupAction] caught:', e);
+    signUpFailed = true;
+    errMsg = e?.message || errMsg;
+  }
+  if (signUpFailed) {
+    redirect('/signup?error=' + encodeURIComponent(errMsg));
+  }
+  try { await signIn(email, password); } catch (e) {
+    console.error('[signupAction] signIn after signUp failed:', e);
   }
   redirect('/dashboard');
 }
