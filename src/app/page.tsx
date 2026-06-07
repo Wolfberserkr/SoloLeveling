@@ -1,9 +1,11 @@
 import Link from 'next/link';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentHunter } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 
-export default function Landing() {
-  const user = getCurrentUser();
+export const dynamic = 'force-dynamic';
+
+export default async function Landing() {
+  const user = await getCurrentHunter();
   if (user) redirect('/dashboard');
 
   return (

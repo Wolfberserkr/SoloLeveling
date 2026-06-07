@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentHunter } from '@/lib/auth';
 import { getStats } from '@/lib/leveling';
 import { AppShell } from '@/components/AppShell';
 import { StatusPanel } from '@/components/StatusPanel';
@@ -11,15 +11,15 @@ import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
 
-export default function Dashboard() {
-  const user = getCurrentUser();
+export default async function Dashboard() {
+  const user = await getCurrentHunter();
   if (!user) redirect('/login');
-  const stats = getStats(user.id);
-  const quests = ensureDailyQuests(user.id, stats.level);
+  const stats = await getStats(user.id);
+  const quests = await ensureDailyQuests(user.id, stats.level);
   const cleared = quests.every((q) => q.completed);
   const completedCount = quests.filter((q) => q.completed).length;
-  const ach = getUnlocked(user.id);
-  const inv = inventory(user.id);
+  const ach = await getUnlocked(user.id);
+  const inv = await inventory(user.id);
 
   return (
     <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level}>
@@ -29,9 +29,7 @@ export default function Dashboard() {
         <SystemWindow
           title="DAILY QUEST"
           variant={cleared ? 'gold' : 'red'}
-          right={
-            <Link href="/quests" className="sys-btn !py-1 !text-[10px]">OPEN</Link>
-          }
+          right={<Link href="/quests" className="sys-btn !py-1 !text-[10px]">OPEN</Link>}
         >
           <p className="text-xs text-[#a9c7e0] mb-2 font-mono">
             [ {cleared ? 'CLEARED' : `${completedCount} / ${quests.length} CLEARED`} ]

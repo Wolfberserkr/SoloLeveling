@@ -9,114 +9,120 @@ Quest**, clear gym **Dungeons**, earn **XP / stat points / ranks**, collect
 **Achievements**, and bank **Power-ups** like Essence Stones, Runes of Focus, and
 Shadow Extractions.
 
-This is an unofficial fan project. Not affiliated with the *Solo Leveling*
-franchise or its rights-holders.
+Unofficial fan project. Not affiliated with the *Solo Leveling* franchise.
+
+---
+
+## Setup
+
+### 1. Create the Supabase project schema
+
+In the Supabase dashboard → **SQL Editor** → **New query**, paste the contents of
+[`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql) and run
+it. That creates all tables, the auto-profile trigger for new signups, and the
+RLS policies.
+
+### 2. Configure environment variables
+
+Copy `.env.example` to `.env.local` and fill in:
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=https://YOUR-PROJECT-REF.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...    # Project Settings → API → anon key
+SUPABASE_SERVICE_ROLE_KEY=eyJ...        # Project Settings → API → service_role (server-only!)
+```
+
+> ⚠️  Never expose `SUPABASE_SERVICE_ROLE_KEY` to the browser. It's only read
+> from server components, route handlers, and server actions.
+
+### 3. (Optional) Disable email confirmation for faster testing
+
+Supabase requires email confirmation by default. For a smoother demo, go to
+**Authentication → Sign In / Up → Email** and turn off "Confirm email." (Turn it
+back on for production.)
+
+### 4. Run
+
+```bash
+npm install
+npm run dev
+# → http://localhost:3000
+```
 
 ---
 
 ## Features
 
 ### The Daily Quest (the iconic four)
-Generated fresh every day:
-
-- **PUSH-UPS** — 100 reps (scales with level)
-- **SIT-UPS** — 100 reps
-- **SQUATS** — 100 reps
-- **RUN** — 10 km
-
-Complete all four → XP burst + streak bonus + **Essence Stone** drop.
-**Fail the day** → penalty: STR -1, VIT -1, mana drain, streak reset.
+- **PUSH-UPS** 100 · **SIT-UPS** 100 · **SQUATS** 100 · **RUN** 10 km
+- Scales with Hunter level
+- Streak bonus on clear · Essence Stone drop
+- Penalty on fail: STR -1, VIT -1, mana drain, streak reset
 
 ### Dungeons (the actual training)
-A beginner-friendly 4-day Upper/Lower split:
-
-| Day | Gate           | Focus                          |
-|-----|----------------|--------------------------------|
-| Mon | **Upper A**    | Bench press + bent-over row    |
-| Tue | **Lower A**    | Back squat + RDL               |
-| Thu | **Upper B**    | Overhead press + pull-ups      |
-| Fri | **Lower B**    | Deadlift + front squat         |
-
-- Each session: warmup → main block → cooldown (45–60 min total)
-- Per-exercise demo links (YouTube search), per-set weight × reps logging
-- Per-exercise rest timer
-- Linear progression on main lifts (+2.5 kg / 5 lb when all sets cleared)
-- **Deload every 5 weeks** — auto-detected, drops load to ~60%, grants a
-  Shadow Extraction on completion.
+Beginner 4-day Upper/Lower split (Mon/Tue/Thu/Fri):
+- Bench Press · Bent Row · Back Squat · RDL · OHP · Pull-ups · Deadlift · Front Squat
+- Warmup → main block → cooldown (45–60 min)
+- Per-exercise demo links + rest timers
+- Linear progression on main lifts
+- Auto deload week every 5 weeks → Shadow Extraction reward
 
 ### Leveling & Ranks
-- Earn XP from quests and dungeon runs
-- Level up grants 5 free **stat points** to allocate to STR / AGI / VIT / INT / PER
-- Ranks unlock at levels 10 / 25 / 45 / 70 / 100 / 150 → **E → D → C → B → A → S → National**
+- XP from quests + dungeon runs
+- 5 stat points per level → STR/AGI/VIT/INT/PER
+- Ranks unlock E → D → C → B → A → S → National at levels 10/25/45/70/100/150
 
 ### Achievements
-20+ unlockable feats across common / rare / epic / legendary rarities, e.g.
-*The Awakening*, *Bench Breaker*, *Iron Will (30-day streak)*, *Arise (first
-Shadow Extraction)*.
+20+ unlockable feats with common/rare/epic/legendary rarities.
 
-### Power-ups (anime-flavoured consumables)
+### Power-ups
 - **◆ Essence Stone** — spend 3 for an extra stat point
 - **⚗ Elixir of Life** — full mana refill
-- **✺ Rune of Focus** — +50% XP for the next 2 hours
-- **☽ Shadow Extraction** — +2 to a chosen stat (earned from deload weeks)
+- **✺ Rune of Focus** — +50% XP for 2 hours
+- **☽ Shadow Extraction** — +2 to a chosen stat (deload reward)
 
-### Progress Charts
-Top-set-weight line charts per main lift, total volume, session counts.
+### Progress
+Top-set line charts per main lift · total volume · session count.
 
 ---
 
 ## Tech stack
 
-- **Next.js 14** App Router (server components + route handlers)
-- **better-sqlite3** for the backend store (single-file DB at `data/sololeveling.db`)
-- **bcryptjs** + signed cookie sessions for multi-user auth
-- **Tailwind CSS** for the dark Solo-Leveling System aesthetic
-- **Recharts** for progress charts
+- **Next.js 14** (App Router, server components, server actions)
+- **Supabase** — Postgres + Auth (`@supabase/ssr` + `@supabase/supabase-js`)
+- **Tailwind CSS** — dark Solo-Leveling System aesthetic
+- **Recharts** — progress charts
 
-The aesthetic mimics the anime's UI windows: cyan/purple glowing borders with
-corner brackets, monospace `[ SYSTEM ]` headers, scanline overlays, XP bar, rank
-badges, and pop-in **`[ LEVEL UP ]`** / **`[ ACHIEVEMENT UNLOCKED ]`** notices.
+Auth uses Supabase email/password. The DB trigger in the migration auto-creates a
+`profiles` row, a fresh `hunter_stats` row, and the *Awakening* achievement
+whenever a new user signs up. Server code uses the service-role client for game
+logic; Row Level Security policies are in place as defense-in-depth on the
+public anon key.
 
----
+## Deployment
 
-## Run locally
-
-```bash
-cp .env.example .env
-# edit SESSION_SECRET
-npm install
-npm run dev
-# → http://localhost:3000
-```
-
-The SQLite DB is auto-created on first request at `data/sololeveling.db`.
+Works on any host that runs Next.js (Vercel, Netlify, Railway, Fly.io, your own
+VPS). Just set the three environment variables in the host's dashboard. No
+filesystem or sticky-storage required since the database lives in Supabase.
 
 ## Project layout
 
 ```
+supabase/
+└── migrations/0001_init.sql   # Schema, trigger, RLS — paste into SQL Editor
+middleware.ts                  # Refreshes Supabase auth cookies per request
 src/
-├── app/
-│   ├── api/                     # Route handlers (quests, workouts, stats, inventory, auth)
-│   ├── dashboard/               # Status Window
-│   ├── quests/                  # Daily Quest screen
-│   ├── workout/                 # Dungeon list + per-session runner
-│   ├── progress/                # Charts
-│   ├── achievements/            # Trophy hall
-│   ├── inventory/               # Power-ups
-│   ├── login/ signup/           # Auth
-│   └── page.tsx                 # Landing
-├── components/
-│   ├── SystemWindow.tsx         # Corner-bracket panel
-│   ├── StatusPanel.tsx          # Hunter stat sheet
-│   ├── NavBar.tsx
-│   ├── Notice.tsx               # Level-up / achievement popups
-│   └── AppShell.tsx
+├── app/                       # Pages + route handlers (all server-async)
+├── components/                # System Window, Status Panel, Nav, Notices
 └── lib/
-    ├── db.ts                    # SQLite schema + connection
-    ├── auth.ts                  # Sessions, hashing
-    ├── leveling.ts              # XP curve, ranks, stat allocation
-    ├── quests.ts                # Daily quest generation + scoring
-    ├── achievements.ts          # 20+ achievement defs + auto-unlock
-    ├── powerups.ts              # Item effects
-    └── program.ts               # The training program (sessions, exercises)
+    ├── supabase/
+    │   ├── server.ts          # User-scoped server client (RLS-respecting)
+    │   ├── admin.ts           # Service-role client (bypasses RLS)
+    │   └── middleware.ts      # Session refresher
+    ├── auth.ts                # signUp / signIn / signOut / getCurrentHunter
+    ├── leveling.ts            # XP curve, ranks, stat allocation
+    ├── quests.ts              # Daily quest generation + scoring
+    ├── achievements.ts        # 20+ defs + auto-unlock checks
+    ├── powerups.ts            # Item effects
+    └── program.ts             # The training program
 ```

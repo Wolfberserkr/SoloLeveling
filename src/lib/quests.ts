@@ -1,4 +1,4 @@
-import { getDb } from './db';
+import { getAdminSupabase } from './supabase/admin';
 import { awardXp, bumpStreak } from './leveling';
 import { checkAchievements } from './achievements';
 
@@ -12,10 +12,8 @@ export type Quest = {
   completed: boolean;
 };
 
-// The signature Solo Leveling daily quest. We scale slightly with hunter level so
-// it stays challenging — but the iconic four-task structure stays exactly the same.
 export function defaultDailyTemplate(level: number) {
-  const scale = 1 + Math.floor((level - 1) / 5) * 0.1; // +10% target every 5 levels
+  const scale = 1 + Math.floor((level - 1) / 5) * 0.1;
   const s = (n: number) => Math.round(n * scale);
   return [
     { key: 'pushups', label: 'PUSH-UPS', target: s(100), unit: 'reps' },
@@ -26,30 +24,7 @@ export function defaultDailyTemplate(level: number) {
 }
 
 export function todayISO(): string {
-  const d = new Date();
-  return d.toISOString().slice(0, 10);
-}
-
-export function ensureDailyQuests(userId: number, level: number): Quest[] {
-  const db = getDb();
-  const date = todayISO();
-  const existing = db
-    .prepare('SELECT * FROM daily_quests WHERE user_id = ? AND quest_date = ?')
-    .all(userId, date) as any[];
-  if (existing.length > 0) return existing.map(rowToQuest);
-  const tmpl = defaultDailyTemplate(level);
-  const insert = db.prepare(
-    'INSERT INTO daily_quests (user_id, quest_date, quest_key, label, target, progress, unit) VALUES (?,?,?,?,?,0,?)'
-  );
-  const txn = db.transaction(() => {
-    for (const q of tmpl) insert.run(userId, date, q.key, q.label, q.target, q.unit);
-  });
-  txn();
-  return (
-    db
-      .prepare('SELECT * FROM daily_quests WHERE user_id = ? AND quest_date = ?')
-      .all(userId, date) as any[]
-  ).map(rowToQuest);
+  return new Date().toISOString().slice(0, 10);
 }
 
 function rowToQuest(r: any): Quest {
@@ -64,6 +39,35 @@ function rowToQuest(r: any): Quest {
   };
 }
 
+export async function ensureDailyQuests(userId: string, level: number): Promise<Quest[]> {
+  const sb = getAdminSupabase();
+  const date = todayISO();
+  const { data: existing } = await sb
+    .from('daily_quests')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('quest_date', date);
+  if (existing && existing.length > 0) return existing.map(rowToQuest);
+
+  const tmpl = defaultDailyTemplate(level);
+  await sb.from('daily_quests').insert(
+    tmpl.map((q) => ({
+      user_id: userId,
+      quest_date: date,
+      quest_key: q.key,
+      label: q.label,
+      target: q.target,
+      unit: q.unit,
+    }))
+  );
+  const { data } = await sb
+    .from('daily_quests')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('quest_date', date);
+  return (data || []).map(rowToQuest);
+}
+
 export type QuestProgressResult = {
   quest: Quest;
   allComplete: boolean;
@@ -71,64 +75,86 @@ export type QuestProgressResult = {
   rewards: string[];
 };
 
-export function logQuestProgress(userId: number, questKey: string, amount: number): QuestProgressResult {
-  const db = getDb();
+export async function logQuestProgress(
+  userId: string,
+  questKey: string,
+  amount: number
+): Promise<QuestProgressResult> {
+  const sb = getAdminSupabase();
   const date = todayISO();
-  const row = db
-    .prepare('SELECT * FROM daily_quests WHERE user_id = ? AND quest_date = ? AND quest_key = ?')
-    .get(userId, date, questKey) as any;
+  const { data: row } = await sb
+    .from('daily_quests')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('quest_date', date)
+    .eq('quest_key', questKey)
+    .single();
   if (!row) throw new Error('Quest not found for today.');
-  if (row.completed) return { quest: rowToQuest(row), allComplete: false, xpGained: 0, rewards: [] };
+  if (row.completed) {
+    return { quest: rowToQuest(row), allComplete: false, xpGained: 0, rewards: [] };
+  }
 
   const newProgress = Math.min(row.target, row.progress + amount);
   const completed = newProgress >= row.target;
-  db.prepare('UPDATE daily_quests SET progress = ?, completed = ? WHERE id = ?').run(
-    newProgress,
-    completed ? 1 : 0,
-    row.id
-  );
+  await sb
+    .from('daily_quests')
+    .update({ progress: newProgress, completed })
+    .eq('id', row.id);
 
   const rewards: string[] = [];
   let xpGained = 0;
   if (completed) {
     xpGained = 30;
-    awardXp(userId, xpGained, `Completed quest: ${row.label}`);
+    await awardXp(userId, xpGained, `Completed quest: ${row.label}`);
     rewards.push(`+${xpGained} XP`);
   }
 
-  // Check if ALL daily quests are done.
-  const remaining = db
-    .prepare(
-      'SELECT COUNT(*) AS c FROM daily_quests WHERE user_id = ? AND quest_date = ? AND completed = 0'
-    )
-    .get(userId, date) as any;
-  const allComplete = remaining.c === 0;
+  const { count: remaining } = await sb
+    .from('daily_quests')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('quest_date', date)
+    .eq('completed', false);
+  const allComplete = (remaining || 0) === 0;
 
   if (allComplete) {
-    const streak = bumpStreak(userId, date);
+    const streak = await bumpStreak(userId, date);
     const streakBonus = Math.min(100, streak * 5);
     const dailyBonus = 120 + streakBonus;
-    awardXp(userId, dailyBonus, `All daily quests cleared (streak ${streak})`);
+    await awardXp(userId, dailyBonus, `All daily quests cleared (streak ${streak})`);
     xpGained += dailyBonus;
     rewards.push(`+${dailyBonus} XP (daily clear, streak ${streak})`);
-    // Grant a mystery loot box style power-up
-    db.prepare(
-      `INSERT INTO power_ups (user_id, power_up_key, quantity) VALUES (?, 'essence_stone', 1)
-       ON CONFLICT(user_id, power_up_key) DO UPDATE SET quantity = quantity + 1`
-    ).run(userId);
-    rewards.push('+1 Essence Stone');
-    db.prepare(
-      'INSERT INTO notifications (user_id, kind, title, body, created_at) VALUES (?,?,?,?,?)'
-    ).run(
-      userId,
-      'daily_clear',
-      `[ DAILY QUEST CLEARED ]`,
-      `All targets met. Streak: ${streak} day(s). Rewards delivered.`,
-      Date.now()
+
+    // Upsert Essence Stone reward.
+    const { data: existing } = await sb
+      .from('power_ups')
+      .select('quantity')
+      .eq('user_id', userId)
+      .eq('power_up_key', 'essence_stone')
+      .maybeSingle();
+    await sb.from('power_ups').upsert(
+      {
+        user_id: userId,
+        power_up_key: 'essence_stone',
+        quantity: (existing?.quantity || 0) + 1,
+      },
+      { onConflict: 'user_id,power_up_key' }
     );
+    rewards.push('+1 Essence Stone');
+
+    await sb.from('notifications').insert({
+      user_id: userId,
+      kind: 'daily_clear',
+      title: '[ DAILY QUEST CLEARED ]',
+      body: `All targets met. Streak: ${streak} day(s). Rewards delivered.`,
+    });
   }
 
-  checkAchievements(userId);
-  const updated = db.prepare('SELECT * FROM daily_quests WHERE id = ?').get(row.id) as any;
+  await checkAchievements(userId);
+  const { data: updated } = await sb
+    .from('daily_quests')
+    .select('*')
+    .eq('id', row.id)
+    .single();
   return { quest: rowToQuest(updated), allComplete, xpGained, rewards };
 }

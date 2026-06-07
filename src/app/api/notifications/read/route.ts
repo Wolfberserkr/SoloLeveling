@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireUser } from '@/lib/auth';
-import { getDb } from '@/lib/db';
+import { requireHunter } from '@/lib/auth';
+import { getAdminSupabase } from '@/lib/supabase/admin';
 
 export async function POST(req: NextRequest) {
   try {
-    const user = requireUser();
+    const user = await requireHunter();
     const { id } = await req.json();
-    const db = getDb();
+    const sb = getAdminSupabase();
     if (id) {
-      db.prepare('UPDATE notifications SET read = 1 WHERE id = ? AND user_id = ?').run(id, user.id);
+      await sb.from('notifications').update({ read: true }).eq('id', id).eq('user_id', user.id);
     } else {
-      db.prepare('UPDATE notifications SET read = 1 WHERE user_id = ?').run(user.id);
+      await sb.from('notifications').update({ read: true }).eq('user_id', user.id);
     }
     return NextResponse.json({ ok: true });
   } catch (e: any) {

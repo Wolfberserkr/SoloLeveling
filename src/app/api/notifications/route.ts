@@ -1,17 +1,18 @@
 import { NextResponse } from 'next/server';
-import { requireUser } from '@/lib/auth';
-import { getDb } from '@/lib/db';
+import { requireHunter } from '@/lib/auth';
+import { getAdminSupabase } from '@/lib/supabase/admin';
 
 export async function GET() {
   try {
-    const user = requireUser();
-    const db = getDb();
-    const rows = db
-      .prepare(
-        'SELECT id, kind, title, body, created_at, read FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 30'
-      )
-      .all(user.id);
-    return NextResponse.json({ notifications: rows });
+    const user = await requireHunter();
+    const sb = getAdminSupabase();
+    const { data } = await sb
+      .from('notifications')
+      .select('id, kind, title, body, created_at, read')
+      .eq('user_id', user.id)
+      .order('id', { ascending: false })
+      .limit(30);
+    return NextResponse.json({ notifications: data || [] });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 401 });
   }

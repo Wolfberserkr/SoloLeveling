@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentHunter } from '@/lib/auth';
 import { getStats } from '@/lib/leveling';
 import { AppShell } from '@/components/AppShell';
 import { SystemWindow } from '@/components/SystemWindow';
@@ -8,11 +8,11 @@ import { InventoryActions } from './InventoryActions';
 
 export const dynamic = 'force-dynamic';
 
-export default function InventoryPage() {
-  const user = getCurrentUser();
+export default async function InventoryPage() {
+  const user = await getCurrentHunter();
   if (!user) redirect('/login');
-  const stats = getStats(user.id);
-  const inv = inventory(user.id);
+  const stats = await getStats(user.id);
+  const inv = await inventory(user.id);
   const owned: Record<string, number> = {};
   inv.forEach((i) => { owned[i.def.key] = i.quantity; });
 

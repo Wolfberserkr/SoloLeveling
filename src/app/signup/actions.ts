@@ -1,7 +1,6 @@
 'use server';
 import { redirect } from 'next/navigation';
-import { createUser, createSession } from '@/lib/auth';
-import { unlock } from '@/lib/achievements';
+import { signUp, signIn } from '@/lib/auth';
 
 export async function signupAction(formData: FormData) {
   const email = String(formData.get('email') || '').trim();
@@ -11,9 +10,10 @@ export async function signupAction(formData: FormData) {
     redirect('/signup?error=' + encodeURIComponent('Provide a name, email, and 8+ char password.'));
   }
   try {
-    const user = await createUser(email, hunterName, password);
-    createSession(user.id);
-    unlock(user.id, 'awakening');
+    await signUp(email, hunterName, password);
+    // Sign in immediately so the session cookie is set (skips email verification gate
+    // if your Supabase project requires confirmation — adjust in Auth > Settings).
+    try { await signIn(email, password); } catch {}
   } catch (e: any) {
     redirect('/signup?error=' + encodeURIComponent(e.message || 'Sign-up failed.'));
   }

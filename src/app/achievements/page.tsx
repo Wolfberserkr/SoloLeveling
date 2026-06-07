@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentHunter } from '@/lib/auth';
 import { getStats } from '@/lib/leveling';
 import { AppShell } from '@/components/AppShell';
 import { SystemWindow } from '@/components/SystemWindow';
@@ -7,11 +7,11 @@ import { ACHIEVEMENTS, getUnlocked } from '@/lib/achievements';
 
 export const dynamic = 'force-dynamic';
 
-export default function AchievementsPage() {
-  const user = getCurrentUser();
+export default async function AchievementsPage() {
+  const user = await getCurrentHunter();
   if (!user) redirect('/login');
-  const stats = getStats(user.id);
-  const unlocked = new Map(getUnlocked(user.id).map((u) => [u.key, u.unlocked_at]));
+  const stats = await getStats(user.id);
+  const unlocked = new Map((await getUnlocked(user.id)).map((u) => [u.key, u.unlocked_at]));
 
   return (
     <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level}>

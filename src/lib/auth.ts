@@ -1,87 +1,57 @@
-import bcrypt from 'bcryptjs';
-import crypto from 'node:crypto';
-import { cookies } from 'next/headers';
-import { getDb } from './db';
+import { getServerSupabase } from './supabase/server';
+import { getAdminSupabase } from './supabase/admin';
 
-const COOKIE_NAME = 'sl_session';
-const SESSION_DAYS = 30;
-
-export type User = {
-  id: number;
+export type Hunter = {
+  id: string;
   email: string;
   hunter_name: string;
-  created_at: number;
 };
 
-export async function createUser(email: string, hunterName: string, password: string): Promise<User> {
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email.toLowerCase());
-  if (existing) throw new Error('A Hunter with that email already exists.');
-  const hash = await bcrypt.hash(password, 10);
-  const now = Date.now();
-  const info = db
-    .prepare('INSERT INTO users (email, hunter_name, password_hash, created_at) VALUES (?,?,?,?)')
-    .run(email.toLowerCase(), hunterName, hash, now);
-  const userId = info.lastInsertRowid as number;
-  // Initialise Hunter stats: starts at Rank E, level 1.
-  db.prepare(
-    'INSERT INTO hunter_stats (user_id, level, xp, rank, str, agi, vit, int_, per, stat_points) VALUES (?, 1, 0, ?, 10, 10, 10, 10, 10, 0)'
-  ).run(userId, 'E');
-  return { id: userId, email: email.toLowerCase(), hunter_name: hunterName, created_at: now };
-}
-
-export async function verifyLogin(email: string, password: string): Promise<User> {
-  const db = getDb();
-  const row = db
-    .prepare('SELECT id, email, hunter_name, password_hash, created_at FROM users WHERE email = ?')
-    .get(email.toLowerCase()) as any;
-  if (!row) throw new Error('Invalid credentials');
-  const ok = await bcrypt.compare(password, row.password_hash);
-  if (!ok) throw new Error('Invalid credentials');
-  return { id: row.id, email: row.email, hunter_name: row.hunter_name, created_at: row.created_at };
-}
-
-export function createSession(userId: number) {
-  const db = getDb();
-  const token = crypto.randomBytes(32).toString('hex');
-  const expires = Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000;
-  db.prepare('INSERT INTO sessions (token, user_id, expires_at) VALUES (?,?,?)').run(token, userId, expires);
-  cookies().set(COOKIE_NAME, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    expires: new Date(expires),
-    path: '/',
+export async function signUp(email: string, hunterName: string, password: string) {
+  const supabase = getServerSupabase();
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { hunter_name: hunterName } },
   });
+  if (error) throw new Error(error.message);
+  // The DB trigger creates profile + hunter_stats + awakening achievement.
+  return data.user;
 }
 
-export function destroySession() {
-  const db = getDb();
-  const token = cookies().get(COOKIE_NAME)?.value;
-  if (token) db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
-  cookies().delete(COOKIE_NAME);
+export async function signIn(email: string, password: string) {
+  const supabase = getServerSupabase();
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw new Error('Invalid credentials');
+  return data.user;
 }
 
-export function getCurrentUser(): User | null {
-  const token = cookies().get(COOKIE_NAME)?.value;
-  if (!token) return null;
-  const db = getDb();
-  const row = db
-    .prepare(
-      `SELECT u.id, u.email, u.hunter_name, u.created_at, s.expires_at
-       FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`
-    )
-    .get(token) as any;
-  if (!row) return null;
-  if (row.expires_at < Date.now()) {
-    db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
-    return null;
-  }
-  return { id: row.id, email: row.email, hunter_name: row.hunter_name, created_at: row.created_at };
+export async function signOut() {
+  const supabase = getServerSupabase();
+  await supabase.auth.signOut();
 }
 
-export function requireUser(): User {
-  const u = getCurrentUser();
-  if (!u) throw new Error('UNAUTHORIZED');
-  return u;
+export async function getCurrentHunter(): Promise<Hunter | null> {
+  const supabase = getServerSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  // Prefer the profiles table for hunter_name; fall back to user_metadata.
+  const admin = getAdminSupabase();
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('hunter_name')
+    .eq('id', user.id)
+    .maybeSingle();
+  const hunter_name =
+    profile?.hunter_name ||
+    (user.user_metadata?.hunter_name as string) ||
+    user.email?.split('@')[0] ||
+    'Hunter';
+  return { id: user.id, email: user.email || '', hunter_name };
+}
+
+export async function requireHunter(): Promise<Hunter> {
+  const h = await getCurrentHunter();
+  if (!h) throw new Error('UNAUTHORIZED');
+  return h;
 }

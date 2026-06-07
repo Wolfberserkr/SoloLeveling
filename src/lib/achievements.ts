@@ -1,4 +1,4 @@
-import { getDb } from './db';
+import { getAdminSupabase } from './supabase/admin';
 
 export type AchievementDef = {
   key: string;
@@ -34,75 +34,96 @@ export function getDef(key: string) {
   return ACHIEVEMENTS.find((a) => a.key === key);
 }
 
-export function unlock(userId: number, key: string): boolean {
+export async function unlock(userId: string, key: string): Promise<boolean> {
   const def = getDef(key);
   if (!def) return false;
-  const db = getDb();
-  const existing = db
-    .prepare('SELECT 1 FROM achievements WHERE user_id = ? AND achievement_key = ?')
-    .get(userId, key);
+  const sb = getAdminSupabase();
+  const { data: existing } = await sb
+    .from('achievements')
+    .select('achievement_key')
+    .eq('user_id', userId)
+    .eq('achievement_key', key)
+    .maybeSingle();
   if (existing) return false;
-  db.prepare('INSERT INTO achievements (user_id, achievement_key, unlocked_at) VALUES (?,?,?)').run(
-    userId,
-    key,
-    Date.now()
-  );
-  db.prepare(
-    'INSERT INTO notifications (user_id, kind, title, body, created_at) VALUES (?,?,?,?,?)'
-  ).run(
-    userId,
-    'achievement',
-    `[ ACHIEVEMENT UNLOCKED ]  ${def.title}`,
-    def.description,
-    Date.now()
-  );
+  await sb.from('achievements').insert({ user_id: userId, achievement_key: key });
+  await sb.from('notifications').insert({
+    user_id: userId,
+    kind: 'achievement',
+    title: `[ ACHIEVEMENT UNLOCKED ]  ${def.title}`,
+    body: def.description,
+  });
   return true;
 }
 
-export function getUnlocked(userId: number): { key: string; unlocked_at: number }[] {
-  const db = getDb();
-  return db
-    .prepare('SELECT achievement_key as key, unlocked_at FROM achievements WHERE user_id = ?')
-    .all(userId) as any[];
+export async function getUnlocked(userId: string): Promise<{ key: string; unlocked_at: string }[]> {
+  const sb = getAdminSupabase();
+  const { data } = await sb
+    .from('achievements')
+    .select('achievement_key, unlocked_at')
+    .eq('user_id', userId);
+  return (data || []).map((r: any) => ({ key: r.achievement_key, unlocked_at: r.unlocked_at }));
 }
 
-// Re-runs all auto-unlocks based on current state. Cheap to call.
-export function checkAchievements(userId: number) {
-  const db = getDb();
-  const stats = db.prepare('SELECT * FROM hunter_stats WHERE user_id = ?').get(userId) as any;
-  if (stats.level >= 10) unlock(userId, 'level_10');
-  if (stats.level >= 25) unlock(userId, 'level_25');
-  if (stats.level >= 45) unlock(userId, 'level_45');
-  if (stats.level >= 70) unlock(userId, 'level_70');
-  if (stats.level >= 100) unlock(userId, 'level_100');
-  if (stats.streak >= 7) unlock(userId, 'streak_7');
-  if (stats.streak >= 30) unlock(userId, 'streak_30');
-  if (stats.streak >= 100) unlock(userId, 'streak_100');
+export async function checkAchievements(userId: string) {
+  const sb = getAdminSupabase();
+  const { data: stats } = await sb
+    .from('hunter_stats')
+    .select('level, streak')
+    .eq('user_id', userId)
+    .single();
+  if (!stats) return;
 
-  const totalSessions = db
-    .prepare(
-      `SELECT COUNT(DISTINCT session_date) AS c FROM workout_logs WHERE user_id = ?`
-    )
-    .get(userId) as any;
-  if (totalSessions.c >= 1) unlock(userId, 'first_workout');
-  if (totalSessions.c >= 50) unlock(userId, 'sessions_50');
+  if (stats.level >= 10) await unlock(userId, 'level_10');
+  if (stats.level >= 25) await unlock(userId, 'level_25');
+  if (stats.level >= 45) await unlock(userId, 'level_45');
+  if (stats.level >= 70) await unlock(userId, 'level_70');
+  if (stats.level >= 100) await unlock(userId, 'level_100');
+  if (stats.streak >= 7) await unlock(userId, 'streak_7');
+  if (stats.streak >= 30) await unlock(userId, 'streak_30');
+  if (stats.streak >= 100) await unlock(userId, 'streak_100');
 
-  const volume = db
-    .prepare(
-      `SELECT COALESCE(SUM(weight * reps), 0) AS v FROM workout_logs WHERE user_id = ? AND weight IS NOT NULL AND reps IS NOT NULL`
-    )
-    .get(userId) as any;
-  if (volume.v >= 10000) unlock(userId, 'volume_10k');
+  const { data: sessions } = await sb
+    .from('workout_logs')
+    .select('session_date')
+    .eq('user_id', userId);
+  const sessionDates = new Set((sessions || []).map((r: any) => r.session_date));
+  if (sessionDates.size >= 1) await unlock(userId, 'first_workout');
+  if (sessionDates.size >= 50) await unlock(userId, 'sessions_50');
 
-  const completedQuests = db
-    .prepare('SELECT COUNT(*) AS c FROM daily_quests WHERE user_id = ? AND completed = 1')
-    .get(userId) as any;
-  if (completedQuests.c >= 1) unlock(userId, 'first_quest');
+  const { data: volRows } = await sb
+    .from('workout_logs')
+    .select('weight, reps')
+    .eq('user_id', userId)
+    .not('weight', 'is', null)
+    .not('reps', 'is', null);
+  const volume = (volRows || []).reduce(
+    (acc: number, r: any) => acc + Number(r.weight) * Number(r.reps),
+    0
+  );
+  if (volume >= 10000) await unlock(userId, 'volume_10k');
 
-  const fullClears = db
-    .prepare(
-      `SELECT quest_date, COUNT(*) total, SUM(completed) done FROM daily_quests WHERE user_id = ? GROUP BY quest_date HAVING done = total`
-    )
-    .all(userId) as any[];
-  if (fullClears.length >= 1) unlock(userId, 'first_daily_clear');
+  const { count: completedQuestsCount } = await sb
+    .from('daily_quests')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('completed', true);
+  if ((completedQuestsCount || 0) >= 1) await unlock(userId, 'first_quest');
+
+  const { data: dq } = await sb
+    .from('daily_quests')
+    .select('quest_date, completed')
+    .eq('user_id', userId);
+  const byDay = new Map<string, { t: number; d: number }>();
+  for (const r of dq || []) {
+    const cur = byDay.get(r.quest_date) || { t: 0, d: 0 };
+    cur.t += 1;
+    if (r.completed) cur.d += 1;
+    byDay.set(r.quest_date, cur);
+  }
+  for (const v of byDay.values()) {
+    if (v.d === v.t) {
+      await unlock(userId, 'first_daily_clear');
+      break;
+    }
+  }
 }

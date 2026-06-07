@@ -1,23 +1,27 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentHunter } from '@/lib/auth';
 import { getStats } from '@/lib/leveling';
 import { AppShell } from '@/components/AppShell';
 import { SystemWindow } from '@/components/SystemWindow';
 import { PROGRAM, isDeloadWeek, weekNumberSince, DELOAD_EVERY_WEEKS } from '@/lib/program';
-import { getDb } from '@/lib/db';
+import { getAdminSupabase } from '@/lib/supabase/admin';
 
 export const dynamic = 'force-dynamic';
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-export default function WorkoutHub() {
-  const user = getCurrentUser();
+export default async function WorkoutHub() {
+  const user = await getCurrentHunter();
   if (!user) redirect('/login');
-  const stats = getStats(user.id);
-  const db = getDb();
-  const acct = db.prepare('SELECT created_at FROM users WHERE id = ?').get(user.id) as any;
-  const startDate = new Date(acct.created_at);
+  const stats = await getStats(user.id);
+  const sb = getAdminSupabase();
+  const { data: profile } = await sb
+    .from('profiles')
+    .select('created_at')
+    .eq('id', user.id)
+    .single();
+  const startDate = profile?.created_at ? new Date(profile.created_at) : new Date();
   const weekNo = weekNumberSince(startDate);
   const deload = isDeloadWeek(weekNo);
 
@@ -40,7 +44,14 @@ export default function WorkoutHub() {
         </SystemWindow>
       )}
 
-      <SystemWindow title="WEEKLY GATE SCHEDULE" right={<span className="text-[10px] font-mono text-accent-cyan/70">WEEK {weekNo} · DELOAD EVERY {DELOAD_EVERY_WEEKS}W</span>}>
+      <SystemWindow
+        title="WEEKLY GATE SCHEDULE"
+        right={
+          <span className="text-[10px] font-mono text-accent-cyan/70">
+            WEEK {weekNo} · DELOAD EVERY {DELOAD_EVERY_WEEKS}W
+          </span>
+        }
+      >
         <div className="grid grid-cols-7 gap-1 md:gap-2">
           {DAY_NAMES.map((name, i) => {
             const session = PROGRAM.find((s) => s.day === i);
