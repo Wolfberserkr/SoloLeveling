@@ -49,6 +49,10 @@ export function NoticeStack() {
             ? 'purple'
             : n.kind === 'meditate'
             ? 'cyan'
+            : n.kind === 'shadow'
+            ? 'purple'
+            : n.kind === 'gate'
+            ? 'red'
             : 'cyan';
         return (
           <div

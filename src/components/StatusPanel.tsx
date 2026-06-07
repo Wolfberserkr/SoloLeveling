@@ -26,7 +26,17 @@ const STAT_LABELS: Array<{ key: keyof Stats; label: string; tip: string }> = [
   { key: 'per', label: 'PER', tip: 'Perception — mind-muscle connection, focus.' },
 ];
 
-export function StatusPanel({ hunterName, stats: initial }: { hunterName: string; stats: Stats }) {
+export function StatusPanel({
+  hunterName,
+  stats: initial,
+  armyPower = 0,
+  armyCount = 0,
+}: {
+  hunterName: string;
+  stats: Stats;
+  armyPower?: number;
+  armyCount?: number;
+}) {
   const [stats, setStats] = useState(initial);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -94,6 +104,14 @@ export function StatusPanel({ hunterName, stats: initial }: { hunterName: string
               <div className="text-[10px] tracking-widest text-accent-cyan/70">STREAK</div>
               <div className="text-accent-gold mt-0.5">{stats.streak}d</div>
             </div>
+          </div>
+
+          <div className="mt-3 flex items-baseline gap-3 text-sm font-mono">
+            <span className="text-[10px] tracking-widest text-accent-purple">SHADOW ARMY</span>
+            <span className="text-accent-purple glow-text">{armyCount}</span>
+            <span className="text-[10px] text-accent-cyan/60">·</span>
+            <span className="text-[10px] tracking-widest text-accent-gold">POWER</span>
+            <span className="text-accent-gold glow-text">{armyPower.toLocaleString()}</span>
           </div>
         </div>
 

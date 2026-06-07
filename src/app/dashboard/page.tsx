@@ -7,6 +7,7 @@ import { SystemWindow } from '@/components/SystemWindow';
 import { ensureDailyQuests } from '@/lib/quests';
 import { getUnlocked, titleFor } from '@/lib/achievements';
 import { inventory } from '@/lib/powerups';
+import { listArmy, totalArmyPower } from '@/lib/shadows';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -21,10 +22,17 @@ export default async function Dashboard() {
   const completedCount = quests.filter((q) => q.completed).length;
   const ach = await getUnlocked(user.id);
   const inv = await inventory(user.id);
+  const army = await listArmy(user.id);
+  const armyPower = totalArmyPower(army);
 
   return (
     <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>
-      <StatusPanel hunterName={user.hunter_name} stats={stats} />
+      <StatusPanel
+        hunterName={user.hunter_name}
+        stats={stats}
+        armyPower={armyPower}
+        armyCount={army.length}
+      />
 
       <div className="grid md:grid-cols-2 gap-6">
         <SystemWindow
