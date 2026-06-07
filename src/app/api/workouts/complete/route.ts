@@ -6,6 +6,7 @@ import { activeBuffs, grant } from '@/lib/powerups';
 import { checkAchievements, unlock } from '@/lib/achievements';
 import { maybeExtractShadow } from '@/lib/shadows';
 import { MAIN_LIFTS } from '@/lib/program';
+import { progressActiveGate } from '@/lib/gates';
 
 export async function POST(req: NextRequest) {
   try {
@@ -72,6 +73,23 @@ export async function POST(req: NextRequest) {
       deload: !!deload,
       prCount,
     });
+
+    // Mirror session volume into any active 'workout_volume' Gate.
+    const { data: volRows } = await sb
+      .from('workout_logs')
+      .select('weight, reps')
+      .eq('user_id', user.id)
+      .eq('session_date', date)
+      .eq('session_key', session_key)
+      .not('weight', 'is', null)
+      .not('reps', 'is', null);
+    const sessionVolume = (volRows || []).reduce(
+      (acc: number, r: any) => acc + Number(r.weight) * Number(r.reps),
+      0
+    );
+    if (sessionVolume > 0) {
+      await progressActiveGate(user.id, 'workout_volume', Math.round(sessionVolume));
+    }
 
     return NextResponse.json({ ok: true, ...result, shadow });
   } catch (e: any) {

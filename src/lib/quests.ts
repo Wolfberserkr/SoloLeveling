@@ -1,6 +1,7 @@
 import { getAdminSupabase } from './supabase/admin';
 import { awardXp, bumpStreak } from './leveling';
 import { checkAchievements } from './achievements';
+import { progressActiveGate } from './gates';
 
 export type Quest = {
   id: number;
@@ -154,6 +155,13 @@ export async function logQuestProgress(
   }
 
   await checkAchievements(userId);
+
+  // Mirror the increment into any active Gate whose `mirrors` matches this quest_key.
+  const gateResult = await progressActiveGate(userId, questKey, amount);
+  if (gateResult.cleared) {
+    rewards.push(`Gate cleared: ${gateResult.gate?.label || 'Unknown Gate'}`);
+  }
+
   const { data: updated } = await sb
     .from('daily_quests')
     .select('*')

@@ -8,6 +8,8 @@ import { ensureDailyQuests } from '@/lib/quests';
 import { getUnlocked, titleFor } from '@/lib/achievements';
 import { inventory } from '@/lib/powerups';
 import { listArmy, totalArmyPower } from '@/lib/shadows';
+import { activeGate } from '@/lib/gates';
+import { GateBanner } from '@/components/GateBanner';
 import Link from 'next/link';
 
 export const dynamic = 'force-dynamic';
@@ -24,9 +26,12 @@ export default async function Dashboard() {
   const inv = await inventory(user.id);
   const army = await listArmy(user.id);
   const armyPower = totalArmyPower(army);
+  const gate = await activeGate(user.id);
 
   return (
     <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>
+      <GateBanner initial={gate} />
+
       <StatusPanel
         hunterName={user.hunter_name}
         stats={stats}

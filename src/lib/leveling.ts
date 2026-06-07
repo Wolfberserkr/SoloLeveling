@@ -170,11 +170,14 @@ function yesterdayISO(): string {
   return new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 }
 
-// Lazy daily-cron run on page load. Idempotent — only fires once per day per user.
-// Order: penalty (or shield) first, meditation second.
+// Lazy daily-cron run on page load. Idempotent — each step fires at most
+// once per day per user. Order: penalty/shield → meditation → gate spawn.
 export async function processDailyEvents(userId: string) {
   await processDailyPenaltyIfNeeded(userId);
   await processMeditationIfNeeded(userId);
+  // Lazy import to avoid circular dep (gates.ts imports awardXp from here).
+  const { maybeSpawnGate } = await import('./gates');
+  await maybeSpawnGate(userId);
 }
 
 async function processDailyPenaltyIfNeeded(userId: string) {
