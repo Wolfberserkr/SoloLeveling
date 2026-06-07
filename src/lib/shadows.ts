@@ -6,7 +6,7 @@
 
 import { getAdminSupabase } from './supabase/admin';
 import { unlock } from './achievements';
-import { getUserTz, todayInTz } from './time';
+import { getUserTz, todayInTz, dateInTz } from './time';
 
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
 
@@ -74,7 +74,7 @@ export async function maybeExtractShadow(
     .limit(1)
     .maybeSingle();
   const sameDay =
-    alreadyExtracted && todayInTz(tz, new Date(alreadyExtracted.extracted_at)) === today;
+    alreadyExtracted && dateInTz(tz, new Date(alreadyExtracted.extracted_at)) === today;
   if (sameDay) return null;
 
   // Roll chance: base 25%, +25% deload, +15% per PR (cap at 90%).
