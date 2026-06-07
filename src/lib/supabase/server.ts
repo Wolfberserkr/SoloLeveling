@@ -1,5 +1,7 @@
-import { createServerClient } from '@supabase/ssr';
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+
+type CookieToSet = { name: string; value: string; options: CookieOptions };
 
 // User-scoped Supabase client. Reads/writes go through RLS as the signed-in user.
 export function getServerSupabase() {
@@ -10,7 +12,7 @@ export function getServerSupabase() {
     {
       cookies: {
         getAll: () => cookieStore.getAll(),
-        setAll: (toSet) => {
+        setAll: (toSet: CookieToSet[]) => {
           try {
             toSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)
