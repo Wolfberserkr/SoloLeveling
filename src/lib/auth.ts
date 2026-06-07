@@ -8,8 +8,7 @@ export type Hunter = {
 };
 
 export async function signUp(email: string, hunterName: string, password: string) {
-  // Use the admin API so we skip GoTrue's email-confirmation redirect flow entirely.
-  // The user is created with email_confirm: true so they can sign in immediately.
+  // Admin API skips the email-confirmation redirect flow; user can sign in immediately.
   const admin = getAdminSupabase();
   const { data, error } = await admin.auth.admin.createUser({
     email,
@@ -17,15 +16,7 @@ export async function signUp(email: string, hunterName: string, password: string
     email_confirm: true,
     user_metadata: { hunter_name: hunterName },
   });
-  if (error) {
-    console.error('[signUp] admin.createUser error:', {
-      message: error.message,
-      status: (error as any).status,
-      code: (error as any).code,
-      name: error.name,
-    });
-    throw new Error(error.message);
-  }
+  if (error) throw new Error(error.message);
   return data.user;
 }
 
