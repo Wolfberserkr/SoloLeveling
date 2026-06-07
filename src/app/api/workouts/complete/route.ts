@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
     const result = await awardXp(user.id, xp, `Cleared dungeon: ${session_key}`);
     await checkAchievements(user.id);
-    return NextResponse.json({ ok: true, xpGained: xp, ...result });
+    return NextResponse.json({ ok: true, ...result });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 401 });
   }
