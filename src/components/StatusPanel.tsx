@@ -15,6 +15,7 @@ type Stats = {
   stat_points: number;
   streak: number;
   mana: number;
+  mana_max: number;
 };
 
 const STAT_LABELS: Array<{ key: keyof Stats; label: string; tip: string }> = [
@@ -77,13 +78,21 @@ export function StatusPanel({ hunterName, stats: initial }: { hunterName: string
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-3 text-sm font-mono">
-            <div>
-              <span className="text-accent-cyan/70">MANA </span>
-              <span className="text-accent-cyan">{stats.mana}</span>
+            <div title="Spent on Mana Shield (30) to absorb a missed-day penalty. Rest days regen +10.">
+              <div className="flex justify-between text-[10px] tracking-widest text-accent-cyan/70">
+                <span>MANA</span>
+                <span>{stats.mana} / {stats.mana_max}</span>
+              </div>
+              <div className="h-1.5 bg-bg-base mt-0.5 border border-accent-cyan/20 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-accent-purple to-accent-cyan"
+                  style={{ width: `${Math.min(100, (stats.mana / stats.mana_max) * 100)}%` }}
+                />
+              </div>
             </div>
             <div>
-              <span className="text-accent-cyan/70">STREAK </span>
-              <span className="text-accent-gold">{stats.streak}d</span>
+              <div className="text-[10px] tracking-widest text-accent-cyan/70">STREAK</div>
+              <div className="text-accent-gold mt-0.5">{stats.streak}d</div>
             </div>
           </div>
         </div>

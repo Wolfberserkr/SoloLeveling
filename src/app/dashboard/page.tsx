@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getCurrentHunter } from '@/lib/auth';
-import { getStats } from '@/lib/leveling';
+import { getStats, processDailyEvents } from '@/lib/leveling';
 import { AppShell } from '@/components/AppShell';
 import { StatusPanel } from '@/components/StatusPanel';
 import { SystemWindow } from '@/components/SystemWindow';
@@ -14,6 +14,7 @@ export const dynamic = 'force-dynamic';
 export default async function Dashboard() {
   const user = await getCurrentHunter();
   if (!user) redirect('/login');
+  await processDailyEvents(user.id);
   const stats = await getStats(user.id);
   const quests = await ensureDailyQuests(user.id, stats.level);
   const cleared = quests.every((q) => q.completed);

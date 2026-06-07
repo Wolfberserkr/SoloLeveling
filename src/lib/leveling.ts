@@ -1,4 +1,9 @@
 import { getAdminSupabase } from './supabase/admin';
+import { PROGRAM } from './program';
+
+export const MAX_MANA = 150;
+export const SHIELD_COST = 30;
+export const MEDITATE_GAIN = 10;
 
 export type HunterStats = {
   level: number;
@@ -14,6 +19,7 @@ export type HunterStats = {
   streak: number;
   shadows_collected: number;
   mana: number;
+  mana_max: number;
   last_quest_date: string | null;
 };
 
@@ -55,6 +61,7 @@ export async function getStats(userId: string): Promise<HunterStats> {
     streak: data.streak,
     shadows_collected: data.shadows_collected,
     mana: data.mana,
+    mana_max: MAX_MANA,
     last_quest_date: data.last_quest_date,
   };
 }
@@ -156,9 +163,66 @@ export async function bumpStreak(userId: string, today: string): Promise<number>
   return newStreak;
 }
 
-export async function applyDailyPenalty(userId: string) {
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+function yesterdayISO(): string {
+  return new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+}
+
+// Lazy daily-cron run on page load. Idempotent — only fires once per day per user.
+// Order: penalty (or shield) first, meditation second.
+export async function processDailyEvents(userId: string) {
+  await processDailyPenaltyIfNeeded(userId);
+  await processMeditationIfNeeded(userId);
+}
+
+async function processDailyPenaltyIfNeeded(userId: string) {
   const sb = getAdminSupabase();
-  const stats = await getStats(userId);
+  const today = todayISO();
+  const yesterday = yesterdayISO();
+
+  const { data: stats } = await sb
+    .from('hunter_stats')
+    .select('mana, str, vit, last_penalty_check')
+    .eq('user_id', userId)
+    .single();
+  if (!stats || stats.last_penalty_check === today) return;
+
+  const { data: yQuests } = await sb
+    .from('daily_quests')
+    .select('completed')
+    .eq('user_id', userId)
+    .eq('quest_date', yesterday);
+
+  // Grace period: if no quests were generated yesterday (user never visited), no penalty.
+  if (!yQuests || yQuests.length === 0) {
+    await sb.from('hunter_stats').update({ last_penalty_check: today }).eq('user_id', userId);
+    return;
+  }
+
+  const allCleared = yQuests.every((q: any) => q.completed);
+  if (allCleared) {
+    await sb.from('hunter_stats').update({ last_penalty_check: today }).eq('user_id', userId);
+    return;
+  }
+
+  // Failed yesterday. Try Mana Shield first.
+  if (stats.mana >= SHIELD_COST) {
+    await sb
+      .from('hunter_stats')
+      .update({ mana: stats.mana - SHIELD_COST, last_penalty_check: today })
+      .eq('user_id', userId);
+    await sb.from('notifications').insert({
+      user_id: userId,
+      kind: 'shield',
+      title: '[ MANA SHIELD ]  PENALTY ABSORBED',
+      body: `Yesterday's failure consumed ${SHIELD_COST} mana. Streak preserved. STR & VIT intact.`,
+    });
+    return;
+  }
+
+  // No shield — full penalty.
   await sb
     .from('hunter_stats')
     .update({
@@ -166,12 +230,43 @@ export async function applyDailyPenalty(userId: string) {
       streak: 0,
       str: Math.max(1, stats.str - 1),
       vit: Math.max(1, stats.vit - 1),
+      last_penalty_check: today,
     })
     .eq('user_id', userId);
   await sb.from('notifications').insert({
     user_id: userId,
     kind: 'penalty',
     title: '[ PENALTY QUEST FAILED ]',
-    body: 'You did not complete the daily quest. STR -1, VIT -1, streak reset.',
+    body: `Yesterday's quest unfinished and mana too low to shield. STR -1, VIT -1, streak reset.`,
   });
+}
+
+async function processMeditationIfNeeded(userId: string) {
+  const today = todayISO();
+  const dayIdx = new Date().getDay();
+  const isRestDay = !PROGRAM.some((s) => s.day === dayIdx);
+  if (!isRestDay) return;
+
+  const sb = getAdminSupabase();
+  const { data: stats } = await sb
+    .from('hunter_stats')
+    .select('mana, last_meditate_date')
+    .eq('user_id', userId)
+    .single();
+  if (!stats || stats.last_meditate_date === today) return;
+
+  const newMana = Math.min(MAX_MANA, stats.mana + MEDITATE_GAIN);
+  await sb
+    .from('hunter_stats')
+    .update({ mana: newMana, last_meditate_date: today })
+    .eq('user_id', userId);
+
+  if (newMana > stats.mana) {
+    await sb.from('notifications').insert({
+      user_id: userId,
+      kind: 'meditate',
+      title: `[ MEDITATE ]  +${newMana - stats.mana} MANA`,
+      body: `Rest-day regeneration. Mana ${stats.mana} → ${newMana} / ${MAX_MANA}.`,
+    });
+  }
 }
