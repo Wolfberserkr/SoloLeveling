@@ -57,16 +57,22 @@ export default async function WorkoutHub() {
           {DAY_NAMES.map((name, i) => {
             const session = PROGRAM.find((s) => s.day === i);
             const isToday = i === dayIdx;
+            // Three visual states: today-training (cyan glow, action),
+            // today-rest (soft gold, no-action), other (muted).
+            const tileCls = isToday
+              ? session
+                ? 'border-accent-cyan bg-accent-cyan/10 shadow-glow'
+                : 'border-accent-gold/50 bg-accent-gold/5 shadow-[0_0_14px_rgba(255,209,102,0.22)]'
+              : 'border-accent-cyan/20 bg-bg-base/40';
+            const dayLabelCls = isToday && !session
+              ? 'text-accent-gold/80'
+              : 'text-accent-cyan/70';
             return (
               <div
                 key={i}
-                className={`p-2 border rounded-sm text-center transition-all ${
-                  isToday
-                    ? 'border-accent-cyan bg-accent-cyan/10 shadow-glow'
-                    : 'border-accent-cyan/20 bg-bg-base/40'
-                }`}
+                className={`p-2 border rounded-sm text-center transition-all ${tileCls}`}
               >
-                <div className="text-[10px] font-mono tracking-widest text-accent-cyan/70">{name}</div>
+                <div className={`text-[10px] font-mono tracking-widest ${dayLabelCls}`}>{name}</div>
                 {session ? (
                   <Link
                     href={`/workout/${session.key}`}
@@ -74,6 +80,11 @@ export default async function WorkoutHub() {
                   >
                     {session.title.split('—')[0].trim().replace('GATE: ', '')}
                   </Link>
+                ) : isToday ? (
+                  <div className="mt-1 text-[10px] font-mono text-accent-gold/80 leading-tight">
+                    TODAY
+                    <span className="block text-[9px] text-accent-gold/60">REST</span>
+                  </div>
                 ) : (
                   <div className="mt-1 text-[10px] font-mono text-[#465e7a]">REST</div>
                 )}
