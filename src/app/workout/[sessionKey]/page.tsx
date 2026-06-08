@@ -50,7 +50,7 @@ export default async function SessionPage({ params }: { params: { sessionKey: st
   }
 
   return (
-    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>
+    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)} currentTz={user.timezone}>
       <SessionRunner
         session={session}
         date={today}

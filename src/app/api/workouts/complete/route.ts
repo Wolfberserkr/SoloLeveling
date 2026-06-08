@@ -7,6 +7,7 @@ import { checkAchievements, unlock } from '@/lib/achievements';
 import { maybeExtractShadow } from '@/lib/shadows';
 import { MAIN_LIFTS } from '@/lib/program';
 import { progressActiveGate } from '@/lib/gates';
+import { consumeWorkoutXpBuff, domainMultiplier } from '@/lib/skills';
 
 export async function POST(req: NextRequest) {
   try {
@@ -24,6 +25,10 @@ export async function POST(req: NextRequest) {
     let xp = 80 + count * 6;
     const buffs = await activeBuffs(user.id);
     if (buffs.some((b: any) => b.buff_key === 'xp_x1_5')) xp = Math.round(xp * 1.5);
+    const skillMult = await consumeWorkoutXpBuff(user.id);
+    if (skillMult > 1) xp = Math.round(xp * skillMult);
+    const domainMult = await domainMultiplier(user.id);
+    if (domainMult > 1) xp = Math.round(xp * domainMult);
     if (deload) {
       xp = Math.round(xp * 0.7);
       await grant(user.id, 'shadow_extraction', 1);

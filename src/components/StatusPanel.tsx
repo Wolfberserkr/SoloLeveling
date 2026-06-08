@@ -13,6 +13,7 @@ type Stats = {
   int_: number;
   per: number;
   stat_points: number;
+  skill_points?: number;
   streak: number;
   mana: number;
   mana_max: number;
@@ -118,8 +119,11 @@ export function StatusPanel({
         <div>
           <div className="flex justify-between items-baseline">
             <div className="text-[11px] font-mono tracking-[0.3em] text-accent-cyan/80">STATS</div>
-            <div className="text-[11px] font-mono text-accent-gold">
-              {stats.stat_points} unspent
+            <div className="text-[11px] font-mono flex gap-3">
+              <span className="text-accent-gold">{stats.stat_points} stat pt</span>
+              {(stats.skill_points || 0) > 0 && (
+                <span className="text-accent-purple">✦ {stats.skill_points} skill pt</span>
+              )}
             </div>
           </div>
 
@@ -135,7 +139,7 @@ export function StatusPanel({
                 </div>
                 <div className="w-8 text-right font-mono text-sm">{Number(stats[key])}</div>
                 <button
-                  className="sys-btn text-[10px] !py-1 !px-2"
+                  className="sys-btn text-[10px] !px-3"
                   disabled={stats.stat_points <= 0 || busy === key}
                   onClick={() => spend(key as string)}
                 >

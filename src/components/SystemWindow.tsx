@@ -21,7 +21,7 @@ export function SystemWindow({
     <div
       className={`sys-window sys-window-${variant} ${
         scan ? 'scan-overlay' : ''
-      } p-4 md:p-5 animate-fade-in ${className}`}
+      } p-3 md:p-5 animate-fade-in ${className}`}
     >
       {title && (
         <div className="flex items-center justify-between mb-3 gap-3">

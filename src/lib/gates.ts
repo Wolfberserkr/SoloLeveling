@@ -251,6 +251,22 @@ export async function progressActiveGate(
   return { cleared: true, gate: { ...gate, progress: newProgress, status: 'cleared' } };
 }
 
+// Used by the Time Skip skill — pushes the active gate's expires_at out by N
+// hours. No-op if there's no active gate.
+export async function extendActiveGate(
+  userId: string,
+  hours: number
+): Promise<{ ok: boolean; message: string; expiresAt?: string }> {
+  const sb = getAdminSupabase();
+  const gate = await activeGate(userId);
+  if (!gate) return { ok: false, message: 'No active gate to extend.' };
+  const newExpires = new Date(
+    new Date(gate.expires_at).getTime() + hours * 3600 * 1000
+  ).toISOString();
+  await sb.from('gates').update({ expires_at: newExpires }).eq('id', gate.id);
+  return { ok: true, message: `Gate extended by ${hours}h.`, expiresAt: newExpires };
+}
+
 async function applyReward(userId: string, extra: string) {
   // Format: 'item_key' or 'item_key:N'
   const [key, n] = extra.split(':');

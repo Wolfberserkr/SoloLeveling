@@ -1,8 +1,9 @@
 import { getAdminSupabase } from './supabase/admin';
 import { PROGRAM } from './program';
 import { getUserTz, todayInTz, yesterdayInTz, dayOfWeekInTz } from './time';
+import { hasPassive, maxManaFor, BASE_MAX_MANA } from './skills';
 
-export const MAX_MANA = 150;
+export const MAX_MANA = BASE_MAX_MANA;
 export const SHIELD_COST = 30;
 export const MEDITATE_GAIN = 10;
 
@@ -44,10 +45,13 @@ export function xpToNext(level: number): number {
   return Math.floor(80 * Math.pow(level, 1.35));
 }
 
-export async function getStats(userId: string): Promise<HunterStats> {
+export type HunterStatsWithSkills = HunterStats & { skill_points: number };
+
+export async function getStats(userId: string): Promise<HunterStatsWithSkills> {
   const sb = getAdminSupabase();
   const { data, error } = await sb.from('hunter_stats').select('*').eq('user_id', userId).single();
   if (error || !data) throw new Error(error?.message || 'Stats not found');
+  const manaMax = await maxManaFor(userId);
   return {
     level: data.level,
     xp: data.xp,
@@ -59,10 +63,11 @@ export async function getStats(userId: string): Promise<HunterStats> {
     int_: data.int_,
     per: data.per,
     stat_points: data.stat_points,
+    skill_points: data.skill_points || 0,
     streak: data.streak,
     shadows_collected: data.shadows_collected,
     mana: data.mana,
-    mana_max: MAX_MANA,
+    mana_max: manaMax,
     last_quest_date: data.last_quest_date,
   };
 }
@@ -85,10 +90,13 @@ export async function awardXp(userId: string, xp: number, reason: string): Promi
   const oldRank = stats.rank;
   let newXp = curXp + xp;
   let pointsGained = 0;
+  let skillPointsGained = 0;
+  const auraBonus = (await hasPassive(userId, 'monarchs_aura')) ? 1 : 0;
   while (newXp >= xpToNext(level)) {
     newXp -= xpToNext(level);
     level += 1;
     pointsGained += 5;
+    skillPointsGained += 1 + auraBonus;
   }
   const newRank = rankForLevel(level);
   await sb
@@ -98,6 +106,7 @@ export async function awardXp(userId: string, xp: number, reason: string): Promi
       xp: newXp,
       rank: newRank,
       stat_points: stats.stat_points + pointsGained,
+      skill_points: stats.skill_points + skillPointsGained,
     })
     .eq('user_id', userId);
 
@@ -107,7 +116,7 @@ export async function awardXp(userId: string, xp: number, reason: string): Promi
       user_id: userId,
       kind: 'level_up',
       title: `[ LEVEL UP ]  Lv.${oldLevel} → Lv.${level}`,
-      body: `${reason}. You gained ${pointsGained} stat points to allocate.`,
+      body: `${reason}. +${pointsGained} stat point(s), +${skillPointsGained} skill point(s).`,
     });
   }
   if (newRank !== oldRank) {
@@ -192,7 +201,8 @@ async function processDailyPenaltyIfNeeded(userId: string, tz: string) {
     .from('daily_quests')
     .select('completed')
     .eq('user_id', userId)
-    .eq('quest_date', yesterday);
+    .eq('quest_date', yesterday)
+    .not('quest_key', 'ilike', 'weekly_%');
 
   // Grace period: if no quests were generated yesterday (user never visited), no penalty.
   if (!yQuests || yQuests.length === 0) {
@@ -254,7 +264,8 @@ async function processMeditationIfNeeded(userId: string, tz: string) {
     .single();
   if (!stats || stats.last_meditate_date === today) return;
 
-  const newMana = Math.min(MAX_MANA, stats.mana + MEDITATE_GAIN);
+  const cap = await maxManaFor(userId);
+  const newMana = Math.min(cap, stats.mana + MEDITATE_GAIN);
   await sb
     .from('hunter_stats')
     .update({ mana: newMana, last_meditate_date: today })
@@ -265,7 +276,7 @@ async function processMeditationIfNeeded(userId: string, tz: string) {
       user_id: userId,
       kind: 'meditate',
       title: `[ MEDITATE ]  +${newMana - stats.mana} MANA`,
-      body: `Rest-day regeneration. Mana ${stats.mana} → ${newMana} / ${MAX_MANA}.`,
+      body: `Rest-day regeneration. Mana ${stats.mana} → ${newMana} / ${cap}.`,
     });
   }
 }

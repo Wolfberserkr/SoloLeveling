@@ -15,7 +15,7 @@ export default async function AchievementsPage() {
   const unlocked = new Map((await getUnlocked(user.id)).map((u) => [u.key, u.unlocked_at]));
 
   return (
-    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>
+    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)} currentTz={user.timezone}>
       <SystemWindow title={`ACHIEVEMENTS · ${unlocked.size} / ${ACHIEVEMENTS.length}`} scan>
         <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
           {ACHIEVEMENTS.map((a) => {

@@ -255,30 +255,32 @@ function ExerciseCard({
 
       <div className="mt-3 space-y-2">
         {sets.map((s, i) => (
-          <div key={i} className="flex items-center gap-2">
+          <div key={i} className="flex flex-wrap items-center gap-2">
             <span className="w-12 text-[11px] tracking-widest font-mono text-accent-cyan/70">SET {i + 1}</span>
             <input
               type="number"
               step="0.5"
               min="0"
+              inputMode="decimal"
               placeholder="kg/lb"
               value={s.weight ?? ''}
               onChange={(e) => onChange(i, 'weight', e.target.value)}
               onBlur={() => onSave(i)}
-              className="sys-input !py-1 !px-2 !text-sm w-24"
+              className="sys-input !text-sm flex-1 min-w-[5rem] sm:flex-none sm:w-24"
             />
             <span className="text-[#7aa0c2]">×</span>
             <input
               type="number"
               min="0"
+              inputMode="numeric"
               placeholder="reps"
               value={s.reps ?? ''}
               onChange={(e) => onChange(i, 'reps', e.target.value)}
               onBlur={() => onSave(i)}
-              className="sys-input !py-1 !px-2 !text-sm w-20"
+              className="sys-input !text-sm flex-1 min-w-[4rem] sm:flex-none sm:w-20"
             />
-            <button onClick={() => onSave(i)} className="sys-btn !py-1 !text-[10px]">SAVE</button>
-            <button onClick={startRest} className="sys-btn !py-1 !text-[10px]">REST</button>
+            <button onClick={() => onSave(i)} className="sys-btn !text-[10px]">SAVE</button>
+            <button onClick={startRest} className="sys-btn !text-[10px]">REST</button>
           </div>
         ))}
         {restRemaining > 0 && (

@@ -28,6 +28,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { key: 'volume_10k', title: 'Tonnage Hunter', description: 'Move 10,000 kg of total volume.', rarity: 'epic', icon: '⛰' },
   { key: 'sessions_50', title: 'Veteran', description: 'Complete 50 workout sessions.', rarity: 'epic', icon: '✶' },
   { key: 'shadow_first', title: 'Arise', description: 'Extract your first Shadow (clear a deload week).', rarity: 'legendary', icon: '☽' },
+  { key: 'first_skill', title: "Monarch's Apprentice", description: "Learn your first Monarch's skill.", rarity: 'rare', icon: '✦' },
 ];
 
 export function getDef(key: string) {
