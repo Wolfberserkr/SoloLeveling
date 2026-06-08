@@ -175,14 +175,32 @@ export async function bumpStreak(userId: string, today: string): Promise<number>
 
 // Lazy daily-cron run on page load. Idempotent — each step fires at most
 // once per day per user (in the user's timezone). Order: penalty/shield →
-// meditation → gate spawn.
+// meditation → gate spawn. Each step is isolated so one failure (e.g. a
+// not-yet-run migration) can't break the others or the page render.
 export async function processDailyEvents(userId: string) {
-  const tz = await getUserTz(userId);
-  await processDailyPenaltyIfNeeded(userId, tz);
-  await processMeditationIfNeeded(userId, tz);
-  // Lazy import to avoid circular dep (gates.ts imports awardXp from here).
-  const { maybeSpawnGate } = await import('./gates');
-  await maybeSpawnGate(userId, tz);
+  let tz = 'UTC';
+  try {
+    tz = await getUserTz(userId);
+  } catch (e) {
+    console.warn('[processDailyEvents] getUserTz failed:', e);
+  }
+  try {
+    await processDailyPenaltyIfNeeded(userId, tz);
+  } catch (e) {
+    console.warn('[processDailyEvents] penalty step failed:', e);
+  }
+  try {
+    await processMeditationIfNeeded(userId, tz);
+  } catch (e) {
+    console.warn('[processDailyEvents] meditation step failed:', e);
+  }
+  try {
+    // Lazy import to avoid circular dep (gates.ts imports awardXp from here).
+    const { maybeSpawnGate } = await import('./gates');
+    await maybeSpawnGate(userId, tz);
+  } catch (e) {
+    console.warn('[processDailyEvents] gate spawn step failed:', e);
+  }
 }
 
 async function processDailyPenaltyIfNeeded(userId: string, tz: string) {
