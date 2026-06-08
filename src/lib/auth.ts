@@ -40,11 +40,25 @@ export async function getCurrentHunter(): Promise<Hunter | null> {
   if (!user) return null;
   // Prefer the profiles table for hunter_name; fall back to user_metadata.
   const admin = getAdminSupabase();
-  const { data: profile } = await admin
+  // Try the full select first; if a column is missing (e.g. migration not
+  // yet run), fall back to the minimum-viable columns so the app still loads.
+  let profile: any = null;
+  const full = await admin
     .from('profiles')
     .select('hunter_name, active_title, timezone')
     .eq('id', user.id)
     .maybeSingle();
+  if (full.error) {
+    console.warn('[getCurrentHunter] profile full select failed:', full.error.message);
+    const min = await admin
+      .from('profiles')
+      .select('hunter_name, active_title')
+      .eq('id', user.id)
+      .maybeSingle();
+    profile = min.data;
+  } else {
+    profile = full.data;
+  }
   const hunter_name =
     profile?.hunter_name ||
     (user.user_metadata?.hunter_name as string) ||
