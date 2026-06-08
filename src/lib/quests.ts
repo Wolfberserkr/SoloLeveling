@@ -16,39 +16,9 @@ export type Quest = {
   weekly?: boolean;
 };
 
-// ─── Quest pools ─────────────────────────────────────────────────────────────
+// ─── Weekly bonus pool (Saturday) ────────────────────────────────────────────
 
-type QuestTemplate = { key: string; label: string; unit: string; baseTarget: number; timeScaled?: boolean };
-
-const PUSH_POOL: QuestTemplate[] = [
-  { key: 'pushups',        label: 'PUSH-UPS',         unit: 'reps', baseTarget: 100 },
-  { key: 'dips',           label: 'DIPS',              unit: 'reps', baseTarget: 60  },
-  { key: 'diamond_pushups',label: 'DIAMOND PUSH-UPS',  unit: 'reps', baseTarget: 50  },
-  { key: 'burpees',        label: 'BURPEES',           unit: 'reps', baseTarget: 40  },
-];
-
-const CORE_POOL: QuestTemplate[] = [
-  { key: 'situps',      label: 'SIT-UPS',          unit: 'reps', baseTarget: 100 },
-  { key: 'plank',       label: 'PLANK HOLD',       unit: 'sec',  baseTarget: 180, timeScaled: true },
-  { key: 'leg_raises',  label: 'LEG RAISES',       unit: 'reps', baseTarget: 50  },
-  { key: 'hollow_hold', label: 'HOLLOW BODY HOLD', unit: 'sec',  baseTarget: 120, timeScaled: true },
-];
-
-const LEGS_POOL: QuestTemplate[] = [
-  { key: 'squats',      label: 'SQUATS',       unit: 'reps', baseTarget: 100 },
-  { key: 'jump_squats', label: 'JUMP SQUATS',  unit: 'reps', baseTarget: 60  },
-  { key: 'lunges',      label: 'LUNGES',       unit: 'reps', baseTarget: 80  },
-  { key: 'wall_sit',    label: 'WALL SIT',     unit: 'sec',  baseTarget: 180, timeScaled: true },
-];
-
-// Cardio targets are fixed (no level scaling) to stay beginner-friendly.
-const CARDIO_POOL: QuestTemplate[] = [
-  { key: 'run',      label: 'RUN',             unit: 'km',  baseTarget: 0 }, // run uses its own scaling logic
-  { key: 'jump_rope',label: 'JUMP ROPE',       unit: 'min', baseTarget: 15 },
-  { key: 'cycling',  label: 'CYCLING',         unit: 'km',  baseTarget: 15 },
-  { key: 'rowing',   label: 'ROWING MACHINE',  unit: 'min', baseTarget: 20 },
-];
-
+type QuestTemplate = { key: string; label: string; unit: string; baseTarget: number };
 type WeeklyTemplate = QuestTemplate & { dynamicTarget?: 'run+2' };
 
 const WEEKLY_POOL: WeeklyTemplate[] = [
@@ -60,7 +30,7 @@ const WEEKLY_POOL: WeeklyTemplate[] = [
   { key: 'weekly_circuit',      label: 'CIRCUIT TRAINING', unit: 'min', baseTarget: 40 },
 ];
 
-// ─── Seeded daily selection ───────────────────────────────────────────────────
+// ─── Seeded weekly selection ──────────────────────────────────────────────────
 
 function seedInt(str: string): number {
   let h = 5381;
@@ -75,35 +45,27 @@ function pickFromPool<T>(pool: T[], userId: string, date: string, slot: string):
 
 // ─── Target calculation ───────────────────────────────────────────────────────
 
-function repScale(level: number): number {
-  return 1 + Math.floor((level - 1) / 5) * 0.1;
+// 20 reps at Lv1 → 100 at Lv10 (D-rank, the anime canonical), then +10% per 5 levels.
+function canonicalRepTarget(level: number): number {
+  if (level <= 10) return Math.round(20 + (80 / 9) * (level - 1));
+  return Math.round(100 * (1 + Math.floor((level - 10) / 5) * 0.1));
 }
 
-function timeScale(level: number): number {
-  // Slower ramp: +5% per 2 levels (vs +10% per 5 levels for reps).
-  return 1 + Math.floor((level - 1) / 10) * 0.05;
-}
-
+// 2 km at Lv1 → 10 km at Lv10 (D-rank), stays at 10 km thereafter.
 export function dailyRunTarget(level: number): number {
-  return Math.min(10, 2 + Math.floor((level - 1) / 2));
-}
-
-function resolveTarget(tpl: QuestTemplate, level: number): number {
-  if (tpl.key === 'run') return dailyRunTarget(level);
-  if (tpl.unit === 'min' || tpl.unit === 'km') return tpl.baseTarget; // cardio — fixed
-  if (tpl.timeScaled) return Math.round(tpl.baseTarget * timeScale(level));
-  return Math.round(tpl.baseTarget * repScale(level));
+  if (level <= 10) return Math.max(1, Math.round(2 + (8 / 9) * (level - 1)));
+  return 10;
 }
 
 // ─── Template builder (used by ensureDailyQuests) ────────────────────────────
 
 export function defaultDailyTemplate(level: number) {
-  // Still exported for backward-compat (gate scaling etc). Returns canonical 4.
+  const reps = canonicalRepTarget(level);
   return [
-    { key: 'pushups', label: 'PUSH-UPS', target: Math.round(100 * repScale(level)), unit: 'reps' },
-    { key: 'situps',  label: 'SIT-UPS',  target: Math.round(100 * repScale(level)), unit: 'reps' },
-    { key: 'squats',  label: 'SQUATS',   target: Math.round(100 * repScale(level)), unit: 'reps' },
-    { key: 'run',     label: 'RUN',      target: dailyRunTarget(level),             unit: 'km'   },
+    { key: 'pushups', label: 'PUSH-UPS', target: reps,                  unit: 'reps' },
+    { key: 'situps',  label: 'SIT-UPS',  target: reps,                  unit: 'reps' },
+    { key: 'squats',  label: 'SQUATS',   target: reps,                  unit: 'reps' },
+    { key: 'run',     label: 'RUN',      target: dailyRunTarget(level), unit: 'km'   },
   ];
 }
 
@@ -139,20 +101,14 @@ export async function ensureDailyQuests(userId: string, level: number): Promise<
     return (existing || []).map(rowToQuest);
   }
 
-  // Build the 4 daily quests using seeded pool picks.
-  const push    = pickFromPool(PUSH_POOL,   userId, date, 'push');
-  const core    = pickFromPool(CORE_POOL,   userId, date, 'core');
-  const legs    = pickFromPool(LEGS_POOL,   userId, date, 'legs');
-  const cardio  = pickFromPool(CARDIO_POOL, userId, date, 'cardio');
-
-  const rows = [push, core, legs, cardio].map((tpl) => ({
-    user_id: userId,
-    quest_date: date,
-    quest_key: tpl.key,
-    label: tpl.label,
-    target: resolveTarget(tpl, level),
-    unit: tpl.unit,
-  }));
+  // Always the canonical four from the anime: push-ups, sit-ups, squats, run.
+  const reps = canonicalRepTarget(level);
+  const rows = [
+    { user_id: userId, quest_date: date, quest_key: 'pushups', label: 'PUSH-UPS', target: reps,                  unit: 'reps' },
+    { user_id: userId, quest_date: date, quest_key: 'situps',  label: 'SIT-UPS',  target: reps,                  unit: 'reps' },
+    { user_id: userId, quest_date: date, quest_key: 'squats',  label: 'SQUATS',   target: reps,                  unit: 'reps' },
+    { user_id: userId, quest_date: date, quest_key: 'run',     label: 'RUN',      target: dailyRunTarget(level), unit: 'km'   },
+  ];
 
   await sb.from('daily_quests').insert(rows);
 
