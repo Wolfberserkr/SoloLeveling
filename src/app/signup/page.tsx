@@ -12,15 +12,37 @@ export default function SignupPage({ searchParams }: { searchParams: { error?: s
         <form action={signupAction} className="space-y-3">
           <label className="block">
             <span className="text-[11px] tracking-widest font-mono text-accent-cyan/80">HUNTER NAME</span>
-            <input name="hunter_name" required minLength={2} maxLength={20} className="sys-input mt-1" placeholder="Sung Jin-Woo" />
+            <input
+              name="hunter_name"
+              required
+              minLength={2}
+              maxLength={20}
+              autoComplete="username"
+              className="sys-input mt-1"
+              placeholder="Sung Jin-Woo"
+            />
           </label>
           <label className="block">
             <span className="text-[11px] tracking-widest font-mono text-accent-cyan/80">EMAIL</span>
-            <input type="email" name="email" required className="sys-input mt-1" />
+            <input
+              type="email"
+              name="email"
+              required
+              autoComplete="email"
+              inputMode="email"
+              className="sys-input mt-1"
+            />
           </label>
           <label className="block">
             <span className="text-[11px] tracking-widest font-mono text-accent-cyan/80">PASSWORD</span>
-            <input type="password" name="password" required minLength={8} className="sys-input mt-1" />
+            <input
+              type="password"
+              name="password"
+              required
+              minLength={8}
+              autoComplete="new-password"
+              className="sys-input mt-1"
+            />
           </label>
           {searchParams.error && (
             <div className="text-xs text-accent-red font-mono">[ ERROR ] {searchParams.error}</div>

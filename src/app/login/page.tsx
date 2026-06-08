@@ -10,11 +10,24 @@ export default function LoginPage({ searchParams }: { searchParams: { error?: st
         <form action={loginAction} className="space-y-3">
           <label className="block">
             <span className="text-[11px] tracking-widest font-mono text-accent-cyan/80">EMAIL</span>
-            <input type="email" name="email" required className="sys-input mt-1" />
+            <input
+              type="email"
+              name="email"
+              required
+              autoComplete="email"
+              inputMode="email"
+              className="sys-input mt-1"
+            />
           </label>
           <label className="block">
             <span className="text-[11px] tracking-widest font-mono text-accent-cyan/80">PASSWORD</span>
-            <input type="password" name="password" required className="sys-input mt-1" />
+            <input
+              type="password"
+              name="password"
+              required
+              autoComplete="current-password"
+              className="sys-input mt-1"
+            />
           </label>
           {searchParams.error && (
             <div className="text-xs text-accent-red font-mono">[ ERROR ] {searchParams.error}</div>
