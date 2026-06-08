@@ -24,14 +24,18 @@ function rankLabel(r: string) {
   return r === 'National' ? 'N' : r;
 }
 
-export function LevelUpCinema() {
-  const [notices, setNotices] = useState<Notice[]>([]);
+export function LevelUpCinema({ mockNotices }: { mockNotices?: Notice[] } = {}) {
+  const [notices, setNotices] = useState<Notice[]>(mockNotices ?? []);
   const [idx, setIdx] = useState(0);
   const [visible, setVisible] = useState(false);
   const dismissing = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    if (mockNotices) {
+      if (mockNotices.length) setTimeout(() => setVisible(true), 30);
+      return;
+    }
     fetch('/api/notifications')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
@@ -44,6 +48,7 @@ export function LevelUpCinema() {
           setTimeout(() => setVisible(true), 30);
         }
       });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const current = notices[idx] ?? null;
@@ -60,11 +65,13 @@ export function LevelUpCinema() {
     dismissing.current = true;
     if (timer.current) clearTimeout(timer.current);
     setVisible(false);
-    await fetch('/api/notifications/read', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: current.id }),
-    });
+    if (!mockNotices) {
+      await fetch('/api/notifications/read', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: current.id }),
+      });
+    }
     setTimeout(() => {
       dismissing.current = false;
       if (idx + 1 < notices.length) {
