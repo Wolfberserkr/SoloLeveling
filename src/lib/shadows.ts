@@ -7,6 +7,7 @@
 import { getAdminSupabase } from './supabase/admin';
 import { unlock } from './achievements';
 import { getUserTz, todayInTz, dateInTz } from './time';
+import { hasPassive, consumeSoulStealIfPresent } from './skills';
 
 export type Rarity = 'common' | 'rare' | 'epic' | 'legendary';
 
@@ -77,12 +78,19 @@ export async function maybeExtractShadow(
     alreadyExtracted && dateInTz(tz, new Date(alreadyExtracted.extracted_at)) === today;
   if (sameDay) return null;
 
-  // Roll chance: base 25%, +25% deload, +15% per PR (cap at 90%).
-  let chance = 0.25;
-  if (ctx.deload) chance += 0.25;
-  chance += Math.min(0.4, ctx.prCount * 0.15);
-  chance = Math.min(0.9, chance);
-  if (Math.random() >= chance) return null;
+  // Soul Steal — if the buff is active, force a successful extraction.
+  const forced = await consumeSoulStealIfPresent(userId);
+
+  if (!forced) {
+    // Roll chance: base 25%, +25% deload, +15% per PR (cap at 90%).
+    // Shadow Affinity passive adds +10% to the final chance.
+    let chance = 0.25;
+    if (ctx.deload) chance += 0.25;
+    chance += Math.min(0.4, ctx.prCount * 0.15);
+    if (await hasPassive(userId, 'shadow_affinity')) chance += 0.1;
+    chance = Math.min(0.95, chance);
+    if (Math.random() >= chance) return null;
+  }
 
   const rarity = rollRarity(ctx);
   const name = pickName(rarity);
@@ -165,4 +173,39 @@ export async function listArmy(userId: string): Promise<Shadow[]> {
 
 export function totalArmyPower(army: Shadow[]): number {
   return army.reduce((sum, s) => sum + s.power, 0);
+}
+
+// Re-roll the most recently extracted shadow: delete it, then run the rarity
+// dice once at "deload" odds. Used by the Shadow Exchange skill.
+export async function rerollLastShadow(
+  userId: string
+): Promise<{ ok: boolean; message: string; shadow?: Shadow }> {
+  const sb = getAdminSupabase();
+  const { data: last } = await sb
+    .from('shadows')
+    .select('*')
+    .eq('user_id', userId)
+    .order('extracted_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!last) return { ok: false, message: 'No shadow to re-roll.' };
+
+  await sb.from('shadows').delete().eq('id', last.id);
+
+  const rarity = rollRarity({ session_key: 'reroll', deload: true, prCount: 1 });
+  const name = pickName(rarity);
+  const power = RARITY_POWER[rarity] + Math.floor(Math.random() * 8);
+  const { data: inserted } = await sb
+    .from('shadows')
+    .insert({
+      user_id: userId,
+      name,
+      rarity,
+      power,
+      source_session: 'reroll',
+    })
+    .select('*')
+    .single();
+  if (!inserted) return { ok: false, message: 'Re-roll failed.' };
+  return { ok: true, message: `${name} (${rarity}, +${power})`, shadow: inserted as Shadow };
 }

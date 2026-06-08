@@ -3,6 +3,7 @@ import { awardXp, bumpStreak } from './leveling';
 import { checkAchievements } from './achievements';
 import { progressActiveGate } from './gates';
 import { getUserTz, todayInTz } from './time';
+import { domainMultiplier } from './skills';
 
 export type Quest = {
   id: number;
@@ -107,10 +108,11 @@ export async function logQuestProgress(
 
   const rewards: string[] = [];
   let xpGained = 0;
+  const domainMult = await domainMultiplier(userId);
   if (completed) {
-    xpGained = 30;
+    xpGained = 30 * domainMult;
     await awardXp(userId, xpGained, `Completed quest: ${row.label}`);
-    rewards.push(`+${xpGained} XP`);
+    rewards.push(`+${xpGained} XP${domainMult > 1 ? ' (Domain)' : ''}`);
   }
 
   const { count: remaining } = await sb
@@ -124,7 +126,7 @@ export async function logQuestProgress(
   if (allComplete) {
     const streak = await bumpStreak(userId, date);
     const streakBonus = Math.min(100, streak * 5);
-    const dailyBonus = 120 + streakBonus;
+    const dailyBonus = (120 + streakBonus) * domainMult;
     await awardXp(userId, dailyBonus, `All daily quests cleared (streak ${streak})`);
     xpGained += dailyBonus;
     rewards.push(`+${dailyBonus} XP (daily clear, streak ${streak})`);
@@ -168,4 +170,28 @@ export async function logQuestProgress(
     .eq('id', row.id)
     .single();
   return { quest: rowToQuest(updated), allComplete, xpGained, rewards };
+}
+
+// Used by the Ruler's Hand skill: fills the remaining progress on the chosen
+// in-progress daily quest and walks through the same completion path as a
+// regular log (XP, streak, gate mirror, achievements).
+export async function applyRulersHand(
+  userId: string,
+  questKey: string
+): Promise<{ ok: boolean; message: string; label?: string }> {
+  const sb = getAdminSupabase();
+  const tz = await getUserTz(userId);
+  const date = todayInTz(tz);
+  const { data: row } = await sb
+    .from('daily_quests')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('quest_date', date)
+    .eq('quest_key', questKey)
+    .maybeSingle();
+  if (!row) return { ok: false, message: 'Quest not found for today.' };
+  if (row.completed) return { ok: false, message: 'Quest already complete.' };
+  const remaining = row.target - row.progress;
+  await logQuestProgress(userId, questKey, remaining);
+  return { ok: true, message: `${row.label} cleared.`, label: row.label };
 }

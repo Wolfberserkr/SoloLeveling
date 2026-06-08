@@ -7,6 +7,7 @@ const TABS = [
   { href: '/quests', label: 'DAILY QUEST' },
   { href: '/workout', label: 'DUNGEONS' },
   { href: '/shadows', label: 'ARMY' },
+  { href: '/skills', label: 'SKILLS' },
   { href: '/progress', label: 'PROGRESS' },
   { href: '/achievements', label: 'ACHIEVEMENTS' },
   { href: '/inventory', label: 'INVENTORY' },

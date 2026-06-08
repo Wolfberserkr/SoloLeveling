@@ -13,6 +13,7 @@ type Stats = {
   int_: number;
   per: number;
   stat_points: number;
+  skill_points?: number;
   streak: number;
   mana: number;
   mana_max: number;
@@ -118,8 +119,11 @@ export function StatusPanel({
         <div>
           <div className="flex justify-between items-baseline">
             <div className="text-[11px] font-mono tracking-[0.3em] text-accent-cyan/80">STATS</div>
-            <div className="text-[11px] font-mono text-accent-gold">
-              {stats.stat_points} unspent
+            <div className="text-[11px] font-mono flex gap-3">
+              <span className="text-accent-gold">{stats.stat_points} stat pt</span>
+              {(stats.skill_points || 0) > 0 && (
+                <span className="text-accent-purple">✦ {stats.skill_points} skill pt</span>
+              )}
             </div>
           </div>
 
