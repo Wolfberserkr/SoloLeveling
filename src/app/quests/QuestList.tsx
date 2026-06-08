@@ -11,13 +11,20 @@ type Quest = {
   progress: number;
   unit: string | null;
   completed: boolean;
+  weekly?: boolean;
 };
 
+// Quick-log amounts per quest type. Falls back to [1, 5, 10] for unknowns.
 const QUICK_AMOUNTS: Record<string, number[]> = {
-  pushups: [5, 10, 25],
-  situps: [5, 10, 25],
-  squats: [5, 10, 25],
-  run: [1, 2, 5],
+  // reps
+  pushups: [5, 10, 25], dips: [5, 10, 20], diamond_pushups: [5, 10, 20], burpees: [5, 10, 15],
+  situps: [5, 10, 25], leg_raises: [5, 10, 20], squats: [5, 10, 25], jump_squats: [5, 10, 20], lunges: [5, 10, 20],
+  // seconds
+  plank: [15, 30, 60], hollow_hold: [15, 30, 60], wall_sit: [15, 30, 60],
+  // km / min
+  run: [1, 2, 5], cycling: [2, 5, 10], weekly_hike: [1, 2, 5], weekly_long_run: [1, 2, 5], weekly_cycling_long: [5, 10, 15],
+  jump_rope: [5, 10, 15], rowing: [5, 10, 15],
+  weekly_swim: [5, 10, 15], weekly_sport: [10, 20, 30], weekly_circuit: [10, 20, 30],
 };
 
 export function QuestList({ initial, streak }: { initial: Quest[]; streak: number }) {
@@ -26,7 +33,10 @@ export function QuestList({ initial, streak }: { initial: Quest[]; streak: numbe
   const [busy, setBusy] = useState<string | null>(null);
   const [reward, setReward] = useState<string | null>(null);
 
-  const cleared = quests.every((q) => q.completed);
+  const core = quests.filter((q) => !q.weekly);
+  const weekly = quests.filter((q) => q.weekly);
+  const coreCleared = core.every((q) => q.completed);
+  const weeklyCleared = weekly.length > 0 && weekly.every((q) => q.completed);
 
   async function log(key: string, amount: number) {
     setBusy(key);
@@ -37,7 +47,7 @@ export function QuestList({ initial, streak }: { initial: Quest[]; streak: numbe
     });
     if (res.ok) {
       const json = await res.json();
-      setQuests((qs) => qs.map((q) => (q.key === key ? json.quest : q)));
+      setQuests((qs) => qs.map((q) => (q.key === key ? { ...json.quest, weekly: q.weekly } : q)));
       if (json.rewards.length > 0) {
         setReward(json.rewards.join(' · '));
         setTimeout(() => setReward(null), 3500);
@@ -49,9 +59,10 @@ export function QuestList({ initial, streak }: { initial: Quest[]; streak: numbe
 
   return (
     <div className="space-y-6">
+      {/* ── Core daily quests ── */}
       <SystemWindow
         title="DAILY QUEST"
-        variant={cleared ? 'gold' : 'red'}
+        variant={coreCleared ? 'gold' : 'red'}
         scan
         right={
           <div className="text-[10px] font-mono text-accent-gold tracking-widest">
@@ -63,7 +74,7 @@ export function QuestList({ initial, streak }: { initial: Quest[]; streak: numbe
           <div className="font-mono text-xs tracking-[0.4em] text-accent-cyan/70 animate-flicker">
             [ DO NOT NEGLECT THE DAILY QUEST ]
           </div>
-          {!cleared ? (
+          {!coreCleared ? (
             <p className="text-[#a9c7e0] text-sm mt-2">
               Goals — complete <span className="text-accent-cyan">all four</span> objectives before
               the day ends. Failure incurs a penalty.
@@ -76,55 +87,35 @@ export function QuestList({ initial, streak }: { initial: Quest[]; streak: numbe
         </div>
 
         <ul className="space-y-3">
-          {quests.map((q) => {
-            const pct = Math.min(100, (q.progress / q.target) * 100);
-            const quicks = QUICK_AMOUNTS[q.key] || [1, 5, 10];
-            return (
-              <li
-                key={q.id}
-                className={`p-3 border rounded-sm transition-all ${
-                  q.completed
-                    ? 'border-accent-green/60 bg-accent-green/5 shadow-[0_0_18px_rgba(16,185,129,0.18)]'
-                    : 'border-accent-cyan/30 bg-bg-base/60'
-                }`}
-              >
-                <div className="flex justify-between items-center font-mono">
-                  <div className="text-sm tracking-widest">
-                    <span className={q.completed ? 'text-accent-green' : 'text-accent-cyan'}>
-                      {q.completed ? '✓' : '○'}
-                    </span>{' '}
-                    GOAL — {q.label}
-                  </div>
-                  <div className="text-xs text-[#a9c7e0]">
-                    {q.progress} / {q.target} {q.unit}
-                  </div>
-                </div>
-                <div className="h-1.5 bg-bg-base mt-1.5 border border-accent-cyan/15">
-                  <div
-                    className="h-full bg-gradient-to-r from-accent-cyan to-accent-purple transition-all duration-500"
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-                {!q.completed && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {quicks.map((n) => (
-                      <button
-                        key={n}
-                        disabled={busy === q.key}
-                        onClick={() => log(q.key, n)}
-                        className="sys-btn !py-1 !px-2 !text-[10px]"
-                      >
-                        +{n} {q.unit}
-                      </button>
-                    ))}
-                    <CustomInput onSubmit={(v) => log(q.key, v)} disabled={busy === q.key} unit={q.unit || ''} />
-                  </div>
-                )}
-              </li>
-            );
-          })}
+          {core.map((q) => <QuestItem key={q.id} q={q} busy={busy} onLog={log} />)}
         </ul>
       </SystemWindow>
+
+      {/* ── Weekly bonus (Saturday only) ── */}
+      {weekly.length > 0 && (
+        <SystemWindow
+          title="WEEKLY BONUS QUEST"
+          variant="gold"
+          right={
+            <div className="text-[10px] font-mono text-accent-gold tracking-widest">
+              HIGH REWARD
+            </div>
+          }
+        >
+          <p className="text-xs text-[#a9c7e0] font-mono mb-3">
+            A special objective issued once per week. Clearing it awards 2× the normal XP and
+            bonus Essence Stones. Does not affect your daily streak.
+          </p>
+          <ul className="space-y-3">
+            {weekly.map((q) => <QuestItem key={q.id} q={q} busy={busy} onLog={log} gold />)}
+          </ul>
+          {weeklyCleared && (
+            <p className="text-accent-gold text-sm mt-3 text-center glow-text">
+              ✦ WEEKLY BONUS CLEARED ✦
+            </p>
+          )}
+        </SystemWindow>
+      )}
 
       {reward && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 sys-window sys-window-gold p-3 animate-level-up">
@@ -140,6 +131,67 @@ export function QuestList({ initial, streak }: { initial: Quest[]; streak: numbe
         </p>
       </SystemWindow>
     </div>
+  );
+}
+
+function QuestItem({
+  q,
+  busy,
+  onLog,
+  gold = false,
+}: {
+  q: Quest;
+  busy: string | null;
+  onLog: (key: string, amount: number) => void;
+  gold?: boolean;
+}) {
+  const pct = Math.min(100, (q.progress / q.target) * 100);
+  const quicks = QUICK_AMOUNTS[q.key] || [1, 5, 10];
+  return (
+    <li
+      className={`p-3 border rounded-sm transition-all ${
+        q.completed
+          ? gold
+            ? 'border-accent-gold/60 bg-accent-gold/5 shadow-[0_0_18px_rgba(255,209,102,0.18)]'
+            : 'border-accent-green/60 bg-accent-green/5 shadow-[0_0_18px_rgba(16,185,129,0.18)]'
+          : gold
+            ? 'border-accent-gold/30 bg-bg-base/60'
+            : 'border-accent-cyan/30 bg-bg-base/60'
+      }`}
+    >
+      <div className="flex justify-between items-center font-mono">
+        <div className="text-sm tracking-widest">
+          <span className={q.completed ? (gold ? 'text-accent-gold' : 'text-accent-green') : (gold ? 'text-accent-gold/70' : 'text-accent-cyan')}>
+            {q.completed ? '✓' : '○'}
+          </span>{' '}
+          GOAL — {q.label}
+        </div>
+        <div className="text-xs text-[#a9c7e0]">
+          {q.progress} / {q.target} {q.unit}
+        </div>
+      </div>
+      <div className="h-1.5 bg-bg-base mt-1.5 border border-accent-cyan/15">
+        <div
+          className={`h-full transition-all duration-500 ${gold ? 'bg-gradient-to-r from-accent-gold to-accent-cyan' : 'bg-gradient-to-r from-accent-cyan to-accent-purple'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {!q.completed && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {quicks.map((n) => (
+            <button
+              key={n}
+              disabled={busy === q.key}
+              onClick={() => onLog(q.key, n)}
+              className="sys-btn !py-1 !px-2 !text-[10px]"
+            >
+              +{n} {q.unit}
+            </button>
+          ))}
+          <CustomInput onSubmit={(v) => onLog(q.key, v)} disabled={busy === q.key} unit={q.unit || ''} />
+        </div>
+      )}
+    </li>
   );
 }
 

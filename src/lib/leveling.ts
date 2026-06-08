@@ -201,7 +201,8 @@ async function processDailyPenaltyIfNeeded(userId: string, tz: string) {
     .from('daily_quests')
     .select('completed')
     .eq('user_id', userId)
-    .eq('quest_date', yesterday);
+    .eq('quest_date', yesterday)
+    .not('quest_key', 'ilike', 'weekly_%');
 
   // Grace period: if no quests were generated yesterday (user never visited), no penalty.
   if (!yQuests || yQuests.length === 0) {

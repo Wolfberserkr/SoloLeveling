@@ -44,7 +44,7 @@ export const SKILLS: SkillDef[] = [
     mana_cost: 50,
     cadence: 'day',
     effect_key: 'rulers_hand',
-    icon: '✋',
+    icon: '◈',
   },
   {
     key: 'bloodlust',
@@ -57,7 +57,7 @@ export const SKILLS: SkillDef[] = [
     mana_cost: 30,
     cadence: 'day',
     effect_key: 'bloodlust',
-    icon: '⚔',
+    icon: '◆',
   },
   // ── Tier 2 · Rank C ────────────────────────────────────────────────
   {
@@ -71,7 +71,7 @@ export const SKILLS: SkillDef[] = [
     mana_cost: 40,
     cadence: 'day',
     effect_key: 'domain',
-    icon: '◈',
+    icon: '⬡',
   },
   {
     key: 'mana_surge',
@@ -94,7 +94,7 @@ export const SKILLS: SkillDef[] = [
     mana_cost: 30,
     cadence: 'day',
     effect_key: 'shadow_exchange',
-    icon: '↺',
+    icon: '⇌',
   },
   // ── Tier 3 · Rank B ────────────────────────────────────────────────
   {
@@ -108,7 +108,7 @@ export const SKILLS: SkillDef[] = [
     mana_cost: 60,
     cadence: 'day',
     effect_key: 'berserker',
-    icon: '☠',
+    icon: '✸',
   },
   {
     key: 'shadow_affinity',
@@ -131,7 +131,7 @@ export const SKILLS: SkillDef[] = [
     mana_cost: 40,
     cadence: 'day',
     effect_key: 'time_skip',
-    icon: '⧖',
+    icon: '◎',
   },
   // ── Tier 4 · Rank A ────────────────────────────────────────────────
   {
@@ -145,7 +145,7 @@ export const SKILLS: SkillDef[] = [
     mana_cost: 80,
     cadence: 'day',
     effect_key: 'soul_steal',
-    icon: '✦',
+    icon: '◉',
   },
   {
     key: 'time_reversal',
@@ -158,7 +158,7 @@ export const SKILLS: SkillDef[] = [
     mana_cost: 100,
     cadence: 'week',
     effect_key: 'time_reversal',
-    icon: '⌛',
+    icon: '↺',
   },
   // ── Tier 5 · Rank S+ ───────────────────────────────────────────────
   {
@@ -172,7 +172,7 @@ export const SKILLS: SkillDef[] = [
     mana_cost: 120,
     cadence: 'week',
     effect_key: 'sovereigns_domain',
-    icon: '♛',
+    icon: '✦',
   },
   {
     key: 'monarchs_aura',
@@ -182,7 +182,7 @@ export const SKILLS: SkillDef[] = [
     cost: 5,
     prereqs: [],
     kind: 'passive',
-    icon: '☼',
+    icon: '☀',
   },
 ];
 
