@@ -1,6 +1,7 @@
 import { NavBar } from './NavBar';
 import { NoticeStack } from './Notice';
 import { LevelUpCinema } from './LevelUpCinema';
+import { BottomNav } from './BottomNav';
 import { TimezoneSync } from './TimezoneSync';
 import { PushPermission } from './PushPermission';
 
@@ -25,7 +26,8 @@ export function AppShell({
       <TimezoneSync currentTz={currentTz} />
       <LevelUpCinema />
       <NoticeStack />
-      <main className="max-w-6xl mx-auto px-3 md:px-4 py-4 md:py-8 space-y-4 md:space-y-6">{children}</main>
+      <BottomNav />
+      <main className="max-w-6xl mx-auto px-3 md:px-4 py-4 md:py-8 pb-24 md:pb-8 space-y-4 md:space-y-6">{children}</main>
       <footer className="flex flex-col items-center gap-3 text-center text-[10px] tracking-widest font-mono text-[#465e7a] py-6 md:py-8 safe-bottom">
         <PushPermission />
         [ THE SYSTEM v1.0 · UNOFFICIAL SOLO LEVELING FAN PROJECT ]

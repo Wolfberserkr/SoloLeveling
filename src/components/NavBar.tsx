@@ -69,7 +69,7 @@ export function NavBar({
             EXIT
           </button>
         </div>
-        <nav className="nav-tabs-scroll flex md:flex-wrap gap-1 md:ml-4 md:flex-1 -mx-3 md:mx-0 px-3 md:px-0">
+        <nav className="nav-tabs-scroll hidden md:flex md:flex-wrap gap-1 md:ml-4 md:flex-1 md:px-0">
           {TABS.map((t) => {
             const active = path?.startsWith(t.href);
             return (
