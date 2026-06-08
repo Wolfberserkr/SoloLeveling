@@ -99,7 +99,7 @@ export async function awardXp(userId: string, xp: number, reason: string): Promi
     skillPointsGained += 1 + auraBonus;
   }
   const newRank = rankForLevel(level);
-  await sb
+  const { error: updErr } = await sb
     .from('hunter_stats')
     .update({
       level,
@@ -109,6 +109,23 @@ export async function awardXp(userId: string, xp: number, reason: string): Promi
       skill_points: stats.skill_points + skillPointsGained,
     })
     .eq('user_id', userId);
+  if (updErr) {
+    // Most likely a missing-migration column (e.g. skill_points). Retry with
+    // the core columns so XP/level still persist, and log loudly.
+    console.error('[awardXp] hunter_stats update failed, retrying core-only:', updErr.message);
+    const { error: retryErr } = await sb
+      .from('hunter_stats')
+      .update({
+        level,
+        xp: newXp,
+        rank: newRank,
+        stat_points: stats.stat_points + pointsGained,
+      })
+      .eq('user_id', userId);
+    if (retryErr) {
+      console.error('[awardXp] core hunter_stats update ALSO failed:', retryErr.message);
+    }
+  }
 
   const notes: any[] = [];
   if (level > oldLevel) {
