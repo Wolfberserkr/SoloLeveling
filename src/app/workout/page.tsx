@@ -72,11 +72,14 @@ export default async function WorkoutHub() {
                 key={i}
                 className={`p-2 border rounded-sm text-center transition-all ${tileCls}`}
               >
-                <div className={`text-[10px] font-mono tracking-widest ${dayLabelCls}`}>{name}</div>
+                <div className={`text-[10px] font-mono tracking-widest ${dayLabelCls}`}>
+                  <span className="sm:hidden">{name[0]}</span>
+                  <span className="hidden sm:inline">{name}</span>
+                </div>
                 {session ? (
                   <Link
                     href={`/workout/${session.key}`}
-                    className="block mt-1 text-[10px] font-mono text-accent-cyan hover:underline"
+                    className="block mt-1 text-[9px] sm:text-[10px] font-mono text-accent-cyan hover:underline break-words leading-tight"
                   >
                     {session.title.split('—')[0].trim().replace('GATE: ', '')}
                   </Link>

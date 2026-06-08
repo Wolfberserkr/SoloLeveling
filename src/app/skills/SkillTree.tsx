@@ -191,7 +191,7 @@ export function SkillTree({
       <div
         key={skill.key}
         ref={(el) => setCardRef(skill.key, el)}
-        className={`relative p-3 border rounded-sm transition-all min-h-[140px] flex flex-col ${tone}`}
+        className={`relative p-3 border rounded-sm transition-all sm:min-h-[140px] flex flex-col ${tone}`}
       >
         <div className="flex items-start gap-2">
           <div className="text-xl leading-none mt-0.5">{skill.icon}</div>
@@ -307,7 +307,7 @@ export function SkillTree({
 
       <div ref={containerRef} className="relative">
         <svg
-          className="absolute inset-0 w-full h-full pointer-events-none"
+          className="absolute inset-0 w-full h-full pointer-events-none hidden sm:block"
           style={{ zIndex: 0 }}
         >
           {lines.map((l) => (

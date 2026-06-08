@@ -139,7 +139,7 @@ export function StatusPanel({
                 </div>
                 <div className="w-8 text-right font-mono text-sm">{Number(stats[key])}</div>
                 <button
-                  className="sys-btn text-[10px] !py-1 !px-2"
+                  className="sys-btn text-[10px] !px-3"
                   disabled={stats.stat_points <= 0 || busy === key}
                   onClick={() => spend(key as string)}
                 >

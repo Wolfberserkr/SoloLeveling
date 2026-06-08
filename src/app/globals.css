@@ -116,6 +116,7 @@ body {
   justify-content: center;
   gap: 0.4rem;
   padding: 0.55rem 1.1rem;
+  min-height: 36px;
   font-family: ui-monospace, monospace;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -126,6 +127,7 @@ body {
   cursor: pointer;
   transition: all 0.18s;
   border-radius: 2px;
+  touch-action: manipulation;
 }
 .sys-btn:hover {
   background: linear-gradient(180deg, rgba(var(--color-accent-rgb), 0.35), rgba(var(--color-accent-rgb), 0.1));
@@ -192,3 +194,25 @@ body {
 .rarity-rare { color: #4ecbff; border-color: #4ecbff; }
 .rarity-epic { color: #a855f7; border-color: #a855f7; }
 .rarity-legendary { color: #ffd166; border-color: #ffd166; }
+
+/* ─── Mobile tuning ─────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  /* Roomier tap targets on the dense pages without bloating desktop. */
+  .sys-btn { min-height: 40px; padding: 0.5rem 0.9rem; }
+  .sys-input { padding: 0.6rem 0.65rem; font-size: 0.95rem; }
+  /* iOS auto-zooms on focus when input font is <16px. Bump number/text fields. */
+  input[type='number'], input[type='text'], input[type='email'], input[type='password'] {
+    font-size: 16px;
+  }
+  /* Horizontal scrollable navbar tabs feel native on mobile. */
+  .nav-tabs-scroll {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .nav-tabs-scroll::-webkit-scrollbar { display: none; }
+  .nav-tabs-scroll > a { flex-shrink: 0; }
+}
+
+/* Honour iOS notches / home indicator. */
+.safe-bottom { padding-bottom: max(2rem, env(safe-area-inset-bottom)); }

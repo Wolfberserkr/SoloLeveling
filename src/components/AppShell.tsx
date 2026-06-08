@@ -22,8 +22,8 @@ export function AppShell({
       <NavBar hunterName={hunterName} rank={rank} level={level} title={title} />
       <TimezoneSync currentTz={currentTz} />
       <NoticeStack />
-      <main className="max-w-6xl mx-auto px-4 py-6 md:py-8 space-y-6">{children}</main>
-      <footer className="text-center text-[10px] tracking-widest font-mono text-[#465e7a] py-8">
+      <main className="max-w-6xl mx-auto px-3 md:px-4 py-4 md:py-8 space-y-4 md:space-y-6">{children}</main>
+      <footer className="text-center text-[10px] tracking-widest font-mono text-[#465e7a] py-6 md:py-8 safe-bottom">
         [ THE SYSTEM v1.0 · UNOFFICIAL SOLO LEVELING FAN PROJECT ]
       </footer>
     </div>
