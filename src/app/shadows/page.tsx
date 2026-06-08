@@ -27,7 +27,7 @@ export default async function ShadowsPage() {
   for (const s of army) byRarity[s.rarity as Rarity] += 1;
 
   return (
-    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>
+    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)} currentTz={user.timezone}>
       <SystemWindow title="SHADOW ARMY" variant="purple" scan>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           <div>

@@ -60,7 +60,7 @@ export default async function ProgressPage() {
   ).size;
 
   return (
-    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>
+    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)} currentTz={user.timezone}>
       <SystemWindow title="PROGRESS REPORT" scan>
         <div className="grid grid-cols-3 gap-4 text-center font-mono">
           <Stat label="LEVEL" value={String(stats.level)} />

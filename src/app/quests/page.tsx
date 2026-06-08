@@ -15,7 +15,7 @@ export default async function QuestsPage() {
   const quests = await ensureDailyQuests(user.id, stats.level);
 
   return (
-    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>
+    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)} currentTz={user.timezone}>
       <QuestList initial={quests} streak={stats.streak} />
     </AppShell>
   );

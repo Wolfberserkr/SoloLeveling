@@ -26,6 +26,7 @@ export default async function SkillsPage() {
       rank={stats.rank}
       level={stats.level}
       title={titleFor(user.active_title)}
+      currentTz={user.timezone}
     >
       <SystemWindow
         title="MONARCH'S SKILLS"

@@ -30,7 +30,7 @@ export default async function WorkoutHub() {
   const dayIdx = dayOfWeekInTz(user.timezone);
 
   return (
-    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)}>
+    <AppShell hunterName={user.hunter_name} rank={stats.rank} level={stats.level} title={titleFor(user.active_title)} currentTz={user.timezone}>
       {deload && (
         <SystemWindow title="DELOAD WEEK ACTIVE" variant="gold" scan>
           <p className="text-sm text-[#e6f4ff] mb-2">
