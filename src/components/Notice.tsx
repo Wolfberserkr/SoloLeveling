@@ -18,7 +18,11 @@ export function NoticeStack() {
       const res = await fetch('/api/notifications');
       if (res.ok) {
         const data = await res.json();
-        setItems(data.notifications.filter((n: Notice) => !n.read).slice(0, 4));
+        setItems(
+          data.notifications
+            .filter((n: Notice) => !n.read && n.kind !== 'level_up' && n.kind !== 'rank_up')
+            .slice(0, 4)
+        );
       }
     })();
   }, []);
