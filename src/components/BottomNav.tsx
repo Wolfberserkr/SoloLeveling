@@ -11,10 +11,10 @@ const PRIMARY = [
 ];
 
 const MORE = [
-  { href: '/shadows',      label: 'ARMY',        icon: '☽' },
-  { href: '/skills',       label: 'SKILLS',      icon: '✦' },
-  { href: '/achievements', label: 'ACHIEVEMENTS',icon: '★' },
-  { href: '/inventory',    label: 'INVENTORY',   icon: '◆' },
+  { href: '/shadows',      label: 'ARMY',         icon: '☽' },
+  { href: '/skills',       label: 'SKILLS',       icon: '✦' },
+  { href: '/achievements', label: 'ACHIEVEMENTS', icon: '★' },
+  { href: '/inventory',    label: 'INVENTORY',    icon: '◆' },
 ];
 
 export function BottomNav() {
@@ -25,39 +25,56 @@ export function BottomNav() {
 
   return (
     <>
+      {/* Backdrop — only blocks touches when open */}
       {open && (
-        <div className="fixed inset-0 z-40" onClick={() => setOpen(false)}>
-          <div
-            className="absolute bottom-[calc(4rem+env(safe-area-inset-bottom))] left-3 right-3 sys-window sys-window-cyan p-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="sys-title text-[10px] mb-3 tracking-[0.3em]">[ NAVIGATION ]</div>
-            <div className="grid grid-cols-2 gap-2">
-              {MORE.map((t) => {
-                const active = path?.startsWith(t.href);
-                return (
-                  <Link
-                    key={t.href}
-                    href={t.href}
-                    onClick={() => setOpen(false)}
-                    className={`flex items-center gap-2 px-3 py-3 font-mono text-[11px] tracking-[0.15em] border rounded-sm transition-all ${
-                      active
-                        ? 'border-accent-cyan/70 text-accent-cyan bg-accent-cyan/10'
-                        : 'border-accent-cyan/20 text-[#a9c7e0]'
-                    }`}
-                  >
-                    <span>{t.icon}</span>
-                    <span>{t.label}</span>
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        </div>
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setOpen(false)}
+        />
       )}
 
+      {/* More popup — always in DOM, slides up/down */}
+      <div
+        className="fixed left-0 right-0 z-50 md:hidden"
+        style={{
+          bottom: 'calc(4rem + env(safe-area-inset-bottom))',
+          transform: open ? 'translateY(0)' : 'translateY(110%)',
+          opacity: open ? 1 : 0,
+          transition: 'transform 0.25s cubic-bezier(.34,1.2,.64,1), opacity 0.2s ease',
+          pointerEvents: open ? 'auto' : 'none',
+        }}
+      >
+        <div
+          className="mx-3 sys-window sys-window-cyan p-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="sys-title text-[10px] mb-3 tracking-[0.3em]">[ NAVIGATION ]</div>
+          <div className="grid grid-cols-2 gap-2">
+            {MORE.map((t) => {
+              const active = path?.startsWith(t.href);
+              return (
+                <Link
+                  key={t.href}
+                  href={t.href}
+                  onClick={() => setOpen(false)}
+                  className={`flex items-center gap-2 px-3 py-3 font-mono text-[11px] tracking-[0.15em] border rounded-sm transition-all ${
+                    active
+                      ? 'border-accent-cyan/70 text-accent-cyan bg-accent-cyan/10'
+                      : 'border-accent-cyan/20 text-[#a9c7e0]'
+                  }`}
+                >
+                  <span>{t.icon}</span>
+                  <span>{t.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom tab bar */}
       <nav
-        className="fixed bottom-0 left-0 right-0 z-40 md:hidden"
+        className="fixed bottom-0 left-0 right-0 z-50 md:hidden"
         style={{
           background: 'rgba(5,6,13,0.96)',
           borderTop: '1px solid rgba(78,203,255,0.2)',
@@ -72,6 +89,7 @@ export function BottomNav() {
               <Link
                 key={t.href}
                 href={t.href}
+                onClick={() => setOpen(false)}
                 className={`flex-1 flex flex-col items-center justify-center py-3 gap-1 font-mono text-[9px] tracking-[0.12em] transition-all ${
                   active ? 'text-accent-cyan' : 'text-[#465e7a]'
                 }`}
@@ -90,8 +108,13 @@ export function BottomNav() {
             }`}
             style={(moreActive || open) ? { textShadow: '0 0 10px rgba(78,203,255,0.8)' } : undefined}
           >
-            <span className="text-[1.1rem] leading-none">···</span>
-            <span>MORE</span>
+            <span
+              className="text-[1.1rem] leading-none transition-transform duration-200"
+              style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
+            >
+              ···
+            </span>
+            <span>{open ? 'CLOSE' : 'MORE'}</span>
           </button>
         </div>
       </nav>
