@@ -5,6 +5,8 @@ import { useUiStore } from '@/stores/uiStore';
 import { gameAction } from '@/lib/gameApi';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import { StatBar } from '@/components/system/StatBar';
+import { SideQuestsPanel } from '@/features/training/SideQuestsPanel';
+import { RecoveryPanel } from '@/features/training/RecoveryPanel';
 import type { TrainingQuest, XpAward } from '@/lib/types';
 
 type ExerciseKey = 'pushups' | 'situps' | 'squats' | 'run_km';
@@ -70,15 +72,27 @@ export function TrainingPage() {
     if (busy || resolved || !allMet) return;
     setBusy(true);
     try {
-      const res = await gameAction<{ award: XpAward; streak: number; training: TrainingQuest }>(
-        'complete-training',
-      );
+      const res = await gameAction<{
+        award: XpAward;
+        streak: number;
+        perfect: XpAward | null;
+        training: TrainingQuest;
+      }>('complete-training');
       pushAlert({
         kind: 'success',
         title: 'Daily Quest Complete',
         body: `+${res.award.credited} XP · Streak ${res.streak}${res.award.capped ? ' · DAILY XP SATURATED' : ''}`,
       });
-      if (res.award.leveled_up) showLevelUp(res.award.new_level);
+      if (res.perfect) {
+        pushAlert({
+          kind: 'success',
+          title: 'PERFECT CLEAR',
+          body: `Every quest today completed. +${res.perfect.credited} XP`,
+        });
+      }
+      if (res.award.leveled_up || res.perfect?.leveled_up) {
+        showLevelUp(res.perfect?.leveled_up ? res.perfect.new_level : res.award.new_level);
+      }
       await refresh();
     } catch (err) {
       pushAlert({
@@ -97,6 +111,11 @@ export function TrainingPage() {
         <div className="mb-3 flex items-center justify-between font-sys text-[0.65rem] uppercase tracking-widest text-slate-400">
           <span>{training.local_date}</span>
           <span className="flex items-center gap-2">
+            {training.variant !== 'standard' && (
+              <span className={training.variant === 'recovery' ? 'text-accent-purple' : 'text-accent-cyan'}>
+                {training.variant}
+              </span>
+            )}
             {Number(training.load_modifier) < 1 && (
               <span className="text-accent-gold">Load {Math.round(Number(training.load_modifier) * 100)}%</span>
             )}
@@ -174,10 +193,13 @@ export function TrainingPage() {
             className="pointer-events-none mx-auto mt-5 w-fit border-2 border-accent-green px-6 py-1 font-display text-xl font-bold uppercase tracking-[0.3em] text-accent-green"
             style={{ boxShadow: '0 0 18px rgba(16,185,129,0.4)' }}
           >
-            Complete
+            {training.perfect_clear ? 'Perfect Clear' : 'Complete'}
           </motion.div>
         )}
       </SystemWindow>
+
+      <SideQuestsPanel />
+      <RecoveryPanel />
 
       <SystemWindow title="Directive" accent="purple" delay={0.1}>
         <p className="text-sm leading-relaxed text-slate-300">

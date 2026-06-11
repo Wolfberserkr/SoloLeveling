@@ -44,6 +44,27 @@ export type TrainingQuest = {
   completed_at: string | null;
 };
 
+export type DailyQuest = {
+  id: string;
+  user_id: string;
+  local_date: string;
+  quest_key: string;
+  title: string;
+  body: string;
+  mana_cost: number;
+  xp_reward: number;
+  status: 'pending' | 'completed' | 'expired';
+  completed_at: string | null;
+};
+
+export type SleepLog = {
+  user_id: string;
+  local_date: string;
+  hours: number;
+  mana_gained: number;
+  potion_earned: boolean;
+};
+
 export type SystemMessage = {
   id: string;
   kind: string;
