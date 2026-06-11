@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { supabase, isConfigured } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import { GlitchText } from '@/components/system/GlitchText';
 
@@ -64,12 +64,6 @@ export function LoginPage() {
         </motion.div>
 
         <SystemWindow scan>
-          {!isConfigured && (
-            <p className="mb-4 border border-accent-red/40 bg-accent-red/10 p-3 font-sys text-xs text-accent-red">
-              SYSTEM LINK OFFLINE — set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env,
-              then rebuild.
-            </p>
-          )}
           <form onSubmit={submit} className="flex flex-col gap-3">
             {mode === 'signup' && (
               <label className="block">
@@ -115,7 +109,7 @@ export function LoginPage() {
 
             {error && <p className="font-sys text-xs text-accent-red">{error}</p>}
 
-            <button className="sys-btn mt-2" disabled={busy || !isConfigured}>
+            <button className="sys-btn mt-2" disabled={busy}>
               {busy ? 'Linking…' : mode === 'login' ? 'Enter the System' : 'Awaken'}
             </button>
           </form>
