@@ -10,6 +10,8 @@ import type {
   SleepLog,
   DungeonProgress,
   BodyMetrics,
+  Book,
+  RetentionQuestion,
   SystemMessage,
 } from '@/lib/types';
 
@@ -24,6 +26,10 @@ type PlayerState = {
   dungeon: DungeonProgress | null;
   gymDoneToday: boolean;
   metrics: BodyMetrics | null; // latest entry
+  books: Book[];
+  dueQuestions: RetentionQuestion[]; // unmastered checks due today or earlier
+  readTodayBookIds: string[]; // tomes with a reading session logged today
+  appliedTodayBookIds: string[]; // tomes with an applied insight logged today
   totals: TrainingTotals | null;
   messages: SystemMessage[];
   /** Full refresh: lazy daily reset on the server, then re-read everything. */
@@ -47,6 +53,10 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   dungeon: null,
   gymDoneToday: false,
   metrics: null,
+  books: [],
+  dueQuestions: [],
+  readTodayBookIds: [],
+  appliedTodayBookIds: [],
   totals: null,
   messages: [],
 
@@ -101,6 +111,10 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       dungeon: null,
       gymDoneToday: false,
       metrics: null,
+      books: [],
+      dueQuestions: [],
+      readTodayBookIds: [],
+      appliedTodayBookIds: [],
       totals: null,
       messages: [],
     }),
@@ -118,6 +132,10 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     dungeonRes,
     gymRes,
     metricsRes,
+    booksRes,
+    questionsRes,
+    readingRes,
+    applicationsRes,
   ] = await Promise.all([
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
@@ -154,6 +172,23 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
         .select('*')
         .order('local_date', { ascending: false })
         .limit(1),
+      supabase.from('books').select('*').order('created_at'),
+      supabase
+        .from('retention_questions')
+        .select('*')
+        .eq('mastered', false)
+        .order('due_date')
+        .limit(100),
+      supabase
+        .from('reading_sessions')
+        .select('book_id, local_date')
+        .order('local_date', { ascending: false })
+        .limit(20),
+      supabase
+        .from('book_applications')
+        .select('book_id, local_date')
+        .order('local_date', { ascending: false })
+        .limit(20),
     ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
@@ -163,6 +198,11 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
   const quests = ((questsRes.data ?? []) as DailyQuest[]).filter((q) => q.local_date === today);
   const sleepRow = ((sleepRes.data ?? [])[0] ?? null) as SleepLog | null;
   const gymRow = (gymRes.data ?? [])[0] ?? null;
+  const dueQuestions = ((questionsRes.data ?? []) as RetentionQuestion[]).filter(
+    (q) => q.due_date != null && today != null && q.due_date <= today,
+  );
+  const todaysBookIds = (rows: Array<{ book_id: string; local_date: string }> | null) =>
+    (rows ?? []).filter((r) => r.local_date === today).map((r) => r.book_id);
 
   set({
     profile: profileRes.data as Profile,
@@ -175,5 +215,9 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     dungeon: (dungeonRes.data ?? null) as DungeonProgress | null,
     gymDoneToday: Boolean(gymRow && gymRow.local_date === today),
     metrics: ((metricsRes.data ?? [])[0] ?? null) as BodyMetrics | null,
+    books: (booksRes.data ?? []) as Book[],
+    dueQuestions,
+    readTodayBookIds: todaysBookIds(readingRes.data),
+    appliedTodayBookIds: todaysBookIds(applicationsRes.data),
   });
 }

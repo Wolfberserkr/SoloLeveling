@@ -52,6 +52,11 @@ export const PERFECT_CLEAR_XP = 25;
 export const GYM_SESSION_XP = 60; // repeatable → cap-eligible
 export const BOSS_CLEAR_XP = 200; // one-shot per phase → cap-exempt
 
+// Library (Phase 4) — reading-session XP scales by pages (see library.ts)
+export const REFLECTION_XP = 15; // written reflection with a session → cap-eligible
+export const APPLY_XP = 25; // one applied insight per tome per day → cap-eligible
+export const RETENTION_PASS_XP = 10; // honest recall on a knowledge check → cap-eligible
+
 // Mana ───────────────────────────────────────────────────────────────────────
 export const MANA_MAX_BASE = 100;
 

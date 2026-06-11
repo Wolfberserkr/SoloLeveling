@@ -27,10 +27,27 @@ import {
   POTION_RESTORE_MAX,
 } from '../_shared/game/mana.ts';
 import {
+  MAX_ACTIVE_BOOKS,
+  MAX_QUESTIONS_PER_BOOK,
+  MAX_SESSION_PAGES,
+  MIN_BOOK_PAGES,
+  MAX_BOOK_PAGES,
+  MIN_REFLECTION_CHARS,
+  MIN_APPLICATION_CHARS,
+  readingXp,
+  bookFinishXp,
+  isBookFinished,
+  initialDueDate,
+  reviewOutcome,
+} from '../_shared/game/library.ts';
+import {
   TRAINING_XP,
   PERFECT_CLEAR_XP,
   GYM_SESSION_XP,
   BOSS_CLEAR_XP,
+  REFLECTION_XP,
+  APPLY_XP,
+  RETENTION_PASS_XP,
   FAILURE_LOAD_MODIFIER,
 } from '../_shared/game/constants.ts';
 
@@ -100,6 +117,16 @@ Deno.serve(async (req) => {
         return json(await attemptBoss(ctx, payload));
       case 'log-metrics':
         return json(await logMetrics(ctx, payload));
+      case 'add-book':
+        return json(await addBook(ctx, payload));
+      case 'log-reading':
+        return json(await logReading(ctx, payload));
+      case 'log-application':
+        return json(await logApplication(ctx, payload));
+      case 'add-question':
+        return json(await addQuestion(ctx, payload));
+      case 'review-question':
+        return json(await reviewQuestion(ctx, payload));
       default:
         throw new HttpError(400, `Unknown action: ${action}`);
     }
@@ -208,6 +235,23 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
       kind: 'recovery_day',
       title: 'Recovery Protocol active.',
       body: 'Your reserves are low. Today’s training is light by design — complete it to restore mana and earn a potion. Recovery is training.',
+    });
+  }
+
+  // Knowledge checks falling due surface once, at the day's first contact.
+  const { count: dueChecks } = await db
+    .from('retention_questions')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('mastered', false)
+    .lte('due_date', today);
+  if ((dueChecks ?? 0) > 0) {
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'knowledge_check',
+      title: 'Knowledge check.',
+      body: `${dueChecks} retention ${dueChecks === 1 ? 'question awaits' : 'questions await'} in the Library. The System tests what you claim to have learned.`,
+      payload: { due: dueChecks },
     });
   }
 
@@ -649,28 +693,7 @@ async function attemptBoss(ctx: Ctx, payload: { confirmed?: Record<string, unkno
     .eq('user_id', userId);
 
   // One-shot reward — exempt from the daily cap (see award_xp).
-  const { data: award, error } = await db.rpc('award_xp', {
-    p_user: userId,
-    p_amount: BOSS_CLEAR_XP,
-    p_source: 'boss_clear',
-    p_source_ref: null,
-    p_cap_eligible: false,
-    p_local_date: today,
-  });
-  if (error) {
-    console.error('award_xp failed:', error);
-    throw new HttpError(500, 'XP award failed');
-  }
-  if (award.leveled_up) {
-    ctx.profile.level = award.new_level;
-    await db.from('system_messages').insert({
-      user_id: userId,
-      kind: 'level_up',
-      title: `LEVEL UP — You have reached Level ${award.new_level}.`,
-      body: 'Your limits have shifted. The Daily Training Quest will scale accordingly.',
-      payload: { new_level: award.new_level },
-    });
-  }
+  const award = await awardXp(ctx, BOSS_CLEAR_XP, 'boss_clear', null, false);
 
   const cleared = allDungeonsCleared(nextPhase);
   await db.from('system_messages').insert({
@@ -762,6 +785,238 @@ function metric(n: unknown, min: number, max: number): number | null {
   return v;
 }
 
+// ── Library (Phase 4): Read → Reflect → Apply → Retain ──────────────────────
+async function getBook(ctx: Ctx, bookId: unknown) {
+  const id = typeof bookId === 'string' ? bookId : '';
+  if (!id) throw new HttpError(400, 'book_id required');
+  const { data } = await ctx.db
+    .from('books')
+    .select('*')
+    .eq('user_id', ctx.userId)
+    .eq('id', id)
+    .maybeSingle();
+  if (!data) throw new HttpError(404, 'No such tome');
+  return data;
+}
+
+// ── add-book: register a tome on the shelf ──────────────────────────────────
+async function addBook(
+  ctx: Ctx,
+  payload: { title?: string; author?: string; total_pages?: number },
+) {
+  const title = String(payload.title ?? '').trim().slice(0, 200);
+  if (!title) throw new HttpError(400, 'A tome needs a title');
+  const author = String(payload.author ?? '').trim().slice(0, 200);
+  const totalPages = Math.round(sanitize(payload.total_pages, MAX_BOOK_PAGES));
+  if (totalPages < MIN_BOOK_PAGES) {
+    throw new HttpError(400, `A tome needs at least ${MIN_BOOK_PAGES} pages`);
+  }
+
+  const { count } = await ctx.db
+    .from('books')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', ctx.userId)
+    .eq('status', 'reading');
+  if ((count ?? 0) >= MAX_ACTIVE_BOOKS) {
+    throw new HttpError(409, `Shelf full — finish a tome before opening an ${MAX_ACTIVE_BOOKS + 1}th.`);
+  }
+
+  const { data: book, error } = await ctx.db
+    .from('books')
+    .insert({
+      user_id: ctx.userId,
+      title,
+      author,
+      total_pages: totalPages,
+      started_date: ctx.today,
+    })
+    .select('*')
+    .single();
+  if (error || !book) throw new HttpError(500, 'Failed to add tome');
+
+  return { ok: true, book };
+}
+
+// ── log-reading: Read (+ Reflect) — one session per tome per day ────────────
+async function logReading(
+  ctx: Ctx,
+  payload: { book_id?: string; pages?: number; reflection?: string },
+) {
+  const { db, userId, profile, today } = ctx;
+  const book = await getBook(ctx, payload.book_id);
+  if (book.status !== 'reading') throw new HttpError(409, 'This tome is closed');
+
+  const pages = Math.round(sanitize(payload.pages, MAX_SESSION_PAGES));
+  if (pages <= 0) throw new HttpError(400, 'Nothing to log');
+  if (profile.mana < MANA_COSTS.reading) {
+    throw new HttpError(409, 'Insufficient mana. Recover before opening the tome.');
+  }
+
+  const reflection = String(payload.reflection ?? '').trim().slice(0, 2000);
+  const { error: insertErr } = await db.from('reading_sessions').insert({
+    user_id: userId,
+    book_id: book.id,
+    local_date: today,
+    pages,
+    reflection,
+  });
+  if (insertErr) {
+    if (insertErr.code === '23505') throw new HttpError(409, 'Already logged this tome today');
+    console.error('reading_sessions insert failed:', insertErr);
+    throw new HttpError(500, 'Failed to log reading');
+  }
+
+  const pagesRead = Math.min(book.total_pages, book.pages_read + pages);
+  const finished = isBookFinished(pagesRead, book.total_pages);
+  const { data: updated } = await db
+    .from('books')
+    .update({
+      pages_read: pagesRead,
+      ...(finished ? { status: 'finished', finished_date: today } : {}),
+    })
+    .eq('id', book.id)
+    .select('*')
+    .single();
+
+  const mana = clampMana(profile.mana - MANA_COSTS.reading, profile.mana_max);
+  await db.from('profiles').update({ mana }).eq('user_id', userId);
+  profile.mana = mana;
+
+  // Read pays by pages; a genuine written reflection pays its bonus on top.
+  const reflected = reflection.length >= MIN_REFLECTION_CHARS;
+  const award = await awardXp(
+    ctx,
+    readingXp(pages) + (reflected ? REFLECTION_XP : 0),
+    'reading_session',
+    book.id,
+  );
+
+  let finishAward = null;
+  if (finished) {
+    // One-shot per tome — exempt from the daily cap, like a boss clear.
+    finishAward = await awardXp(ctx, bookFinishXp(book.total_pages), 'book_finished', book.id, false);
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'book_finished',
+      title: `TOME CLEARED — “${book.title}”.`,
+      body: `${book.total_pages} pages conquered. Knowledge fades unless tested — your banked questions will keep coming due. Apply what you learned.`,
+      payload: { book_id: book.id },
+    });
+  }
+
+  return {
+    ok: true,
+    book: updated ?? { ...book, pages_read: pagesRead },
+    pages,
+    reflected,
+    award,
+    finish_award: finishAward,
+    finished,
+    mana,
+  };
+}
+
+// ── log-application: Apply — one concrete action per tome per day ───────────
+async function logApplication(ctx: Ctx, payload: { book_id?: string; action?: string }) {
+  const book = await getBook(ctx, payload.book_id);
+  const action = String(payload.action ?? '').trim().slice(0, 500);
+  if (action.length < MIN_APPLICATION_CHARS) {
+    throw new HttpError(400, 'Describe the action concretely — what did you actually do?');
+  }
+
+  const { data: application, error } = await ctx.db
+    .from('book_applications')
+    .insert({ user_id: ctx.userId, book_id: book.id, local_date: ctx.today, action })
+    .select('*')
+    .single();
+  if (error) {
+    if (error.code === '23505') throw new HttpError(409, 'Already applied from this tome today');
+    console.error('book_applications insert failed:', error);
+    throw new HttpError(500, 'Failed to log application');
+  }
+
+  const award = await awardXp(ctx, APPLY_XP, 'book_applied', book.id);
+  return { ok: true, application, award };
+}
+
+// ── add-question: Retain — bank a question for future knowledge checks ──────
+async function addQuestion(
+  ctx: Ctx,
+  payload: { book_id?: string; prompt?: string; answer?: string },
+) {
+  const book = await getBook(ctx, payload.book_id);
+  const prompt = String(payload.prompt ?? '').trim().slice(0, 500);
+  if (prompt.length < 5) throw new HttpError(400, 'Question too short');
+  const answer = String(payload.answer ?? '').trim().slice(0, 1000);
+
+  const { count } = await ctx.db
+    .from('retention_questions')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', ctx.userId)
+    .eq('book_id', book.id);
+  if ((count ?? 0) >= MAX_QUESTIONS_PER_BOOK) {
+    throw new HttpError(409, 'Question bank full for this tome — master what you have.');
+  }
+
+  const { data: question, error } = await ctx.db
+    .from('retention_questions')
+    .insert({
+      user_id: ctx.userId,
+      book_id: book.id,
+      prompt,
+      answer,
+      due_date: initialDueDate(ctx.today),
+    })
+    .select('*')
+    .single();
+  if (error || !question) throw new HttpError(500, 'Failed to bank question');
+
+  return { ok: true, question };
+}
+
+// ── review-question: resolve a due knowledge check (self-graded) ────────────
+async function reviewQuestion(ctx: Ctx, payload: { question_id?: string; recalled?: boolean }) {
+  const id = typeof payload.question_id === 'string' ? payload.question_id : '';
+  if (!id) throw new HttpError(400, 'question_id required');
+
+  const { data: question } = await ctx.db
+    .from('retention_questions')
+    .select('*')
+    .eq('user_id', ctx.userId)
+    .eq('id', id)
+    .maybeSingle();
+  if (!question) throw new HttpError(404, 'No such question');
+  if (question.mastered) throw new HttpError(409, 'Already mastered');
+  if (!question.due_date || question.due_date > ctx.today) {
+    throw new HttpError(409, 'Not yet due — the System decides when to test you.');
+  }
+
+  const recalled = payload.recalled === true;
+  const outcome = reviewOutcome(question.stage, recalled, ctx.today);
+  const { data: updated } = await ctx.db
+    .from('retention_questions')
+    .update({
+      stage: outcome.stage,
+      due_date: outcome.dueDate,
+      mastered: outcome.mastered,
+      times_reviewed: question.times_reviewed + 1,
+    })
+    .eq('id', question.id)
+    .select('*')
+    .single();
+
+  // Honest recall pays; a lapse costs nothing but the climb back.
+  const award = recalled ? await awardXp(ctx, RETENTION_PASS_XP, 'knowledge_check', question.id) : null;
+
+  return {
+    ok: true,
+    recalled,
+    mastered: outcome.mastered,
+    question: updated ?? { ...question, ...outcome },
+    award,
+  };
+}
+
 // ── Perfect Clear: training + every side quest done in one day ──────────────
 async function checkPerfectClear(
   ctx: Ctx,
@@ -784,13 +1039,19 @@ async function checkPerfectClear(
 }
 
 // ── XP gate wrapper: rpc → level-up announcement ────────────────────────────
-async function awardXp(ctx: Ctx, amount: number, source: string, sourceRef: string | null) {
+async function awardXp(
+  ctx: Ctx,
+  amount: number,
+  source: string,
+  sourceRef: string | null,
+  capEligible = true,
+) {
   const { data: award, error } = await ctx.db.rpc('award_xp', {
     p_user: ctx.userId,
     p_amount: amount,
     p_source: source,
     p_source_ref: sourceRef,
-    p_cap_eligible: true,
+    p_cap_eligible: capEligible,
     p_local_date: ctx.today,
   });
   if (error) {

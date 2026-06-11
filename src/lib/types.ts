@@ -84,6 +84,32 @@ export type BodyMetrics = {
   notes: string;
 };
 
+export type Book = {
+  id: string;
+  user_id: string;
+  title: string;
+  author: string;
+  total_pages: number;
+  pages_read: number;
+  status: 'reading' | 'finished' | 'abandoned';
+  started_date: string;
+  finished_date: string | null;
+  created_at: string;
+};
+
+export type RetentionQuestion = {
+  id: string;
+  user_id: string;
+  book_id: string;
+  prompt: string;
+  answer: string;
+  stage: number;
+  due_date: string | null;
+  mastered: boolean;
+  times_reviewed: number;
+  created_at: string;
+};
+
 export type SystemMessage = {
   id: string;
   kind: string;
