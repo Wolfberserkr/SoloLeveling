@@ -303,7 +303,8 @@ function MetricsPanel() {
         Record Measurements
       </button>
       <p className="mt-3 text-xs leading-relaxed text-slate-500">
-        Weigh in weekly, same conditions. The scale is data, not judgment — trends over days.
+        Weekly check-in, same conditions each time. One entry per week — logging again this week
+        refines it. The scale is data, not judgment.
       </p>
     </SystemWindow>
   );

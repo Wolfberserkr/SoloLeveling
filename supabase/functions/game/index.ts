@@ -5,7 +5,7 @@
 // ═════════════════════════════════════════════════════════════════════════
 import { adminClient } from '../_shared/db.ts';
 import { requireUser, HttpError, json, CORS_HEADERS } from '../_shared/auth.ts';
-import { localDateInTz, previousDate } from '../_shared/time.ts';
+import { localDateInTz, previousDate, startOfIsoWeek } from '../_shared/time.ts';
 import { trainingTargetsFor, isTrainingComplete } from '../_shared/game/training.ts';
 import { rollTrainingVariant, rollSideQuests } from '../_shared/game/daily.ts';
 import {
@@ -698,7 +698,9 @@ async function attemptBoss(ctx: Ctx, payload: { confirmed?: Record<string, unkno
   };
 }
 
-// ── log-metrics: upsert today's body measurements ───────────────────────────
+// ── log-metrics: weekly body measurements ───────────────────────────────────
+// One entry per ISO week: logging again in the same week refines that entry;
+// a new week opens a new row. Keeps the trend line weekly-spaced.
 async function logMetrics(
   ctx: Ctx,
   payload: {
@@ -721,15 +723,19 @@ async function logMetrics(
     throw new HttpError(400, 'Nothing to log');
   }
 
-  // Only overwrite the fields provided; re-logging the same day refines it.
+  // Only overwrite the fields provided; re-logging refines this week's entry.
   const update: Record<string, unknown> = { notes: String(payload.notes ?? '').slice(0, 2000) };
   for (const [k, v] of Object.entries(fields)) if (v !== null) update[k] = v;
 
+  const weekStart = startOfIsoWeek(ctx.today);
   const { data: existing } = await ctx.db
     .from('body_metrics')
-    .select('*')
+    .select('local_date')
     .eq('user_id', ctx.userId)
-    .eq('local_date', ctx.today)
+    .gte('local_date', weekStart)
+    .lte('local_date', ctx.today)
+    .order('local_date', { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   const { data, error } = existing
@@ -737,7 +743,7 @@ async function logMetrics(
         .from('body_metrics')
         .update(update)
         .eq('user_id', ctx.userId)
-        .eq('local_date', ctx.today)
+        .eq('local_date', existing.local_date)
         .select('*')
         .single()
     : await ctx.db
@@ -747,7 +753,7 @@ async function logMetrics(
         .single();
   if (error || !data) throw new HttpError(500, 'Failed to log metrics');
 
-  return { ok: true, metrics: data };
+  return { ok: true, metrics: data, updated_existing: Boolean(existing) };
 }
 
 function metric(n: unknown, min: number, max: number): number | null {
