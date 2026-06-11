@@ -228,6 +228,9 @@ end;
 $$;
 
 revoke execute on function public.award_xp from public, anon, authenticated;
+-- Revoking from PUBLIC also strips service_role's implicit grant; edge
+-- functions call this via RPC with the service-role key, so restore it.
+grant execute on function public.award_xp to service_role;
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- New player initialization: profile + 9 stats + awakening message.
