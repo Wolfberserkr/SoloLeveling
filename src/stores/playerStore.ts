@@ -8,6 +8,8 @@ import type {
   TrainingTotals,
   DailyQuest,
   SleepLog,
+  DungeonProgress,
+  BodyMetrics,
   SystemMessage,
 } from '@/lib/types';
 
@@ -19,6 +21,9 @@ type PlayerState = {
   training: TrainingQuest | null;
   quests: DailyQuest[];
   sleep: SleepLog | null; // today's log, if any
+  dungeon: DungeonProgress | null;
+  gymDoneToday: boolean;
+  metrics: BodyMetrics | null; // latest entry
   totals: TrainingTotals | null;
   messages: SystemMessage[];
   /** Full refresh: lazy daily reset on the server, then re-read everything. */
@@ -27,6 +32,7 @@ type PlayerState = {
   refresh: () => Promise<void>;
   setTraining: (q: TrainingQuest) => void;
   setQuest: (q: DailyQuest) => void;
+  setDungeon: (d: DungeonProgress, gymDoneToday?: boolean) => void;
   reset: () => void;
 };
 
@@ -38,6 +44,9 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   training: null,
   quests: [],
   sleep: null,
+  dungeon: null,
+  gymDoneToday: false,
+  metrics: null,
   totals: null,
   messages: [],
 
@@ -45,11 +54,20 @@ export const usePlayerStore = create<PlayerState>((set) => ({
     set({ loading: true, error: null });
     try {
       // The System catches up on the day (generates today's quests) first.
-      const daily = await gameAction<{ training: TrainingQuest; quests: DailyQuest[] }>(
-        'ensure-daily',
-      );
+      const daily = await gameAction<{
+        training: TrainingQuest;
+        quests: DailyQuest[];
+        dungeon: DungeonProgress;
+        gym_done_today: boolean;
+      }>('ensure-daily');
       await readState(set);
-      set({ training: daily.training, quests: daily.quests, loading: false });
+      set({
+        training: daily.training,
+        quests: daily.quests,
+        dungeon: daily.dungeon,
+        gymDoneToday: daily.gym_done_today,
+        loading: false,
+      });
     } catch (err) {
       set({ error: err instanceof Error ? err.message : 'System link failed', loading: false });
     }
@@ -68,6 +86,9 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   setQuest: (q) =>
     set((s) => ({ quests: s.quests.map((existing) => (existing.id === q.id ? q : existing)) })),
 
+  setDungeon: (d, gymDoneToday) =>
+    set((s) => ({ dungeon: d, gymDoneToday: gymDoneToday ?? s.gymDoneToday })),
+
   reset: () =>
     set({
       loading: true,
@@ -77,14 +98,27 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       training: null,
       quests: [],
       sleep: null,
+      dungeon: null,
+      gymDoneToday: false,
+      metrics: null,
       totals: null,
       messages: [],
     }),
 }));
 
 async function readState(set: (partial: Partial<PlayerState>) => void) {
-  const [profileRes, statsRes, totalsRes, messagesRes, trainingRes, questsRes, sleepRes] =
-    await Promise.all([
+  const [
+    profileRes,
+    statsRes,
+    totalsRes,
+    messagesRes,
+    trainingRes,
+    questsRes,
+    sleepRes,
+    dungeonRes,
+    gymRes,
+    metricsRes,
+  ] = await Promise.all([
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
       supabase.from('training_totals').select('*').single(),
@@ -109,6 +143,17 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
         .select('*')
         .order('local_date', { ascending: false })
         .limit(1),
+      supabase.from('dungeon_progress').select('*').maybeSingle(),
+      supabase
+        .from('gym_sessions')
+        .select('local_date')
+        .order('local_date', { ascending: false })
+        .limit(1),
+      supabase
+        .from('body_metrics')
+        .select('*')
+        .order('local_date', { ascending: false })
+        .limit(1),
     ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
@@ -117,6 +162,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
   const today = training?.local_date;
   const quests = ((questsRes.data ?? []) as DailyQuest[]).filter((q) => q.local_date === today);
   const sleepRow = ((sleepRes.data ?? [])[0] ?? null) as SleepLog | null;
+  const gymRow = (gymRes.data ?? [])[0] ?? null;
 
   set({
     profile: profileRes.data as Profile,
@@ -126,5 +172,8 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     training,
     quests,
     sleep: sleepRow && sleepRow.local_date === today ? sleepRow : null,
+    dungeon: (dungeonRes.data ?? null) as DungeonProgress | null,
+    gymDoneToday: Boolean(gymRow && gymRow.local_date === today),
+    metrics: ((metricsRes.data ?? [])[0] ?? null) as BodyMetrics | null,
   });
 }

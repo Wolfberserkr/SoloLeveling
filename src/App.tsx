@@ -11,6 +11,7 @@ import { GlitchText } from '@/components/system/GlitchText';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { StatusPage } from '@/features/status/StatusPage';
 import { TrainingPage } from '@/features/training/TrainingPage';
+import { DungeonsPage } from '@/features/dungeons/DungeonsPage';
 import { MorePage } from '@/features/more/MorePage';
 import { ModuleOffline } from '@/features/stubs/ModuleOffline';
 
@@ -60,16 +61,7 @@ function AuthedApp() {
       <Routes>
         <Route path="/" element={<StatusPage />} />
         <Route path="/training" element={<TrainingPage />} />
-        <Route
-          path="/dungeons"
-          element={
-            <ModuleOffline
-              name="Dungeons"
-              phase={3}
-              hint="Long-term training phases — Foundation through Master Physique — with benchmark Boss Fights."
-            />
-          }
-        />
+        <Route path="/dungeons" element={<DungeonsPage />} />
         <Route
           path="/books"
           element={

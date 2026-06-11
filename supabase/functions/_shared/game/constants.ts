@@ -48,6 +48,10 @@ export const MAX_LEVEL = 100;
 export const TRAINING_XP = 40;
 export const PERFECT_CLEAR_XP = 25;
 
+// Gym dungeons (Phase 3)
+export const GYM_SESSION_XP = 60; // repeatable → cap-eligible
+export const BOSS_CLEAR_XP = 200; // one-shot per phase → cap-exempt
+
 // Mana ───────────────────────────────────────────────────────────────────────
 export const MANA_MAX_BASE = 100;
 

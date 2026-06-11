@@ -65,6 +65,25 @@ export type SleepLog = {
   potion_earned: boolean;
 };
 
+export type DungeonProgress = {
+  user_id: string;
+  phase: number;
+  sessions_completed: number;
+  cycles_cleared: number;
+  last_boss_attempt: string | null;
+};
+
+export type BodyMetrics = {
+  user_id: string;
+  local_date: string;
+  weight_kg: number | null;
+  body_fat_pct: number | null;
+  waist_cm: number | null;
+  chest_cm: number | null;
+  arm_cm: number | null;
+  notes: string;
+};
+
 export type SystemMessage = {
   id: string;
   kind: string;

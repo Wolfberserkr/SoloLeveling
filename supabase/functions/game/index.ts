@@ -5,12 +5,19 @@
 // ═════════════════════════════════════════════════════════════════════════
 import { adminClient } from '../_shared/db.ts';
 import { requireUser, HttpError, json, CORS_HEADERS } from '../_shared/auth.ts';
-import { localDateInTz, previousDate } from '../_shared/time.ts';
+import { localDateInTz, previousDate, startOfIsoWeek } from '../_shared/time.ts';
 import { trainingTargetsFor, isTrainingComplete } from '../_shared/game/training.ts';
 import { rollTrainingVariant, rollSideQuests } from '../_shared/game/daily.ts';
 import {
+  dungeonPhaseFor,
+  allDungeonsCleared,
+  isBossReady,
+  bossDefeated,
+} from '../_shared/game/dungeons.ts';
+import {
   sleepBonus,
   clampMana,
+  MANA_COSTS,
   DAILY_REGEN,
   POOR_SLEEP_HOURS,
   LOW_MANA_THRESHOLD,
@@ -22,6 +29,8 @@ import {
 import {
   TRAINING_XP,
   PERFECT_CLEAR_XP,
+  GYM_SESSION_XP,
+  BOSS_CLEAR_XP,
   FAILURE_LOAD_MODIFIER,
 } from '../_shared/game/constants.ts';
 
@@ -85,6 +94,12 @@ Deno.serve(async (req) => {
         return json(await logSleep(ctx, payload));
       case 'use-potion':
         return json(await usePotion(ctx));
+      case 'complete-gym':
+        return json(await completeGym(ctx, payload));
+      case 'attempt-boss':
+        return json(await attemptBoss(ctx, payload));
+      case 'log-metrics':
+        return json(await logMetrics(ctx, payload));
       default:
         throw new HttpError(400, `Unknown action: ${action}`);
     }
@@ -155,7 +170,9 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
   const variant = recovery ? 'recovery' : rollTrainingVariant(userId, today);
 
   // Generate today's training quest (unique constraint makes this idempotent).
-  const targets = trainingTargetsFor(profile.level, 0, loadModifier, variant);
+  // Each cleared dungeon raises the baseline one notch.
+  const dungeon = await getDungeonProgress(ctx);
+  const targets = trainingTargetsFor(profile.level, dungeon.cycles_cleared, loadModifier, variant);
   await db.from('training_quests').upsert(
     {
       user_id: userId,
@@ -225,9 +242,44 @@ async function getTodaySideQuests(ctx: Ctx) {
   return data ?? [];
 }
 
+async function getDungeonProgress(ctx: Ctx) {
+  const { data } = await ctx.db
+    .from('dungeon_progress')
+    .select('*')
+    .eq('user_id', ctx.userId)
+    .maybeSingle();
+  if (data) return data;
+  // Self-heal accounts created before the dungeons migration.
+  const { data: created, error } = await ctx.db
+    .from('dungeon_progress')
+    .insert({ user_id: ctx.userId })
+    .select('*')
+    .single();
+  if (error || !created) throw new HttpError(500, 'Dungeon progress missing');
+  return created;
+}
+
 async function getDailySnapshot(ctx: Ctx) {
-  const [quest, sideQuests] = await Promise.all([getTodayQuest(ctx), getTodaySideQuests(ctx)]);
-  return { ok: true, today: ctx.today, training: quest, quests: sideQuests };
+  const [quest, sideQuests, dungeon, gymToday] = await Promise.all([
+    getTodayQuest(ctx),
+    getTodaySideQuests(ctx),
+    getDungeonProgress(ctx),
+    ctx.db
+      .from('gym_sessions')
+      .select('id')
+      .eq('user_id', ctx.userId)
+      .eq('local_date', ctx.today)
+      .maybeSingle()
+      .then((r) => r.data),
+  ]);
+  return {
+    ok: true,
+    today: ctx.today,
+    training: quest,
+    quests: sideQuests,
+    dungeon,
+    gym_done_today: Boolean(gymToday),
+  };
 }
 
 // ── log-training: increment progress on the four exercises ─────────────────
@@ -497,6 +549,219 @@ async function usePotion(ctx: Ctx) {
   return { ok: true, restored, mana, potions: profile.mana_potions };
 }
 
+// ── complete-gym: one dungeon run per day — spend mana, earn XP ─────────────
+async function completeGym(ctx: Ctx, payload: { notes?: string }) {
+  const { db, userId, profile, today } = ctx;
+  const dungeon = await getDungeonProgress(ctx);
+  if (allDungeonsCleared(dungeon.phase)) {
+    throw new HttpError(409, 'All dungeons cleared. Await the next System expansion.');
+  }
+  if (profile.mana < MANA_COSTS.gym) {
+    throw new HttpError(409, 'Insufficient mana. Recover before entering the dungeon.');
+  }
+
+  const notes = typeof payload.notes === 'string' ? payload.notes.slice(0, 2000) : '';
+  const { error: insertErr } = await db.from('gym_sessions').insert({
+    user_id: userId,
+    local_date: today,
+    phase: dungeon.phase,
+    notes,
+  });
+  if (insertErr) {
+    if (insertErr.code === '23505') throw new HttpError(409, 'Dungeon already cleared today');
+    console.error('gym_sessions insert failed:', insertErr);
+    throw new HttpError(500, 'Failed to record dungeon run');
+  }
+
+  const mana = clampMana(profile.mana - MANA_COSTS.gym, profile.mana_max);
+  await db.from('profiles').update({ mana }).eq('user_id', userId);
+  profile.mana = mana;
+
+  const sessionsCompleted = dungeon.sessions_completed + 1;
+  await db
+    .from('dungeon_progress')
+    .update({ sessions_completed: sessionsCompleted, updated_at: new Date().toISOString() })
+    .eq('user_id', userId);
+
+  const def = dungeonPhaseFor(dungeon.phase);
+  const bossReady = isBossReady(dungeon.phase, sessionsCompleted);
+  if (bossReady && dungeon.sessions_completed < def.sessionsRequired) {
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'boss_ready',
+      title: `Boss detected — ${def.boss.name}.`,
+      body: `You have cleared enough of ${def.name}. The dungeon boss awaits your challenge.`,
+      payload: { phase: dungeon.phase },
+    });
+  }
+
+  const award = await awardXp(ctx, GYM_SESSION_XP, 'gym_session', null);
+  return {
+    ok: true,
+    award,
+    mana,
+    dungeon: { ...dungeon, sessions_completed: sessionsCompleted },
+    boss_ready: bossReady,
+  };
+}
+
+// ── attempt-boss: benchmark test; defeat clears the dungeon phase ───────────
+async function attemptBoss(ctx: Ctx, payload: { confirmed?: Record<string, unknown> }) {
+  const { db, userId, today } = ctx;
+  const dungeon = await getDungeonProgress(ctx);
+  if (allDungeonsCleared(dungeon.phase)) throw new HttpError(409, 'All dungeons cleared');
+  if (!isBossReady(dungeon.phase, dungeon.sessions_completed)) {
+    throw new HttpError(409, 'The boss has not appeared yet. Keep clearing runs.');
+  }
+  if (dungeon.last_boss_attempt === today) {
+    throw new HttpError(409, 'One boss attempt per day. Recover and return.');
+  }
+
+  const def = dungeonPhaseFor(dungeon.phase);
+  const confirmed = payload.confirmed && typeof payload.confirmed === 'object' ? payload.confirmed : {};
+  const victory = bossDefeated(dungeon.phase, confirmed);
+
+  if (!victory) {
+    await db
+      .from('dungeon_progress')
+      .update({ last_boss_attempt: today, updated_at: new Date().toISOString() })
+      .eq('user_id', userId);
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'boss_failed',
+      title: `${def.boss.name} stands.`,
+      body: 'Not every benchmark fell today. The boss does not move — train, recover, and challenge it again tomorrow.',
+      payload: { phase: dungeon.phase },
+    });
+    return { ok: true, victory: false, boss: def.boss.name };
+  }
+
+  const nextPhase = dungeon.phase + 1;
+  await db
+    .from('dungeon_progress')
+    .update({
+      phase: nextPhase,
+      sessions_completed: 0,
+      cycles_cleared: dungeon.cycles_cleared + 1,
+      last_boss_attempt: today,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('user_id', userId);
+
+  // One-shot reward — exempt from the daily cap (see award_xp).
+  const { data: award, error } = await db.rpc('award_xp', {
+    p_user: userId,
+    p_amount: BOSS_CLEAR_XP,
+    p_source: 'boss_clear',
+    p_source_ref: null,
+    p_cap_eligible: false,
+    p_local_date: today,
+  });
+  if (error) {
+    console.error('award_xp failed:', error);
+    throw new HttpError(500, 'XP award failed');
+  }
+  if (award.leveled_up) {
+    ctx.profile.level = award.new_level;
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'level_up',
+      title: `LEVEL UP — You have reached Level ${award.new_level}.`,
+      body: 'Your limits have shifted. The Daily Training Quest will scale accordingly.',
+      payload: { new_level: award.new_level },
+    });
+  }
+
+  const cleared = allDungeonsCleared(nextPhase);
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'dungeon_cleared',
+    title: `DUNGEON CLEARED — ${def.boss.name} has fallen.`,
+    body: cleared
+      ? `${def.name} is complete. Every dungeon the System prepared has been cleared. Your daily baseline rises once more.`
+      : `${def.name} is complete. ${dungeonPhaseFor(nextPhase).name} is now open, and your Daily Training Quest baseline rises.`,
+    payload: { phase: dungeon.phase, next_phase: nextPhase },
+  });
+
+  return {
+    ok: true,
+    victory: true,
+    boss: def.boss.name,
+    award,
+    dungeon: {
+      ...dungeon,
+      phase: nextPhase,
+      sessions_completed: 0,
+      cycles_cleared: dungeon.cycles_cleared + 1,
+    },
+    all_cleared: cleared,
+  };
+}
+
+// ── log-metrics: weekly body measurements ───────────────────────────────────
+// One entry per ISO week: logging again in the same week refines that entry;
+// a new week opens a new row. Keeps the trend line weekly-spaced.
+async function logMetrics(
+  ctx: Ctx,
+  payload: {
+    weight_kg?: number;
+    body_fat_pct?: number;
+    waist_cm?: number;
+    chest_cm?: number;
+    arm_cm?: number;
+    notes?: string;
+  },
+) {
+  const fields = {
+    weight_kg: metric(payload.weight_kg, 20, 400),
+    body_fat_pct: metric(payload.body_fat_pct, 1, 75),
+    waist_cm: metric(payload.waist_cm, 30, 250),
+    chest_cm: metric(payload.chest_cm, 30, 250),
+    arm_cm: metric(payload.arm_cm, 10, 80),
+  };
+  if (Object.values(fields).every((v) => v === null)) {
+    throw new HttpError(400, 'Nothing to log');
+  }
+
+  // Only overwrite the fields provided; re-logging refines this week's entry.
+  const update: Record<string, unknown> = { notes: String(payload.notes ?? '').slice(0, 2000) };
+  for (const [k, v] of Object.entries(fields)) if (v !== null) update[k] = v;
+
+  const weekStart = startOfIsoWeek(ctx.today);
+  const { data: existing } = await ctx.db
+    .from('body_metrics')
+    .select('local_date')
+    .eq('user_id', ctx.userId)
+    .gte('local_date', weekStart)
+    .lte('local_date', ctx.today)
+    .order('local_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { data, error } = existing
+    ? await ctx.db
+        .from('body_metrics')
+        .update(update)
+        .eq('user_id', ctx.userId)
+        .eq('local_date', existing.local_date)
+        .select('*')
+        .single()
+    : await ctx.db
+        .from('body_metrics')
+        .insert({ user_id: ctx.userId, local_date: ctx.today, ...update })
+        .select('*')
+        .single();
+  if (error || !data) throw new HttpError(500, 'Failed to log metrics');
+
+  return { ok: true, metrics: data, updated_existing: Boolean(existing) };
+}
+
+function metric(n: unknown, min: number, max: number): number | null {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= min || v >= max) return null;
+  return v;
+}
+
 // ── Perfect Clear: training + every side quest done in one day ──────────────
 async function checkPerfectClear(
   ctx: Ctx,
@@ -519,7 +784,7 @@ async function checkPerfectClear(
 }
 
 // ── XP gate wrapper: rpc → level-up announcement ────────────────────────────
-async function awardXp(ctx: Ctx, amount: number, source: string, sourceRef: string) {
+async function awardXp(ctx: Ctx, amount: number, source: string, sourceRef: string | null) {
   const { data: award, error } = await ctx.db.rpc('award_xp', {
     p_user: ctx.userId,
     p_amount: amount,

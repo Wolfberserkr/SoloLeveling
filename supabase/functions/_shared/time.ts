@@ -18,6 +18,14 @@ export function previousDate(localDate: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** YYYY-MM-DD of the Monday starting the ISO week containing `localDate`. */
+export function startOfIsoWeek(localDate: string): string {
+  const d = new Date(`${localDate}T12:00:00Z`);
+  const offset = (d.getUTCDay() + 6) % 7; // Mon=0 … Sun=6
+  d.setUTCDate(d.getUTCDate() - offset);
+  return d.toISOString().slice(0, 10);
+}
+
 /** Local hour (0-23) right now in the given timezone. */
 export function localHourInTz(tz: string, date: Date = new Date()): number {
   const fmt = new Intl.DateTimeFormat('en-US', {
