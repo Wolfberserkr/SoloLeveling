@@ -19,6 +19,7 @@ import {
   WARMUPS,
   COOLDOWNS,
   type DungeonExercise,
+  type SessionKind,
 } from '@game/dungeons.ts';
 import { MANA_COSTS } from '@game/mana.ts';
 import type { DungeonProgress, XpAward } from '@/lib/types';
@@ -61,10 +62,13 @@ function DungeonRunPanel() {
   const showLevelUp = useUiStore((s) => s.showLevelUp);
   const [busy, setBusy] = useState(false);
   const [ticked, setTicked] = useState<Record<number, boolean>>({});
+  const [selected, setSelected] = useState<SessionKind | null>(null);
 
   if (!profile || !dungeon) return null;
   const def = dungeonPhaseFor(dungeon.phase);
   const affordable = profile.mana >= MANA_COSTS.gym;
+  const suggested = sessionKindFor(dungeon.sessions_completed);
+  const kind = selected ?? suggested;
 
   async function clearRun() {
     if (busy || gymDoneToday || !affordable) return;
@@ -74,9 +78,10 @@ function DungeonRunPanel() {
         award: XpAward;
         dungeon: DungeonProgress;
         boss_ready: boolean;
-      }>('complete-gym');
+      }>('complete-gym', { kind });
       setDungeon(res.dungeon, true);
       setTicked({});
+      setSelected(null);
       pushAlert({
         kind: 'success',
         title: 'Dungeon run cleared',
@@ -102,7 +107,6 @@ function DungeonRunPanel() {
     }
   }
 
-  const kind = sessionKindFor(dungeon.sessions_completed);
   const split = splitFor(kind);
 
   return (
@@ -119,19 +123,25 @@ function DungeonRunPanel() {
         />
       </div>
 
-      {/* Weekly cycle position — the next run is always the next session. */}
+      {/* Pick today's session — the cycle marks the suggested next one. */}
       <div className="mt-4 grid grid-cols-4 gap-1">
         {SESSION_ORDER.map((k) => (
-          <div
+          <button
             key={k}
-            className={`border py-1 text-center font-sys text-[0.6rem] uppercase tracking-widest ${
+            type="button"
+            onClick={() => {
+              setSelected(k);
+              setTicked({});
+            }}
+            className={`border py-1 text-center font-sys text-[0.6rem] uppercase tracking-widest transition-colors ${
               k === kind
                 ? 'border-accent-cyan/60 bg-accent-cyan/10 text-accent-cyan'
                 : 'border-accent-cyan/15 text-slate-600'
             }`}
           >
             {SESSION_LABELS[k].title.split(' — ')[0]}
-          </div>
+            {k === suggested && <span className="block text-[0.5rem] opacity-70">next</span>}
+          </button>
         ))}
       </div>
 
@@ -175,8 +185,8 @@ function DungeonRunPanel() {
       <ExerciseBlock label="Cooldown" exercises={COOLDOWNS[split]} />
 
       <p className="mt-3 text-xs leading-relaxed text-slate-500">
-        Four runs a week — e.g. Mon · Tue · Thu · Fri. Miss a day and the cycle waits: the next
-        run is always the next session, never skipped.
+        Four runs a week — e.g. Mon · Tue · Thu · Fri. The System suggests the next session in
+        the cycle, but the choice is yours: pick any of the four above.
       </p>
 
       {gymDoneToday ? (
@@ -212,25 +222,37 @@ function DemoLink({ exercise }: { exercise: DungeonExercise }) {
   );
 }
 
-/** Compact warmup/cooldown list — guidance, not tracked. */
+/** Collapsible warmup/cooldown list — guidance, not tracked. */
 function ExerciseBlock({ label, exercises }: { label: string; exercises: DungeonExercise[] }) {
+  const [open, setOpen] = useState(false);
   return (
     <div className="mt-3">
-      <div className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">{label}</div>
-      <div className="mt-1 flex flex-col gap-1">
-        {exercises.map((exercise) => (
-          <div
-            key={exercise.name}
-            className="flex items-stretch border border-accent-cyan/10 bg-bg-base/30 text-slate-400"
-          >
-            <span className="flex-1 p-1.5 pl-2 font-sys text-[0.7rem]">
-              {exercise.name}
-              <span className="ml-2 opacity-60">{exercise.scheme}</span>
-            </span>
-            <DemoLink exercise={exercise} />
-          </div>
-        ))}
-      </div>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between font-sys text-[0.6rem] uppercase tracking-widest text-slate-500"
+      >
+        <span>
+          {label} · {exercises.length}
+        </span>
+        <span>{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="mt-1 flex flex-col gap-1">
+          {exercises.map((exercise) => (
+            <div
+              key={exercise.name}
+              className="flex items-stretch border border-accent-cyan/10 bg-bg-base/30 text-slate-400"
+            >
+              <span className="flex-1 p-1.5 pl-2 font-sys text-[0.7rem]">
+                {exercise.name}
+                <span className="ml-2 opacity-60">{exercise.scheme}</span>
+              </span>
+              <DemoLink exercise={exercise} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

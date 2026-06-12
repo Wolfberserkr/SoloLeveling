@@ -13,6 +13,8 @@ import {
   allDungeonsCleared,
   isBossReady,
   bossDefeated,
+  sessionKindFor,
+  isSessionKind,
 } from '../_shared/game/dungeons.ts';
 import {
   sleepBonus,
@@ -628,7 +630,7 @@ async function usePotion(ctx: Ctx) {
 }
 
 // ── complete-gym: one dungeon run per day — spend mana, earn XP ─────────────
-async function completeGym(ctx: Ctx, payload: { notes?: string }) {
+async function completeGym(ctx: Ctx, payload: { notes?: string; kind?: string }) {
   const { db, userId, profile, today } = ctx;
   const dungeon = await getDungeonProgress(ctx);
   if (allDungeonsCleared(dungeon.phase)) {
@@ -638,11 +640,16 @@ async function completeGym(ctx: Ctx, payload: { notes?: string }) {
     throw new HttpError(409, 'Insufficient mana. Recover before entering the dungeon.');
   }
 
+  // The Player picks the split session; the cycle is only the default.
+  const kind = isSessionKind(payload.kind)
+    ? payload.kind
+    : sessionKindFor(dungeon.sessions_completed);
   const notes = typeof payload.notes === 'string' ? payload.notes.slice(0, 2000) : '';
   const { error: insertErr } = await db.from('gym_sessions').insert({
     user_id: userId,
     local_date: today,
     phase: dungeon.phase,
+    session_kind: kind,
     notes,
   });
   if (insertErr) {

@@ -33,9 +33,13 @@ export const SESSION_LABELS: Record<SessionKind, { title: string; focus: string 
   lower_b: { title: 'Lower B — Earth-Splitter', focus: 'Hinge + posterior chain' },
 };
 
-/** Which session the Player's next run is — runs cycle A→B→C→D, never skip. */
+/** Which session the cycle suggests next — runs cycle A→B→C→D, never skip. */
 export function sessionKindFor(sessionsCompleted: number): SessionKind {
   return SESSION_ORDER[((sessionsCompleted % 4) + 4) % 4];
+}
+
+export function isSessionKind(value: unknown): value is SessionKind {
+  return typeof value === 'string' && (SESSION_ORDER as string[]).includes(value);
 }
 
 export function splitFor(kind: SessionKind): 'upper' | 'lower' {
