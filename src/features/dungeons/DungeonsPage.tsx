@@ -11,7 +11,14 @@ import {
   allDungeonsCleared,
   isBossReady,
   demoSearchUrl,
+  sessionKindFor,
+  splitFor,
   MAX_DUNGEON_PHASE,
+  SESSION_ORDER,
+  SESSION_LABELS,
+  WARMUPS,
+  COOLDOWNS,
+  type DungeonExercise,
 } from '@game/dungeons.ts';
 import { MANA_COSTS } from '@game/mana.ts';
 import type { DungeonProgress, XpAward } from '@/lib/types';
@@ -95,6 +102,9 @@ function DungeonRunPanel() {
     }
   }
 
+  const kind = sessionKindFor(dungeon.sessions_completed);
+  const split = splitFor(kind);
+
   return (
     <SystemWindow title={`Dungeon ${dungeon.phase}/${MAX_DUNGEON_PHASE} — ${def.name}`} scan>
       <p className="text-xs leading-relaxed text-slate-400">{def.description}</p>
@@ -109,8 +119,35 @@ function DungeonRunPanel() {
         />
       </div>
 
-      <div className="mt-4 flex flex-col gap-2">
-        {def.template.map((exercise, i) => (
+      {/* Weekly cycle position — the next run is always the next session. */}
+      <div className="mt-4 grid grid-cols-4 gap-1">
+        {SESSION_ORDER.map((k) => (
+          <div
+            key={k}
+            className={`border py-1 text-center font-sys text-[0.6rem] uppercase tracking-widest ${
+              k === kind
+                ? 'border-accent-cyan/60 bg-accent-cyan/10 text-accent-cyan'
+                : 'border-accent-cyan/15 text-slate-600'
+            }`}
+          >
+            {SESSION_LABELS[k].title.split(' — ')[0]}
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3">
+        <div className="font-sys text-xs uppercase tracking-widest text-accent-cyan">
+          {SESSION_LABELS[kind].title}
+        </div>
+        <div className="font-sys text-[0.65rem] uppercase tracking-widest text-slate-500">
+          {SESSION_LABELS[kind].focus}
+        </div>
+      </div>
+
+      <ExerciseBlock label="Warmup" exercises={WARMUPS[split]} />
+
+      <div className="mt-3 flex flex-col gap-2">
+        {def.sessions[kind].map((exercise, i) => (
           <div
             key={exercise.name}
             className={`flex items-stretch border transition-colors ${
@@ -130,18 +167,17 @@ function DungeonRunPanel() {
                 <span className="ml-2 opacity-60">{exercise.scheme}</span>
               </span>
             </button>
-            <a
-              href={demoSearchUrl(exercise)}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`Demo: ${exercise.name}`}
-              className="flex items-center border-l border-accent-cyan/20 px-3 font-sys text-xs text-accent-cyan/80 hover:text-accent-cyan"
-            >
-              ▶
-            </a>
+            <DemoLink exercise={exercise} />
           </div>
         ))}
       </div>
+
+      <ExerciseBlock label="Cooldown" exercises={COOLDOWNS[split]} />
+
+      <p className="mt-3 text-xs leading-relaxed text-slate-500">
+        Four runs a week — e.g. Mon · Tue · Thu · Fri. Miss a day and the cycle waits: the next
+        run is always the next session, never skipped.
+      </p>
 
       {gymDoneToday ? (
         <motion.div
@@ -159,6 +195,43 @@ function DungeonRunPanel() {
         </button>
       )}
     </SystemWindow>
+  );
+}
+
+function DemoLink({ exercise }: { exercise: DungeonExercise }) {
+  return (
+    <a
+      href={demoSearchUrl(exercise)}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`Demo: ${exercise.name}`}
+      className="flex items-center border-l border-accent-cyan/20 px-3 font-sys text-xs text-accent-cyan/80 hover:text-accent-cyan"
+    >
+      ▶
+    </a>
+  );
+}
+
+/** Compact warmup/cooldown list — guidance, not tracked. */
+function ExerciseBlock({ label, exercises }: { label: string; exercises: DungeonExercise[] }) {
+  return (
+    <div className="mt-3">
+      <div className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">{label}</div>
+      <div className="mt-1 flex flex-col gap-1">
+        {exercises.map((exercise) => (
+          <div
+            key={exercise.name}
+            className="flex items-stretch border border-accent-cyan/10 bg-bg-base/30 text-slate-400"
+          >
+            <span className="flex-1 p-1.5 pl-2 font-sys text-[0.7rem]">
+              {exercise.name}
+              <span className="ml-2 opacity-60">{exercise.scheme}</span>
+            </span>
+            <DemoLink exercise={exercise} />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 

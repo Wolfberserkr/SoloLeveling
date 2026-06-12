@@ -7,6 +7,11 @@ import {
   isBossReady,
   bossDefeated,
   demoSearchUrl,
+  sessionKindFor,
+  splitFor,
+  SESSION_ORDER,
+  WARMUPS,
+  COOLDOWNS,
 } from '@game/dungeons.ts';
 import { baseTrainingTargets } from '@game/training.ts';
 
@@ -19,16 +24,18 @@ describe('dungeon phase definitions', () => {
 
   it('every phase has a real campaign length and a non-trivial boss', () => {
     for (const p of DUNGEON_PHASES) {
-      expect(p.sessionsRequired).toBeGreaterThanOrEqual(20); // ≥ ~7 weeks at 3/wk
-      expect(p.template.length).toBeGreaterThanOrEqual(5);
+      expect(p.sessionsRequired).toBeGreaterThanOrEqual(20); // ≥ ~5 weeks at 4/wk
+      for (const kind of SESSION_ORDER) {
+        expect(p.sessions[kind].length).toBeGreaterThanOrEqual(5);
+      }
       expect(p.boss.benchmarks.length).toBeGreaterThanOrEqual(4);
     }
   });
 
-  it('campaign lasts long enough for a 1–2 year arc at 3 sessions/week', () => {
+  it('campaign lasts long enough for a 1–2 year arc at 4 sessions/week', () => {
     const totalSessions = DUNGEON_PHASES.reduce((sum, p) => sum + p.sessionsRequired, 0);
-    const weeks = totalSessions / 3;
-    expect(weeks).toBeGreaterThanOrEqual(45); // ~a year of lifting minimum
+    const weeks = totalSessions / 4;
+    expect(weeks).toBeGreaterThanOrEqual(36); // most of a year of lifting minimum
   });
 
   it('benchmark keys are unique within each boss', () => {
@@ -39,15 +46,45 @@ describe('dungeon phase definitions', () => {
   });
 
   it('every exercise carries a scheme and resolves to a YouTube demo search', () => {
+    const all = [
+      ...DUNGEON_PHASES.flatMap((p) => SESSION_ORDER.flatMap((k) => p.sessions[k])),
+      ...WARMUPS.upper,
+      ...WARMUPS.lower,
+      ...COOLDOWNS.upper,
+      ...COOLDOWNS.lower,
+    ];
+    for (const ex of all) {
+      expect(ex.name.length).toBeGreaterThan(0);
+      expect(ex.scheme.length).toBeGreaterThan(0);
+      const url = demoSearchUrl(ex);
+      expect(url).toMatch(/^https:\/\/www\.youtube\.com\/results\?search_query=/);
+      expect(url).not.toContain(' ');
+    }
+  });
+
+  it('exercise names are unique within each session', () => {
     for (const p of DUNGEON_PHASES) {
-      for (const ex of p.template) {
-        expect(ex.name.length).toBeGreaterThan(0);
-        expect(ex.scheme.length).toBeGreaterThan(0);
-        const url = demoSearchUrl(ex);
-        expect(url).toMatch(/^https:\/\/www\.youtube\.com\/results\?search_query=/);
-        expect(url).not.toContain(' ');
+      for (const kind of SESSION_ORDER) {
+        const names = p.sessions[kind].map((e) => e.name);
+        expect(new Set(names).size).toBe(names.length);
       }
     }
+  });
+
+  it('runs cycle Upper A → Lower A → Upper B → Lower B and never skip', () => {
+    expect(sessionKindFor(0)).toBe('upper_a');
+    expect(sessionKindFor(1)).toBe('lower_a');
+    expect(sessionKindFor(2)).toBe('upper_b');
+    expect(sessionKindFor(3)).toBe('lower_b');
+    expect(sessionKindFor(4)).toBe('upper_a'); // new week of the cycle
+    expect(sessionKindFor(25)).toBe('lower_a'); // continues across phases' run counts
+  });
+
+  it('session kinds map to the right warmup/cooldown split', () => {
+    expect(splitFor('upper_a')).toBe('upper');
+    expect(splitFor('upper_b')).toBe('upper');
+    expect(splitFor('lower_a')).toBe('lower');
+    expect(splitFor('lower_b')).toBe('lower');
   });
 
   it('demo override replaces the default "<name> form" query', () => {
