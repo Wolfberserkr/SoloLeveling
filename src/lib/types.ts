@@ -110,6 +110,19 @@ export type RetentionQuestion = {
   created_at: string;
 };
 
+export type SystemEvent = {
+  id: string;
+  user_id: string;
+  local_date: string;
+  kind: 'gate' | 'mana_surge' | 'xp_surge' | 'potion_gift';
+  title: string;
+  body: string;
+  payload: { challenge?: string; target?: number; label?: string };
+  status: 'active' | 'completed' | 'expired';
+  xp_reward: number;
+  completed_at: string | null;
+};
+
 export type SystemMessage = {
   id: string;
   kind: string;

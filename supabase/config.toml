@@ -2,3 +2,7 @@ project_id = "npqpzzarohlvexqpqurg"
 
 [functions.game]
 verify_jwt = true
+
+# Invoked by the GitHub Actions schedule with a shared secret, not a JWT.
+[functions.cron]
+verify_jwt = false

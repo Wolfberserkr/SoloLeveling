@@ -12,6 +12,7 @@ import type {
   BodyMetrics,
   Book,
   RetentionQuestion,
+  SystemEvent,
   SystemMessage,
 } from '@/lib/types';
 
@@ -30,6 +31,7 @@ type PlayerState = {
   dueQuestions: RetentionQuestion[]; // unmastered checks due today or earlier
   readTodayBookIds: string[]; // tomes with a reading session logged today
   appliedTodayBookIds: string[]; // tomes with an applied insight logged today
+  event: SystemEvent | null; // today's System Event, if one spawned
   totals: TrainingTotals | null;
   messages: SystemMessage[];
   /** Full refresh: lazy daily reset on the server, then re-read everything. */
@@ -57,6 +59,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   dueQuestions: [],
   readTodayBookIds: [],
   appliedTodayBookIds: [],
+  event: null,
   totals: null,
   messages: [],
 
@@ -115,6 +118,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       dueQuestions: [],
       readTodayBookIds: [],
       appliedTodayBookIds: [],
+      event: null,
       totals: null,
       messages: [],
     }),
@@ -136,6 +140,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     questionsRes,
     readingRes,
     applicationsRes,
+    eventRes,
   ] = await Promise.all([
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
@@ -189,6 +194,11 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
         .select('book_id, local_date')
         .order('local_date', { ascending: false })
         .limit(20),
+      supabase
+        .from('system_events')
+        .select('*')
+        .order('local_date', { ascending: false })
+        .limit(1),
     ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
@@ -198,6 +208,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
   const quests = ((questsRes.data ?? []) as DailyQuest[]).filter((q) => q.local_date === today);
   const sleepRow = ((sleepRes.data ?? [])[0] ?? null) as SleepLog | null;
   const gymRow = (gymRes.data ?? [])[0] ?? null;
+  const eventRow = ((eventRes.data ?? [])[0] ?? null) as SystemEvent | null;
   const dueQuestions = ((questionsRes.data ?? []) as RetentionQuestion[]).filter(
     (q) => q.due_date != null && today != null && q.due_date <= today,
   );
@@ -219,5 +230,6 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     dueQuestions,
     readTodayBookIds: todaysBookIds(readingRes.data),
     appliedTodayBookIds: todaysBookIds(applicationsRes.data),
+    event: eventRow && eventRow.local_date === today ? eventRow : null,
   });
 }

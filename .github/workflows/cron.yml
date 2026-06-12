@@ -1,0 +1,22 @@
+name: System Heartbeat
+
+# Hourly tick for the `cron` edge function: timezone-aware event spawns,
+# knowledge-check announcements, and evening training reminders.
+# Requires the CRON_SECRET repository secret (same value as the Supabase
+# function secret of the same name).
+
+on:
+  schedule:
+    - cron: '7 * * * *' # hourly, off the minute to dodge the :00 rush
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoke cron edge function
+        run: |
+          curl -fsS -X POST \
+            'https://npqpzzarohlvexqpqurg.supabase.co/functions/v1/cron' \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            --max-time 120

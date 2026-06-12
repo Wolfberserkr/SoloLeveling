@@ -57,6 +57,9 @@ export const REFLECTION_XP = 15; // written reflection with a session → cap-el
 export const APPLY_XP = 25; // one applied insight per tome per day → cap-eligible
 export const RETENTION_PASS_XP = 10; // honest recall on a knowledge check → cap-eligible
 
+// System Events (Phase 5)
+export const GATE_CLEAR_XP = 50; // 24h emergency quest → cap-eligible
+
 // Mana ───────────────────────────────────────────────────────────────────────
 export const MANA_MAX_BASE = 100;
 

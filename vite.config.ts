@@ -28,6 +28,7 @@ export default defineConfig({
       },
       workbox: {
         navigateFallback: 'index.html',
+        importScripts: ['push-sw.js'],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\.supabase\.co\/rest\/.*/,

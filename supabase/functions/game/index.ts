@@ -26,6 +26,8 @@ import {
   POTION_RESTORE_MIN,
   POTION_RESTORE_MAX,
 } from '../_shared/game/mana.ts';
+import { ensureSystemEvent, type SystemEventRow } from '../_shared/eventEnsure.ts';
+import { trainingXpWithEvent, sideQuestCostWithEvent, type SystemEventKind } from '../_shared/game/events.ts';
 import {
   MAX_ACTIVE_BOOKS,
   MAX_QUESTIONS_PER_BOOK,
@@ -127,6 +129,8 @@ Deno.serve(async (req) => {
         return json(await addQuestion(ctx, payload));
       case 'review-question':
         return json(await reviewQuestion(ctx, payload));
+      case 'complete-event':
+        return json(await completeEvent(ctx));
       default:
         throw new HttpError(400, `Unknown action: ${action}`);
     }
@@ -238,6 +242,9 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
     });
   }
 
+  // Roll today's System Event (deterministic; cron may have beaten us to it).
+  await ensureSystemEvent(db, userId, today, profile.level);
+
   // Knowledge checks falling due surface once, at the day's first contact.
   const { count: dueChecks } = await db
     .from('retention_questions')
@@ -303,11 +310,27 @@ async function getDungeonProgress(ctx: Ctx) {
   return created;
 }
 
+async function getTodayEvent(ctx: Ctx): Promise<SystemEventRow | null> {
+  const { data } = await ctx.db
+    .from('system_events')
+    .select('*')
+    .eq('user_id', ctx.userId)
+    .eq('local_date', ctx.today)
+    .maybeSingle();
+  return (data as SystemEventRow) ?? null;
+}
+
+/** Kind of today's still-active event, for passive effects (surges). */
+function activeKind(event: SystemEventRow | null): SystemEventKind | null {
+  return event && event.status === 'active' ? (event.kind as SystemEventKind) : null;
+}
+
 async function getDailySnapshot(ctx: Ctx) {
-  const [quest, sideQuests, dungeon, gymToday] = await Promise.all([
+  const [quest, sideQuests, dungeon, event, gymToday] = await Promise.all([
     getTodayQuest(ctx),
     getTodaySideQuests(ctx),
     getDungeonProgress(ctx),
+    getTodayEvent(ctx),
     ctx.db
       .from('gym_sessions')
       .select('id')
@@ -322,6 +345,7 @@ async function getDailySnapshot(ctx: Ctx) {
     training: quest,
     quests: sideQuests,
     dungeon,
+    event,
     gym_done_today: Boolean(gymToday),
   };
 }
@@ -437,8 +461,14 @@ async function completeTraining(ctx: Ctx) {
   if (profileUpdate.mana !== undefined) profile.mana = profileUpdate.mana;
   if (profileUpdate.mana_potions !== undefined) profile.mana_potions = profileUpdate.mana_potions;
 
-  // XP — through the one true gate.
-  const award = await awardXp(ctx, TRAINING_XP, 'training_quest', quest.id);
+  // XP — through the one true gate. An XP Surge amplifies today's training.
+  const event = await getTodayEvent(ctx);
+  const award = await awardXp(
+    ctx,
+    trainingXpWithEvent(TRAINING_XP, activeKind(event)),
+    'training_quest',
+    quest.id,
+  );
   const perfect = await checkPerfectClear(ctx, { ...quest, status: 'completed' });
 
   return {
@@ -459,7 +489,11 @@ async function completeSideQuest(ctx: Ctx, payload: { key?: string }) {
   const quest = quests.find((q) => q.quest_key === key);
   if (!quest) throw new HttpError(404, 'No such quest today');
   if (quest.status !== 'pending') throw new HttpError(409, 'Quest already resolved');
-  if (profile.mana < quest.mana_cost) {
+
+  // A Mana Surge waives side-quest costs for the day.
+  const event = await getTodayEvent(ctx);
+  const manaCost = sideQuestCostWithEvent(quest.mana_cost, activeKind(event));
+  if (profile.mana < manaCost) {
     throw new HttpError(409, 'Insufficient mana. Recover before taking this on.');
   }
 
@@ -468,7 +502,7 @@ async function completeSideQuest(ctx: Ctx, payload: { key?: string }) {
     .update({ status: 'completed', completed_at: new Date().toISOString() })
     .eq('id', quest.id);
 
-  const mana = clampMana(profile.mana - quest.mana_cost, profile.mana_max);
+  const mana = clampMana(profile.mana - manaCost, profile.mana_max);
   await db.from('profiles').update({ mana }).eq('user_id', userId);
   profile.mana = mana;
 
@@ -1015,6 +1049,31 @@ async function reviewQuestion(ctx: Ctx, payload: { question_id?: string; recalle
     question: updated ?? { ...question, ...outcome },
     award,
   };
+}
+
+// ── complete-event: report a cleared Gate (self-reported, like a boss) ──────
+async function completeEvent(ctx: Ctx) {
+  const event = await getTodayEvent(ctx);
+  if (!event) throw new HttpError(404, 'No event today');
+  if (event.kind !== 'gate') throw new HttpError(409, 'This event resolves on its own');
+  if (event.status === 'completed') throw new HttpError(409, 'Gate already cleared');
+  if (event.status !== 'active') throw new HttpError(409, 'The gate has closed');
+
+  await ctx.db
+    .from('system_events')
+    .update({ status: 'completed', completed_at: new Date().toISOString() })
+    .eq('id', event.id);
+
+  const award = await awardXp(ctx, event.xp_reward, 'gate_clear', event.id);
+  await ctx.db.from('system_messages').insert({
+    user_id: ctx.userId,
+    kind: 'gate_cleared',
+    title: 'GATE CLEARED.',
+    body: `The emergency quest is complete. +${event.xp_reward} XP. The System closes the gate behind you.`,
+    payload: { event_id: event.id },
+  });
+
+  return { ok: true, award, event: { ...event, status: 'completed' } };
 }
 
 // ── Perfect Clear: training + every side quest done in one day ──────────────
