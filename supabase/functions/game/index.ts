@@ -121,6 +121,8 @@ Deno.serve(async (req) => {
         return json(await attemptBoss(ctx, payload));
       case 'log-metrics':
         return json(await logMetrics(ctx, payload));
+      case 'log-lift':
+        return json(await logLift(ctx, payload));
       case 'add-book':
         return json(await addBook(ctx, payload));
       case 'log-reading':
@@ -824,6 +826,62 @@ function metric(n: unknown, min: number, max: number): number | null {
   const v = Number(n);
   if (!Number.isFinite(v) || v <= min || v >= max) return null;
   return v;
+}
+
+// ── log-lift: top-set weight for an exercise — PRs announced ────────────────
+// One entry per exercise per day; re-logging the same day refines it. The
+// previous all-time best is read before the write so corrections made later
+// the same day can't fake a record.
+async function logLift(
+  ctx: Ctx,
+  payload: { exercise?: string; weight_kg?: number; reps?: number },
+) {
+  const exercise = String(payload.exercise ?? '').trim().slice(0, 100);
+  if (exercise.length < 2) throw new HttpError(400, 'Which exercise?');
+  const weight = Number(payload.weight_kg);
+  if (!Number.isFinite(weight) || weight <= 0 || weight > 1000) {
+    throw new HttpError(400, 'Implausible weight');
+  }
+  const reps = Math.round(sanitize(payload.reps, 100));
+
+  const { data: prior } = await ctx.db
+    .from('lift_logs')
+    .select('weight_kg')
+    .eq('user_id', ctx.userId)
+    .eq('exercise', exercise)
+    .lt('local_date', ctx.today)
+    .order('weight_kg', { ascending: false })
+    .limit(1);
+  const prevBest = Number(prior?.[0]?.weight_kg ?? 0);
+
+  const { data: lift, error } = await ctx.db
+    .from('lift_logs')
+    .upsert(
+      {
+        user_id: ctx.userId,
+        local_date: ctx.today,
+        exercise,
+        weight_kg: Math.round(weight * 100) / 100,
+        reps,
+      },
+      { onConflict: 'user_id,local_date,exercise' },
+    )
+    .select('*')
+    .single();
+  if (error || !lift) throw new HttpError(500, 'Failed to log lift');
+
+  const pr = prevBest > 0 && weight > prevBest;
+  if (pr) {
+    await ctx.db.from('system_messages').insert({
+      user_id: ctx.userId,
+      kind: 'lift_pr',
+      title: `RECORD BROKEN — ${exercise}.`,
+      body: `${weight} kg surpasses your previous best of ${prevBest} kg. The Iron Golem takes note.`,
+      payload: { exercise, weight_kg: weight, prev_best: prevBest },
+    });
+  }
+
+  return { ok: true, lift, pr, prev_best: prevBest };
 }
 
 // ── Library (Phase 4): Read → Reflect → Apply → Retain ──────────────────────

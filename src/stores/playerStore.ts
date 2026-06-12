@@ -13,6 +13,7 @@ import type {
   Book,
   RetentionQuestion,
   SystemEvent,
+  LiftLog,
   SystemMessage,
 } from '@/lib/types';
 
@@ -32,6 +33,7 @@ type PlayerState = {
   readTodayBookIds: string[]; // tomes with a reading session logged today
   appliedTodayBookIds: string[]; // tomes with an applied insight logged today
   event: SystemEvent | null; // today's System Event, if one spawned
+  liftLogs: LiftLog[]; // recent top-set logs, newest first
   totals: TrainingTotals | null;
   messages: SystemMessage[];
   /** Full refresh: lazy daily reset on the server, then re-read everything. */
@@ -60,6 +62,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   readTodayBookIds: [],
   appliedTodayBookIds: [],
   event: null,
+  liftLogs: [],
   totals: null,
   messages: [],
 
@@ -119,6 +122,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       readTodayBookIds: [],
       appliedTodayBookIds: [],
       event: null,
+      liftLogs: [],
       totals: null,
       messages: [],
     }),
@@ -141,6 +145,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     readingRes,
     applicationsRes,
     eventRes,
+    liftsRes,
   ] = await Promise.all([
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
@@ -199,6 +204,11 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
         .select('*')
         .order('local_date', { ascending: false })
         .limit(1),
+      supabase
+        .from('lift_logs')
+        .select('*')
+        .order('local_date', { ascending: false })
+        .limit(300),
     ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
@@ -231,5 +241,6 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     readTodayBookIds: todaysBookIds(readingRes.data),
     appliedTodayBookIds: todaysBookIds(applicationsRes.data),
     event: eventRow && eventRow.local_date === today ? eventRow : null,
+    liftLogs: (liftsRes.data ?? []) as LiftLog[],
   });
 }

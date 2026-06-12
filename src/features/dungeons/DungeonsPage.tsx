@@ -22,7 +22,7 @@ import {
   type SessionKind,
 } from '@game/dungeons.ts';
 import { MANA_COSTS } from '@game/mana.ts';
-import type { DungeonProgress, XpAward } from '@/lib/types';
+import type { DungeonProgress, LiftLog, XpAward } from '@/lib/types';
 
 export function DungeonsPage() {
   const { profile, dungeon } = usePlayerStore();
@@ -56,13 +56,26 @@ export function DungeonsPage() {
   );
 }
 
+/** Last entry and all-time best for one exercise (logs come newest-first). */
+function liftStats(logs: LiftLog[], exercise: string): { last: LiftLog | null; best: number } {
+  let last: LiftLog | null = null;
+  let best = 0;
+  for (const l of logs) {
+    if (l.exercise !== exercise) continue;
+    if (!last) last = l;
+    best = Math.max(best, Number(l.weight_kg));
+  }
+  return { last, best };
+}
+
 function DungeonRunPanel() {
-  const { profile, dungeon, gymDoneToday, setDungeon, refresh } = usePlayerStore();
+  const { profile, dungeon, gymDoneToday, liftLogs, setDungeon, refresh } = usePlayerStore();
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
   const [busy, setBusy] = useState(false);
   const [ticked, setTicked] = useState<Record<number, boolean>>({});
   const [selected, setSelected] = useState<SessionKind | null>(null);
+  const [liftFor, setLiftFor] = useState<string | null>(null);
 
   if (!profile || !dungeon) return null;
   const def = dungeonPhaseFor(dungeon.phase);
@@ -132,6 +145,7 @@ function DungeonRunPanel() {
             onClick={() => {
               setSelected(k);
               setTicked({});
+              setLiftFor(null);
             }}
             className={`border py-1 text-center font-sys text-[0.6rem] uppercase tracking-widest transition-colors ${
               k === kind
@@ -157,29 +171,50 @@ function DungeonRunPanel() {
       <ExerciseBlock label="Warmup" exercises={WARMUPS[split]} />
 
       <div className="mt-3 flex flex-col gap-2">
-        {def.sessions[kind].map((exercise, i) => (
-          <div
-            key={exercise.name}
-            className={`flex items-stretch border transition-colors ${
-              ticked[i]
-                ? 'border-accent-green/40 bg-accent-green/5 text-accent-green'
-                : 'border-accent-cyan/20 bg-bg-base/40 text-slate-300'
-            }`}
-          >
-            <button
-              type="button"
-              onClick={() => setTicked((t) => ({ ...t, [i]: !t[i] }))}
-              className="flex flex-1 items-center gap-3 p-2 text-left font-sys text-xs"
-            >
-              <span className="w-4 text-center">{ticked[i] ? '✓' : '·'}</span>
-              <span>
-                {exercise.name}
-                <span className="ml-2 opacity-60">{exercise.scheme}</span>
-              </span>
-            </button>
-            <DemoLink exercise={exercise} />
-          </div>
-        ))}
+        {def.sessions[kind].map((exercise, i) => {
+          const { last, best } = liftStats(liftLogs, exercise.name);
+          return (
+            <div key={exercise.name}>
+              <div
+                className={`flex items-stretch border transition-colors ${
+                  ticked[i]
+                    ? 'border-accent-green/40 bg-accent-green/5 text-accent-green'
+                    : 'border-accent-cyan/20 bg-bg-base/40 text-slate-300'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setTicked((t) => ({ ...t, [i]: !t[i] }))}
+                  className="flex flex-1 items-center gap-3 p-2 text-left font-sys text-xs"
+                >
+                  <span className="w-4 text-center">{ticked[i] ? '✓' : '·'}</span>
+                  <span>
+                    {exercise.name}
+                    <span className="ml-2 opacity-60">{exercise.scheme}</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLiftFor(liftFor === exercise.name ? null : exercise.name)}
+                  className={`flex items-center border-l border-accent-cyan/20 px-2 font-sys text-[0.65rem] ${
+                    last ? 'text-accent-gold/90' : 'text-slate-500'
+                  }`}
+                >
+                  {last ? `${Number(last.weight_kg)}kg` : '+kg'}
+                </button>
+                <DemoLink exercise={exercise} />
+              </div>
+              {liftFor === exercise.name && (
+                <LiftEditor
+                  exercise={exercise.name}
+                  last={last}
+                  best={best}
+                  onDone={() => setLiftFor(null)}
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <ExerciseBlock label="Cooldown" exercises={COOLDOWNS[split]} />
@@ -205,6 +240,103 @@ function DungeonRunPanel() {
         </button>
       )}
     </SystemWindow>
+  );
+}
+
+/** Inline top-set logger — one entry per exercise per day, PRs announced. */
+function LiftEditor({
+  exercise,
+  last,
+  best,
+  onDone,
+}: {
+  exercise: string;
+  last: LiftLog | null;
+  best: number;
+  onDone: () => void;
+}) {
+  const { refresh } = usePlayerStore();
+  const pushAlert = useUiStore((s) => s.pushAlert);
+  const [weight, setWeight] = useState(last ? String(Number(last.weight_kg)) : '');
+  const [reps, setReps] = useState(last && last.reps > 0 ? String(last.reps) : '');
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    const w = Number(weight);
+    if (busy || !(w > 0)) return;
+    setBusy(true);
+    try {
+      const res = await gameAction<{ pr: boolean; prev_best: number }>('log-lift', {
+        exercise,
+        weight_kg: w,
+        reps: Number(reps) || 0,
+      });
+      pushAlert(
+        res.pr
+          ? {
+              kind: 'success',
+              title: `RECORD BROKEN — ${exercise}`,
+              body: `${w} kg beats your previous best of ${res.prev_best} kg.`,
+            }
+          : { kind: 'success', title: 'Lift logged', body: `${exercise} — ${w} kg` },
+      );
+      onDone();
+      await refresh();
+    } catch (err) {
+      pushAlert({
+        kind: 'danger',
+        title: 'Log rejected',
+        body: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="border border-t-0 border-accent-gold/25 bg-bg-base/60 p-2">
+      <div className="flex items-end gap-2">
+        <label className="flex-1">
+          <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+            Top set (kg)
+          </span>
+          <input
+            type="number"
+            inputMode="decimal"
+            min={0}
+            step={0.5}
+            value={weight}
+            onChange={(e) => setWeight(e.target.value)}
+            className="mt-1 w-full border border-accent-cyan/30 bg-bg-base/60 px-2 py-1 text-center font-sys text-sm text-white outline-none focus:border-accent-cyan"
+          />
+        </label>
+        <label className="flex-1">
+          <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+            Reps
+          </span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            value={reps}
+            onChange={(e) => setReps(e.target.value)}
+            className="mt-1 w-full border border-accent-cyan/30 bg-bg-base/60 px-2 py-1 text-center font-sys text-sm text-white outline-none focus:border-accent-cyan"
+          />
+        </label>
+        <button
+          className="sys-btn sys-btn-ghost !min-h-[34px] flex-1 !py-1 !text-[0.65rem]"
+          disabled={busy || !(Number(weight) > 0)}
+          onClick={save}
+        >
+          Log
+        </button>
+      </div>
+      {best > 0 && (
+        <p className="mt-1 font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+          Best: {best} kg
+        </p>
+      )}
+    </div>
   );
 }
 

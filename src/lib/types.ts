@@ -110,6 +110,15 @@ export type RetentionQuestion = {
   created_at: string;
 };
 
+export type LiftLog = {
+  id: string;
+  user_id: string;
+  local_date: string;
+  exercise: string;
+  weight_kg: number;
+  reps: number;
+};
+
 export type SystemEvent = {
   id: string;
   user_id: string;
