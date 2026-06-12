@@ -19,6 +19,16 @@ export type SystemEventKind = (typeof SYSTEM_EVENT_KINDS)[number];
 /** Chance that any given day spawns an event. */
 export const EVENT_CHANCE = 0.25;
 
+/** A quiet streak this long guarantees an event — the System never goes dark. */
+export const PITY_QUIET_DAYS = 5;
+
+/** Spawn chance given how many days the System has been silent. */
+export function eventChance(quietDays: number): number {
+  if (quietDays >= PITY_QUIET_DAYS) return 1;
+  if (quietDays >= PITY_QUIET_DAYS - 2) return 0.5;
+  return EVENT_CHANCE;
+}
+
 /** Training XP multiplier while an xp_surge is active. */
 export const XP_SURGE_MULT = 1.5;
 
@@ -86,14 +96,15 @@ export type SystemEventRoll = {
   payload: Record<string, unknown>;
 };
 
-/** Today's event for a user, or null (~75% of days). Same inputs, same roll. */
+/** Today's event for a user, or null. Same inputs, same roll. */
 export function rollSystemEvent(
   userId: string,
   localDate: string,
   level: number,
+  quietDays = 0,
 ): SystemEventRoll | null {
   const rand = dailyRng(userId, localDate, 'system-event');
-  if (rand() >= EVENT_CHANCE) return null;
+  if (rand() >= eventChance(quietDays)) return null;
 
   const kind = pickWeighted(rand, KIND_WEIGHTS, (k) => k.weight).kind;
   switch (kind) {

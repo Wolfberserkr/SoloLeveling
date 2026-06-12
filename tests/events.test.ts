@@ -4,7 +4,9 @@ import {
   gateChallenge,
   trainingXpWithEvent,
   sideQuestCostWithEvent,
+  eventChance,
   EVENT_CHANCE,
+  PITY_QUIET_DAYS,
   XP_SURGE_MULT,
   SYSTEM_EVENT_KINDS,
 } from '@game/events.ts';
@@ -48,6 +50,22 @@ describe('system event roll', () => {
       }
     }
     expect([...seen].sort()).toEqual([...SYSTEM_EVENT_KINDS].sort());
+  });
+});
+
+describe('pity timer', () => {
+  it('ramps the spawn chance as quiet days accumulate', () => {
+    expect(eventChance(0)).toBe(EVENT_CHANCE);
+    expect(eventChance(PITY_QUIET_DAYS - 3)).toBe(EVENT_CHANCE);
+    expect(eventChance(PITY_QUIET_DAYS - 2)).toBe(0.5);
+    expect(eventChance(PITY_QUIET_DAYS - 1)).toBe(0.5);
+    expect(eventChance(PITY_QUIET_DAYS)).toBe(1);
+  });
+
+  it('guarantees an event after a full quiet streak, for any user', () => {
+    for (let i = 0; i < 100; i++) {
+      expect(rollSystemEvent(`user-${i}`, '2026-06-13', 5, PITY_QUIET_DAYS)).not.toBeNull();
+    }
   });
 });
 

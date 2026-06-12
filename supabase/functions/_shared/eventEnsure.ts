@@ -3,7 +3,7 @@
 // day first. The roll is deterministic per user+date and the table has a
 // unique (user_id, local_date), so double invocation cannot double-spawn.
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import { rollSystemEvent } from './game/events.ts';
+import { rollSystemEvent, PITY_QUIET_DAYS } from './game/events.ts';
 
 export type SystemEventRow = {
   id: string;
@@ -16,6 +16,21 @@ export type SystemEventRow = {
   status: 'active' | 'completed' | 'expired';
   xp_reward: number;
 };
+
+/** Days since the System last spawned anything (pity-capped for new users). */
+async function quietDays(db: SupabaseClient, userId: string, today: string): Promise<number> {
+  const { data: last } = await db
+    .from('system_events')
+    .select('local_date')
+    .eq('user_id', userId)
+    .order('local_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!last) return PITY_QUIET_DAYS;
+  const ms =
+    new Date(`${today}T12:00:00Z`).getTime() - new Date(`${last.local_date}T12:00:00Z`).getTime();
+  return Math.max(0, Math.round(ms / 86_400_000));
+}
 
 /** Expire stale events, roll today's, apply instant effects. Idempotent. */
 export async function ensureSystemEvent(
@@ -40,7 +55,7 @@ export async function ensureSystemEvent(
     .maybeSingle();
   if (existing) return existing as SystemEventRow;
 
-  const roll = rollSystemEvent(userId, today, level);
+  const roll = rollSystemEvent(userId, today, level, await quietDays(db, userId, today));
   if (!roll) return null;
 
   const { data: created, error } = await db
