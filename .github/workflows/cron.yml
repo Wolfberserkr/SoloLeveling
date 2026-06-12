@@ -1,0 +1,23 @@
+name: System Heartbeat (manual test)
+
+# The hourly schedule lives INSIDE Supabase (pg_cron job `system-heartbeat`,
+# '7 * * * *') — GitHub scheduled workflows only run from the default branch,
+# so they can't be relied on here. This workflow remains as a manual test
+# button: it fires one tick on demand. Duplicate ticks are harmless — every
+# notification is claimed in notification_log before sending.
+# Requires the CRON_SECRET repository secret (same value as the Supabase
+# function secret of the same name).
+
+on:
+  workflow_dispatch:
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Invoke cron edge function
+        run: |
+          curl -fsS -X POST \
+            'https://npqpzzarohlvexqpqurg.supabase.co/functions/v1/cron' \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            --max-time 120

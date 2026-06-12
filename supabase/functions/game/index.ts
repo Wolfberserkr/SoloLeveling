@@ -5,12 +5,21 @@
 // ═════════════════════════════════════════════════════════════════════════
 import { adminClient } from '../_shared/db.ts';
 import { requireUser, HttpError, json, CORS_HEADERS } from '../_shared/auth.ts';
-import { localDateInTz, previousDate } from '../_shared/time.ts';
+import { localDateInTz, previousDate, startOfIsoWeek } from '../_shared/time.ts';
 import { trainingTargetsFor, isTrainingComplete } from '../_shared/game/training.ts';
 import { rollTrainingVariant, rollSideQuests } from '../_shared/game/daily.ts';
 import {
+  dungeonPhaseFor,
+  allDungeonsCleared,
+  isBossReady,
+  bossDefeated,
+  sessionKindFor,
+  isSessionKind,
+} from '../_shared/game/dungeons.ts';
+import {
   sleepBonus,
   clampMana,
+  MANA_COSTS,
   DAILY_REGEN,
   POOR_SLEEP_HOURS,
   LOW_MANA_THRESHOLD,
@@ -19,9 +28,30 @@ import {
   POTION_RESTORE_MIN,
   POTION_RESTORE_MAX,
 } from '../_shared/game/mana.ts';
+import { ensureSystemEvent, type SystemEventRow } from '../_shared/eventEnsure.ts';
+import { trainingXpWithEvent, sideQuestCostWithEvent, type SystemEventKind } from '../_shared/game/events.ts';
+import {
+  MAX_ACTIVE_BOOKS,
+  MAX_QUESTIONS_PER_BOOK,
+  MAX_SESSION_PAGES,
+  MIN_BOOK_PAGES,
+  MAX_BOOK_PAGES,
+  MIN_REFLECTION_CHARS,
+  MIN_APPLICATION_CHARS,
+  readingXp,
+  bookFinishXp,
+  isBookFinished,
+  initialDueDate,
+  reviewOutcome,
+} from '../_shared/game/library.ts';
 import {
   TRAINING_XP,
   PERFECT_CLEAR_XP,
+  GYM_SESSION_XP,
+  BOSS_CLEAR_XP,
+  REFLECTION_XP,
+  APPLY_XP,
+  RETENTION_PASS_XP,
   FAILURE_LOAD_MODIFIER,
 } from '../_shared/game/constants.ts';
 
@@ -85,6 +115,26 @@ Deno.serve(async (req) => {
         return json(await logSleep(ctx, payload));
       case 'use-potion':
         return json(await usePotion(ctx));
+      case 'complete-gym':
+        return json(await completeGym(ctx, payload));
+      case 'attempt-boss':
+        return json(await attemptBoss(ctx, payload));
+      case 'log-metrics':
+        return json(await logMetrics(ctx, payload));
+      case 'log-lift':
+        return json(await logLift(ctx, payload));
+      case 'add-book':
+        return json(await addBook(ctx, payload));
+      case 'log-reading':
+        return json(await logReading(ctx, payload));
+      case 'log-application':
+        return json(await logApplication(ctx, payload));
+      case 'add-question':
+        return json(await addQuestion(ctx, payload));
+      case 'review-question':
+        return json(await reviewQuestion(ctx, payload));
+      case 'complete-event':
+        return json(await completeEvent(ctx));
       default:
         throw new HttpError(400, `Unknown action: ${action}`);
     }
@@ -155,7 +205,9 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
   const variant = recovery ? 'recovery' : rollTrainingVariant(userId, today);
 
   // Generate today's training quest (unique constraint makes this idempotent).
-  const targets = trainingTargetsFor(profile.level, 0, loadModifier, variant);
+  // Each cleared dungeon raises the baseline one notch.
+  const dungeon = await getDungeonProgress(ctx);
+  const targets = trainingTargetsFor(profile.level, dungeon.cycles_cleared, loadModifier, variant);
   await db.from('training_quests').upsert(
     {
       user_id: userId,
@@ -194,6 +246,26 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
     });
   }
 
+  // Roll today's System Event (deterministic; cron may have beaten us to it).
+  await ensureSystemEvent(db, userId, today, profile.level);
+
+  // Knowledge checks falling due surface once, at the day's first contact.
+  const { count: dueChecks } = await db
+    .from('retention_questions')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .eq('mastered', false)
+    .lte('due_date', today);
+  if ((dueChecks ?? 0) > 0) {
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'knowledge_check',
+      title: 'Knowledge check.',
+      body: `${dueChecks} retention ${dueChecks === 1 ? 'question awaits' : 'questions await'} in the Library. The System tests what you claim to have learned.`,
+      payload: { due: dueChecks },
+    });
+  }
+
   await db
     .from('profiles')
     .update({ last_daily_reset: today, mana, fatigue })
@@ -225,9 +297,61 @@ async function getTodaySideQuests(ctx: Ctx) {
   return data ?? [];
 }
 
+async function getDungeonProgress(ctx: Ctx) {
+  const { data } = await ctx.db
+    .from('dungeon_progress')
+    .select('*')
+    .eq('user_id', ctx.userId)
+    .maybeSingle();
+  if (data) return data;
+  // Self-heal accounts created before the dungeons migration.
+  const { data: created, error } = await ctx.db
+    .from('dungeon_progress')
+    .insert({ user_id: ctx.userId })
+    .select('*')
+    .single();
+  if (error || !created) throw new HttpError(500, 'Dungeon progress missing');
+  return created;
+}
+
+async function getTodayEvent(ctx: Ctx): Promise<SystemEventRow | null> {
+  const { data } = await ctx.db
+    .from('system_events')
+    .select('*')
+    .eq('user_id', ctx.userId)
+    .eq('local_date', ctx.today)
+    .maybeSingle();
+  return (data as SystemEventRow) ?? null;
+}
+
+/** Kind of today's still-active event, for passive effects (surges). */
+function activeKind(event: SystemEventRow | null): SystemEventKind | null {
+  return event && event.status === 'active' ? (event.kind as SystemEventKind) : null;
+}
+
 async function getDailySnapshot(ctx: Ctx) {
-  const [quest, sideQuests] = await Promise.all([getTodayQuest(ctx), getTodaySideQuests(ctx)]);
-  return { ok: true, today: ctx.today, training: quest, quests: sideQuests };
+  const [quest, sideQuests, dungeon, event, gymToday] = await Promise.all([
+    getTodayQuest(ctx),
+    getTodaySideQuests(ctx),
+    getDungeonProgress(ctx),
+    getTodayEvent(ctx),
+    ctx.db
+      .from('gym_sessions')
+      .select('id')
+      .eq('user_id', ctx.userId)
+      .eq('local_date', ctx.today)
+      .maybeSingle()
+      .then((r) => r.data),
+  ]);
+  return {
+    ok: true,
+    today: ctx.today,
+    training: quest,
+    quests: sideQuests,
+    dungeon,
+    event,
+    gym_done_today: Boolean(gymToday),
+  };
 }
 
 // ── log-training: increment progress on the four exercises ─────────────────
@@ -341,8 +465,14 @@ async function completeTraining(ctx: Ctx) {
   if (profileUpdate.mana !== undefined) profile.mana = profileUpdate.mana;
   if (profileUpdate.mana_potions !== undefined) profile.mana_potions = profileUpdate.mana_potions;
 
-  // XP — through the one true gate.
-  const award = await awardXp(ctx, TRAINING_XP, 'training_quest', quest.id);
+  // XP — through the one true gate. An XP Surge amplifies today's training.
+  const event = await getTodayEvent(ctx);
+  const award = await awardXp(
+    ctx,
+    trainingXpWithEvent(TRAINING_XP, activeKind(event)),
+    'training_quest',
+    quest.id,
+  );
   const perfect = await checkPerfectClear(ctx, { ...quest, status: 'completed' });
 
   return {
@@ -363,7 +493,11 @@ async function completeSideQuest(ctx: Ctx, payload: { key?: string }) {
   const quest = quests.find((q) => q.quest_key === key);
   if (!quest) throw new HttpError(404, 'No such quest today');
   if (quest.status !== 'pending') throw new HttpError(409, 'Quest already resolved');
-  if (profile.mana < quest.mana_cost) {
+
+  // A Mana Surge waives side-quest costs for the day.
+  const event = await getTodayEvent(ctx);
+  const manaCost = sideQuestCostWithEvent(quest.mana_cost, activeKind(event));
+  if (profile.mana < manaCost) {
     throw new HttpError(409, 'Insufficient mana. Recover before taking this on.');
   }
 
@@ -372,7 +506,7 @@ async function completeSideQuest(ctx: Ctx, payload: { key?: string }) {
     .update({ status: 'completed', completed_at: new Date().toISOString() })
     .eq('id', quest.id);
 
-  const mana = clampMana(profile.mana - quest.mana_cost, profile.mana_max);
+  const mana = clampMana(profile.mana - manaCost, profile.mana_max);
   await db.from('profiles').update({ mana }).eq('user_id', userId);
   profile.mana = mana;
 
@@ -497,6 +631,516 @@ async function usePotion(ctx: Ctx) {
   return { ok: true, restored, mana, potions: profile.mana_potions };
 }
 
+// ── complete-gym: one dungeon run per day — spend mana, earn XP ─────────────
+async function completeGym(ctx: Ctx, payload: { notes?: string; kind?: string }) {
+  const { db, userId, profile, today } = ctx;
+  const dungeon = await getDungeonProgress(ctx);
+  if (allDungeonsCleared(dungeon.phase)) {
+    throw new HttpError(409, 'All dungeons cleared. Await the next System expansion.');
+  }
+  if (profile.mana < MANA_COSTS.gym) {
+    throw new HttpError(409, 'Insufficient mana. Recover before entering the dungeon.');
+  }
+
+  // The Player picks the split session; the cycle is only the default.
+  const kind = isSessionKind(payload.kind)
+    ? payload.kind
+    : sessionKindFor(dungeon.sessions_completed);
+  const notes = typeof payload.notes === 'string' ? payload.notes.slice(0, 2000) : '';
+  const { error: insertErr } = await db.from('gym_sessions').insert({
+    user_id: userId,
+    local_date: today,
+    phase: dungeon.phase,
+    session_kind: kind,
+    notes,
+  });
+  if (insertErr) {
+    if (insertErr.code === '23505') throw new HttpError(409, 'Dungeon already cleared today');
+    console.error('gym_sessions insert failed:', insertErr);
+    throw new HttpError(500, 'Failed to record dungeon run');
+  }
+
+  const mana = clampMana(profile.mana - MANA_COSTS.gym, profile.mana_max);
+  await db.from('profiles').update({ mana }).eq('user_id', userId);
+  profile.mana = mana;
+
+  const sessionsCompleted = dungeon.sessions_completed + 1;
+  await db
+    .from('dungeon_progress')
+    .update({ sessions_completed: sessionsCompleted, updated_at: new Date().toISOString() })
+    .eq('user_id', userId);
+
+  const def = dungeonPhaseFor(dungeon.phase);
+  const bossReady = isBossReady(dungeon.phase, sessionsCompleted);
+  if (bossReady && dungeon.sessions_completed < def.sessionsRequired) {
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'boss_ready',
+      title: `Boss detected — ${def.boss.name}.`,
+      body: `You have cleared enough of ${def.name}. The dungeon boss awaits your challenge.`,
+      payload: { phase: dungeon.phase },
+    });
+  }
+
+  const award = await awardXp(ctx, GYM_SESSION_XP, 'gym_session', null);
+  return {
+    ok: true,
+    award,
+    mana,
+    dungeon: { ...dungeon, sessions_completed: sessionsCompleted },
+    boss_ready: bossReady,
+  };
+}
+
+// ── attempt-boss: benchmark test; defeat clears the dungeon phase ───────────
+async function attemptBoss(ctx: Ctx, payload: { confirmed?: Record<string, unknown> }) {
+  const { db, userId, today } = ctx;
+  const dungeon = await getDungeonProgress(ctx);
+  if (allDungeonsCleared(dungeon.phase)) throw new HttpError(409, 'All dungeons cleared');
+  if (!isBossReady(dungeon.phase, dungeon.sessions_completed)) {
+    throw new HttpError(409, 'The boss has not appeared yet. Keep clearing runs.');
+  }
+  if (dungeon.last_boss_attempt === today) {
+    throw new HttpError(409, 'One boss attempt per day. Recover and return.');
+  }
+
+  const def = dungeonPhaseFor(dungeon.phase);
+  const confirmed = payload.confirmed && typeof payload.confirmed === 'object' ? payload.confirmed : {};
+  const victory = bossDefeated(dungeon.phase, confirmed);
+
+  if (!victory) {
+    await db
+      .from('dungeon_progress')
+      .update({ last_boss_attempt: today, updated_at: new Date().toISOString() })
+      .eq('user_id', userId);
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'boss_failed',
+      title: `${def.boss.name} stands.`,
+      body: 'Not every benchmark fell today. The boss does not move — train, recover, and challenge it again tomorrow.',
+      payload: { phase: dungeon.phase },
+    });
+    return { ok: true, victory: false, boss: def.boss.name };
+  }
+
+  const nextPhase = dungeon.phase + 1;
+  await db
+    .from('dungeon_progress')
+    .update({
+      phase: nextPhase,
+      sessions_completed: 0,
+      cycles_cleared: dungeon.cycles_cleared + 1,
+      last_boss_attempt: today,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('user_id', userId);
+
+  // One-shot reward — exempt from the daily cap (see award_xp).
+  const award = await awardXp(ctx, BOSS_CLEAR_XP, 'boss_clear', null, false);
+
+  const cleared = allDungeonsCleared(nextPhase);
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'dungeon_cleared',
+    title: `DUNGEON CLEARED — ${def.boss.name} has fallen.`,
+    body: cleared
+      ? `${def.name} is complete. Every dungeon the System prepared has been cleared. Your daily baseline rises once more.`
+      : `${def.name} is complete. ${dungeonPhaseFor(nextPhase).name} is now open, and your Daily Training Quest baseline rises.`,
+    payload: { phase: dungeon.phase, next_phase: nextPhase },
+  });
+
+  return {
+    ok: true,
+    victory: true,
+    boss: def.boss.name,
+    award,
+    dungeon: {
+      ...dungeon,
+      phase: nextPhase,
+      sessions_completed: 0,
+      cycles_cleared: dungeon.cycles_cleared + 1,
+    },
+    all_cleared: cleared,
+  };
+}
+
+// ── log-metrics: weekly body measurements ───────────────────────────────────
+// One entry per ISO week: logging again in the same week refines that entry;
+// a new week opens a new row. Keeps the trend line weekly-spaced.
+async function logMetrics(
+  ctx: Ctx,
+  payload: {
+    weight_kg?: number;
+    body_fat_pct?: number;
+    waist_cm?: number;
+    chest_cm?: number;
+    arm_cm?: number;
+    notes?: string;
+  },
+) {
+  const fields = {
+    weight_kg: metric(payload.weight_kg, 20, 400),
+    body_fat_pct: metric(payload.body_fat_pct, 1, 75),
+    waist_cm: metric(payload.waist_cm, 30, 250),
+    chest_cm: metric(payload.chest_cm, 30, 250),
+    arm_cm: metric(payload.arm_cm, 10, 80),
+  };
+  if (Object.values(fields).every((v) => v === null)) {
+    throw new HttpError(400, 'Nothing to log');
+  }
+
+  // Only overwrite the fields provided; re-logging refines this week's entry.
+  const update: Record<string, unknown> = { notes: String(payload.notes ?? '').slice(0, 2000) };
+  for (const [k, v] of Object.entries(fields)) if (v !== null) update[k] = v;
+
+  const weekStart = startOfIsoWeek(ctx.today);
+  const { data: existing } = await ctx.db
+    .from('body_metrics')
+    .select('local_date')
+    .eq('user_id', ctx.userId)
+    .gte('local_date', weekStart)
+    .lte('local_date', ctx.today)
+    .order('local_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { data, error } = existing
+    ? await ctx.db
+        .from('body_metrics')
+        .update(update)
+        .eq('user_id', ctx.userId)
+        .eq('local_date', existing.local_date)
+        .select('*')
+        .single()
+    : await ctx.db
+        .from('body_metrics')
+        .insert({ user_id: ctx.userId, local_date: ctx.today, ...update })
+        .select('*')
+        .single();
+  if (error || !data) throw new HttpError(500, 'Failed to log metrics');
+
+  return { ok: true, metrics: data, updated_existing: Boolean(existing) };
+}
+
+function metric(n: unknown, min: number, max: number): number | null {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= min || v >= max) return null;
+  return v;
+}
+
+// ── log-lift: top-set weight for an exercise — PRs announced ────────────────
+// One entry per exercise per day; re-logging the same day refines it. The
+// previous all-time best is read before the write so corrections made later
+// the same day can't fake a record.
+async function logLift(
+  ctx: Ctx,
+  payload: { exercise?: string; weight_kg?: number; reps?: number },
+) {
+  const exercise = String(payload.exercise ?? '').trim().slice(0, 100);
+  if (exercise.length < 2) throw new HttpError(400, 'Which exercise?');
+  const weight = Number(payload.weight_kg);
+  if (!Number.isFinite(weight) || weight <= 0 || weight > 1000) {
+    throw new HttpError(400, 'Implausible weight');
+  }
+  const reps = Math.round(sanitize(payload.reps, 100));
+
+  const { data: prior } = await ctx.db
+    .from('lift_logs')
+    .select('weight_kg')
+    .eq('user_id', ctx.userId)
+    .eq('exercise', exercise)
+    .lt('local_date', ctx.today)
+    .order('weight_kg', { ascending: false })
+    .limit(1);
+  const prevBest = Number(prior?.[0]?.weight_kg ?? 0);
+
+  const { data: lift, error } = await ctx.db
+    .from('lift_logs')
+    .upsert(
+      {
+        user_id: ctx.userId,
+        local_date: ctx.today,
+        exercise,
+        weight_kg: Math.round(weight * 100) / 100,
+        reps,
+      },
+      { onConflict: 'user_id,local_date,exercise' },
+    )
+    .select('*')
+    .single();
+  if (error || !lift) throw new HttpError(500, 'Failed to log lift');
+
+  const pr = prevBest > 0 && weight > prevBest;
+  if (pr) {
+    await ctx.db.from('system_messages').insert({
+      user_id: ctx.userId,
+      kind: 'lift_pr',
+      title: `RECORD BROKEN — ${exercise}.`,
+      body: `${weight} kg surpasses your previous best of ${prevBest} kg. The Iron Golem takes note.`,
+      payload: { exercise, weight_kg: weight, prev_best: prevBest },
+    });
+  }
+
+  return { ok: true, lift, pr, prev_best: prevBest };
+}
+
+// ── Library (Phase 4): Read → Reflect → Apply → Retain ──────────────────────
+async function getBook(ctx: Ctx, bookId: unknown) {
+  const id = typeof bookId === 'string' ? bookId : '';
+  if (!id) throw new HttpError(400, 'book_id required');
+  const { data } = await ctx.db
+    .from('books')
+    .select('*')
+    .eq('user_id', ctx.userId)
+    .eq('id', id)
+    .maybeSingle();
+  if (!data) throw new HttpError(404, 'No such tome');
+  return data;
+}
+
+// ── add-book: register a tome on the shelf ──────────────────────────────────
+async function addBook(
+  ctx: Ctx,
+  payload: { title?: string; author?: string; total_pages?: number },
+) {
+  const title = String(payload.title ?? '').trim().slice(0, 200);
+  if (!title) throw new HttpError(400, 'A tome needs a title');
+  const author = String(payload.author ?? '').trim().slice(0, 200);
+  const totalPages = Math.round(sanitize(payload.total_pages, MAX_BOOK_PAGES));
+  if (totalPages < MIN_BOOK_PAGES) {
+    throw new HttpError(400, `A tome needs at least ${MIN_BOOK_PAGES} pages`);
+  }
+
+  const { count } = await ctx.db
+    .from('books')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', ctx.userId)
+    .eq('status', 'reading');
+  if ((count ?? 0) >= MAX_ACTIVE_BOOKS) {
+    throw new HttpError(409, `Shelf full — finish a tome before opening an ${MAX_ACTIVE_BOOKS + 1}th.`);
+  }
+
+  const { data: book, error } = await ctx.db
+    .from('books')
+    .insert({
+      user_id: ctx.userId,
+      title,
+      author,
+      total_pages: totalPages,
+      started_date: ctx.today,
+    })
+    .select('*')
+    .single();
+  if (error || !book) throw new HttpError(500, 'Failed to add tome');
+
+  return { ok: true, book };
+}
+
+// ── log-reading: Read (+ Reflect) — one session per tome per day ────────────
+async function logReading(
+  ctx: Ctx,
+  payload: { book_id?: string; pages?: number; reflection?: string },
+) {
+  const { db, userId, profile, today } = ctx;
+  const book = await getBook(ctx, payload.book_id);
+  if (book.status !== 'reading') throw new HttpError(409, 'This tome is closed');
+
+  const pages = Math.round(sanitize(payload.pages, MAX_SESSION_PAGES));
+  if (pages <= 0) throw new HttpError(400, 'Nothing to log');
+  if (profile.mana < MANA_COSTS.reading) {
+    throw new HttpError(409, 'Insufficient mana. Recover before opening the tome.');
+  }
+
+  const reflection = String(payload.reflection ?? '').trim().slice(0, 2000);
+  const { error: insertErr } = await db.from('reading_sessions').insert({
+    user_id: userId,
+    book_id: book.id,
+    local_date: today,
+    pages,
+    reflection,
+  });
+  if (insertErr) {
+    if (insertErr.code === '23505') throw new HttpError(409, 'Already logged this tome today');
+    console.error('reading_sessions insert failed:', insertErr);
+    throw new HttpError(500, 'Failed to log reading');
+  }
+
+  const pagesRead = Math.min(book.total_pages, book.pages_read + pages);
+  const finished = isBookFinished(pagesRead, book.total_pages);
+  const { data: updated } = await db
+    .from('books')
+    .update({
+      pages_read: pagesRead,
+      ...(finished ? { status: 'finished', finished_date: today } : {}),
+    })
+    .eq('id', book.id)
+    .select('*')
+    .single();
+
+  const mana = clampMana(profile.mana - MANA_COSTS.reading, profile.mana_max);
+  await db.from('profiles').update({ mana }).eq('user_id', userId);
+  profile.mana = mana;
+
+  // Read pays by pages; a genuine written reflection pays its bonus on top.
+  const reflected = reflection.length >= MIN_REFLECTION_CHARS;
+  const award = await awardXp(
+    ctx,
+    readingXp(pages) + (reflected ? REFLECTION_XP : 0),
+    'reading_session',
+    book.id,
+  );
+
+  let finishAward = null;
+  if (finished) {
+    // One-shot per tome — exempt from the daily cap, like a boss clear.
+    finishAward = await awardXp(ctx, bookFinishXp(book.total_pages), 'book_finished', book.id, false);
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'book_finished',
+      title: `TOME CLEARED — “${book.title}”.`,
+      body: `${book.total_pages} pages conquered. Knowledge fades unless tested — your banked questions will keep coming due. Apply what you learned.`,
+      payload: { book_id: book.id },
+    });
+  }
+
+  return {
+    ok: true,
+    book: updated ?? { ...book, pages_read: pagesRead },
+    pages,
+    reflected,
+    award,
+    finish_award: finishAward,
+    finished,
+    mana,
+  };
+}
+
+// ── log-application: Apply — one concrete action per tome per day ───────────
+async function logApplication(ctx: Ctx, payload: { book_id?: string; action?: string }) {
+  const book = await getBook(ctx, payload.book_id);
+  const action = String(payload.action ?? '').trim().slice(0, 500);
+  if (action.length < MIN_APPLICATION_CHARS) {
+    throw new HttpError(400, 'Describe the action concretely — what did you actually do?');
+  }
+
+  const { data: application, error } = await ctx.db
+    .from('book_applications')
+    .insert({ user_id: ctx.userId, book_id: book.id, local_date: ctx.today, action })
+    .select('*')
+    .single();
+  if (error) {
+    if (error.code === '23505') throw new HttpError(409, 'Already applied from this tome today');
+    console.error('book_applications insert failed:', error);
+    throw new HttpError(500, 'Failed to log application');
+  }
+
+  const award = await awardXp(ctx, APPLY_XP, 'book_applied', book.id);
+  return { ok: true, application, award };
+}
+
+// ── add-question: Retain — bank a question for future knowledge checks ──────
+async function addQuestion(
+  ctx: Ctx,
+  payload: { book_id?: string; prompt?: string; answer?: string },
+) {
+  const book = await getBook(ctx, payload.book_id);
+  const prompt = String(payload.prompt ?? '').trim().slice(0, 500);
+  if (prompt.length < 5) throw new HttpError(400, 'Question too short');
+  const answer = String(payload.answer ?? '').trim().slice(0, 1000);
+
+  const { count } = await ctx.db
+    .from('retention_questions')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', ctx.userId)
+    .eq('book_id', book.id);
+  if ((count ?? 0) >= MAX_QUESTIONS_PER_BOOK) {
+    throw new HttpError(409, 'Question bank full for this tome — master what you have.');
+  }
+
+  const { data: question, error } = await ctx.db
+    .from('retention_questions')
+    .insert({
+      user_id: ctx.userId,
+      book_id: book.id,
+      prompt,
+      answer,
+      due_date: initialDueDate(ctx.today),
+    })
+    .select('*')
+    .single();
+  if (error || !question) throw new HttpError(500, 'Failed to bank question');
+
+  return { ok: true, question };
+}
+
+// ── review-question: resolve a due knowledge check (self-graded) ────────────
+async function reviewQuestion(ctx: Ctx, payload: { question_id?: string; recalled?: boolean }) {
+  const id = typeof payload.question_id === 'string' ? payload.question_id : '';
+  if (!id) throw new HttpError(400, 'question_id required');
+
+  const { data: question } = await ctx.db
+    .from('retention_questions')
+    .select('*')
+    .eq('user_id', ctx.userId)
+    .eq('id', id)
+    .maybeSingle();
+  if (!question) throw new HttpError(404, 'No such question');
+  if (question.mastered) throw new HttpError(409, 'Already mastered');
+  if (!question.due_date || question.due_date > ctx.today) {
+    throw new HttpError(409, 'Not yet due — the System decides when to test you.');
+  }
+
+  const recalled = payload.recalled === true;
+  const outcome = reviewOutcome(question.stage, recalled, ctx.today);
+  const { data: updated } = await ctx.db
+    .from('retention_questions')
+    .update({
+      stage: outcome.stage,
+      due_date: outcome.dueDate,
+      mastered: outcome.mastered,
+      times_reviewed: question.times_reviewed + 1,
+    })
+    .eq('id', question.id)
+    .select('*')
+    .single();
+
+  // Honest recall pays; a lapse costs nothing but the climb back.
+  const award = recalled ? await awardXp(ctx, RETENTION_PASS_XP, 'knowledge_check', question.id) : null;
+
+  return {
+    ok: true,
+    recalled,
+    mastered: outcome.mastered,
+    question: updated ?? { ...question, ...outcome },
+    award,
+  };
+}
+
+// ── complete-event: report a cleared Gate (self-reported, like a boss) ──────
+async function completeEvent(ctx: Ctx) {
+  const event = await getTodayEvent(ctx);
+  if (!event) throw new HttpError(404, 'No event today');
+  if (event.kind !== 'gate') throw new HttpError(409, 'This event resolves on its own');
+  if (event.status === 'completed') throw new HttpError(409, 'Gate already cleared');
+  if (event.status !== 'active') throw new HttpError(409, 'The gate has closed');
+
+  await ctx.db
+    .from('system_events')
+    .update({ status: 'completed', completed_at: new Date().toISOString() })
+    .eq('id', event.id);
+
+  const award = await awardXp(ctx, event.xp_reward, 'gate_clear', event.id);
+  await ctx.db.from('system_messages').insert({
+    user_id: ctx.userId,
+    kind: 'gate_cleared',
+    title: 'GATE CLEARED.',
+    body: `The emergency quest is complete. +${event.xp_reward} XP. The System closes the gate behind you.`,
+    payload: { event_id: event.id },
+  });
+
+  return { ok: true, award, event: { ...event, status: 'completed' } };
+}
+
 // ── Perfect Clear: training + every side quest done in one day ──────────────
 async function checkPerfectClear(
   ctx: Ctx,
@@ -519,13 +1163,19 @@ async function checkPerfectClear(
 }
 
 // ── XP gate wrapper: rpc → level-up announcement ────────────────────────────
-async function awardXp(ctx: Ctx, amount: number, source: string, sourceRef: string) {
+async function awardXp(
+  ctx: Ctx,
+  amount: number,
+  source: string,
+  sourceRef: string | null,
+  capEligible = true,
+) {
   const { data: award, error } = await ctx.db.rpc('award_xp', {
     p_user: ctx.userId,
     p_amount: amount,
     p_source: source,
     p_source_ref: sourceRef,
-    p_cap_eligible: true,
+    p_cap_eligible: capEligible,
     p_local_date: ctx.today,
   });
   if (error) {

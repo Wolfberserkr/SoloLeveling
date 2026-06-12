@@ -10,15 +10,15 @@ Framer Motion**, backed by **Supabase** (Postgres + Auth + Edge Functions).
 All XP, mana, and currency mutations run server-side in edge functions —
 the client cannot forge progress (RLS enforces it).
 
-## Status — Phase 2 of 8
+## Status — Phase 5 of 8
 
 | Phase | System | Status |
 |---|---|---|
 | 1 | Core: Status window · Daily Training Quest · XP/levels | ✅ |
 | 2 | Mana economy · daily quest loop · streaks · Perfect Clear | ✅ |
-| 3 | Gym Dungeons (training phases) · Boss Fights · body metrics | — |
-| 4 | Library: Read → Reflect → Apply → Retain · knowledge checks | — |
-| 5 | Cron · push notifications · random System Events | — |
+| 3 | Gym Dungeons (training phases) · Boss Fights · body metrics | ✅ |
+| 4 | Library: Read → Reflect → Apply → Retain · knowledge checks | ✅ |
+| 5 | Cron · push notifications · random System Events | ✅ |
 | 6 | AI (Claude) question banks & riddles | — |
 | 7 | Skills · Classes · Ranks · Titles | — |
 | 8 | Legacy Boss (past self) · polish · PWA hardening | — |

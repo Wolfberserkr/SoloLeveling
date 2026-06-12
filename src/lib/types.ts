@@ -65,6 +65,73 @@ export type SleepLog = {
   potion_earned: boolean;
 };
 
+export type DungeonProgress = {
+  user_id: string;
+  phase: number;
+  sessions_completed: number;
+  cycles_cleared: number;
+  last_boss_attempt: string | null;
+};
+
+export type BodyMetrics = {
+  user_id: string;
+  local_date: string;
+  weight_kg: number | null;
+  body_fat_pct: number | null;
+  waist_cm: number | null;
+  chest_cm: number | null;
+  arm_cm: number | null;
+  notes: string;
+};
+
+export type Book = {
+  id: string;
+  user_id: string;
+  title: string;
+  author: string;
+  total_pages: number;
+  pages_read: number;
+  status: 'reading' | 'finished' | 'abandoned';
+  started_date: string;
+  finished_date: string | null;
+  created_at: string;
+};
+
+export type RetentionQuestion = {
+  id: string;
+  user_id: string;
+  book_id: string;
+  prompt: string;
+  answer: string;
+  stage: number;
+  due_date: string | null;
+  mastered: boolean;
+  times_reviewed: number;
+  created_at: string;
+};
+
+export type LiftLog = {
+  id: string;
+  user_id: string;
+  local_date: string;
+  exercise: string;
+  weight_kg: number;
+  reps: number;
+};
+
+export type SystemEvent = {
+  id: string;
+  user_id: string;
+  local_date: string;
+  kind: 'gate' | 'mana_surge' | 'xp_surge' | 'potion_gift';
+  title: string;
+  body: string;
+  payload: { challenge?: string; target?: number; label?: string };
+  status: 'active' | 'completed' | 'expired';
+  xp_reward: number;
+  completed_at: string | null;
+};
+
 export type SystemMessage = {
   id: string;
   kind: string;

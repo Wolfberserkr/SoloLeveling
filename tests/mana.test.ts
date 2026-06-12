@@ -47,3 +47,14 @@ describe('daily mana economy balance', () => {
     }
   });
 });
+
+describe('startOfIsoWeek (weekly metrics cadence)', () => {
+  it('maps any day to that week’s Monday', async () => {
+    const { startOfIsoWeek } = await import('../supabase/functions/_shared/time.ts');
+    expect(startOfIsoWeek('2026-06-11')).toBe('2026-06-08'); // Thu → Mon
+    expect(startOfIsoWeek('2026-06-08')).toBe('2026-06-08'); // Mon → itself
+    expect(startOfIsoWeek('2026-06-14')).toBe('2026-06-08'); // Sun → same week
+    expect(startOfIsoWeek('2026-06-15')).toBe('2026-06-15'); // next Mon → new week
+    expect(startOfIsoWeek('2026-01-01')).toBe('2025-12-29'); // year boundary
+  });
+});

@@ -11,8 +11,9 @@ import { GlitchText } from '@/components/system/GlitchText';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { StatusPage } from '@/features/status/StatusPage';
 import { TrainingPage } from '@/features/training/TrainingPage';
+import { DungeonsPage } from '@/features/dungeons/DungeonsPage';
+import { LibraryPage } from '@/features/library/LibraryPage';
 import { MorePage } from '@/features/more/MorePage';
-import { ModuleOffline } from '@/features/stubs/ModuleOffline';
 
 function Shell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -60,26 +61,8 @@ function AuthedApp() {
       <Routes>
         <Route path="/" element={<StatusPage />} />
         <Route path="/training" element={<TrainingPage />} />
-        <Route
-          path="/dungeons"
-          element={
-            <ModuleOffline
-              name="Dungeons"
-              phase={3}
-              hint="Long-term training phases — Foundation through Master Physique — with benchmark Boss Fights."
-            />
-          }
-        />
-        <Route
-          path="/books"
-          element={
-            <ModuleOffline
-              name="Library"
-              phase={4}
-              hint="Read. Reflect. Apply. Retain. The System will test your knowledge when you least expect it."
-            />
-          }
-        />
+        <Route path="/dungeons" element={<DungeonsPage />} />
+        <Route path="/books" element={<LibraryPage />} />
         <Route path="/more" element={<MorePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
