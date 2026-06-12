@@ -60,6 +60,9 @@ export const RETENTION_PASS_XP = 10; // honest recall on a knowledge check → c
 // System Events (Phase 5)
 export const GATE_CLEAR_XP = 50; // 24h emergency quest → cap-eligible
 
+// AI knowledge generation (Phase 6)
+export const RIDDLE_SOLVE_XP = 40; // riddle event solved within attempts → cap-eligible
+
 // Mana ───────────────────────────────────────────────────────────────────────
 export const MANA_MAX_BASE = 100;
 

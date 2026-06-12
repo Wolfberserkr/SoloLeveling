@@ -33,6 +33,7 @@ import { trainingXpWithEvent, sideQuestCostWithEvent, type SystemEventKind } fro
 import {
   MAX_ACTIVE_BOOKS,
   MAX_QUESTIONS_PER_BOOK,
+  ARCHIVE_SCAN_QUESTIONS,
   MAX_SESSION_PAGES,
   MIN_BOOK_PAGES,
   MAX_BOOK_PAGES,
@@ -44,6 +45,8 @@ import {
   initialDueDate,
   reviewOutcome,
 } from '../_shared/game/library.ts';
+import { answerMatches, RIDDLE_MAX_ATTEMPTS } from '../_shared/game/riddles.ts';
+import { aiAvailable, generateBookQuestions } from '../_shared/ai.ts';
 import {
   TRAINING_XP,
   PERFECT_CLEAR_XP,
@@ -135,6 +138,10 @@ Deno.serve(async (req) => {
         return json(await reviewQuestion(ctx, payload));
       case 'complete-event':
         return json(await completeEvent(ctx));
+      case 'answer-riddle':
+        return json(await answerRiddle(ctx, payload));
+      case 'generate-questions':
+        return json(await generateQuestions(ctx, payload));
       default:
         throw new HttpError(400, `Unknown action: ${action}`);
     }
@@ -1139,6 +1146,161 @@ async function completeEvent(ctx: Ctx) {
   });
 
   return { ok: true, award, event: { ...event, status: 'completed' } };
+}
+
+// ── answer-riddle: one of RIDDLE_MAX_ATTEMPTS guesses at today's riddle ─────
+// The answer never leaves the server until the riddle resolves: correct,
+// out of attempts, or midnight. Attempts live in the event payload (clients
+// can read but not write system_events), the answer in riddle_answers
+// (clients can do neither).
+async function answerRiddle(ctx: Ctx, payload: { guess?: string }) {
+  const { db, userId } = ctx;
+  const event = await getTodayEvent(ctx);
+  if (!event || event.kind !== 'riddle') throw new HttpError(404, 'No riddle today');
+  if (event.status === 'completed') throw new HttpError(409, 'Riddle already solved');
+  if (event.status !== 'active') throw new HttpError(409, 'The riddle has expired');
+
+  const guess = String(payload.guess ?? '').trim().slice(0, 200);
+  if (!guess) throw new HttpError(400, 'Speak your answer');
+
+  const { data: secret } = await db
+    .from('riddle_answers')
+    .select('answer')
+    .eq('event_id', event.id)
+    .maybeSingle();
+  if (!secret) {
+    console.error(`riddle_answers row missing for event ${event.id}`);
+    throw new HttpError(500, 'The riddle was lost to the void');
+  }
+
+  const maxAttempts = Number(event.payload?.max_attempts ?? RIDDLE_MAX_ATTEMPTS);
+  const used = Number(event.payload?.attempts_used ?? 0);
+  if (used >= maxAttempts) throw new HttpError(409, 'No attempts remain');
+
+  const attempts = used + 1;
+  const correct = answerMatches(guess, secret.answer);
+  const failed = !correct && attempts >= maxAttempts;
+  const { data: updated } = await db
+    .from('system_events')
+    .update({
+      payload: { ...event.payload, attempts_used: attempts },
+      ...(correct
+        ? { status: 'completed', completed_at: new Date().toISOString() }
+        : failed
+          ? { status: 'expired' }
+          : {}),
+    })
+    .eq('id', event.id)
+    .select('*')
+    .single();
+
+  // The canonical answer (first alias) is revealed once the riddle resolves.
+  const canonical = secret.answer.split('|')[0];
+
+  if (correct) {
+    const award = await awardXp(ctx, event.xp_reward, 'riddle_solved', event.id);
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'riddle_solved',
+      title: 'RIDDLE SOLVED.',
+      body: `“${canonical}” — correct. +${event.xp_reward} XP. The System enjoys a worthy mind.`,
+      payload: { event_id: event.id },
+    });
+    return { ok: true, correct: true, answer: canonical, award, event: updated };
+  }
+
+  if (failed) {
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'riddle_failed',
+      title: 'The riddle stands unsolved.',
+      body: `The answer was “${canonical}”. No XP — but the System will ask again, another day.`,
+      payload: { event_id: event.id },
+    });
+  }
+  return {
+    ok: true,
+    correct: false,
+    attempts_left: maxAttempts - attempts,
+    answer: failed ? canonical : null,
+    event: updated,
+  };
+}
+
+// ── generate-questions: Archive Scan — AI questions for a tome (Phase 6) ────
+// Costs mana like a study session; pays nothing by itself. The questions land
+// in the same retention ladder as the Player's own, marked source='system'.
+async function generateQuestions(ctx: Ctx, payload: { book_id?: string }) {
+  const { db, userId, profile } = ctx;
+  const book = await getBook(ctx, payload.book_id);
+  if (book.status === 'abandoned') throw new HttpError(409, 'This tome is closed');
+  if (book.pages_read <= 0) {
+    throw new HttpError(409, 'Read first. The Archive only questions what you have opened.');
+  }
+  if (!aiAvailable()) {
+    throw new HttpError(503, 'The Archive is offline — no AI key is configured.');
+  }
+  if (profile.mana < MANA_COSTS.study) {
+    throw new HttpError(409, 'Insufficient mana. Recover before consulting the Archive.');
+  }
+
+  const { data: existing } = await db
+    .from('retention_questions')
+    .select('prompt')
+    .eq('user_id', userId)
+    .eq('book_id', book.id);
+  const existingPrompts = (existing ?? []).map((q) => String(q.prompt));
+  const remaining = MAX_QUESTIONS_PER_BOOK - existingPrompts.length;
+  if (remaining <= 0) {
+    throw new HttpError(409, 'Question bank full for this tome — master what you have.');
+  }
+
+  const { data: sessions } = await db
+    .from('reading_sessions')
+    .select('reflection')
+    .eq('user_id', userId)
+    .eq('book_id', book.id)
+    .neq('reflection', '')
+    .order('local_date', { ascending: false })
+    .limit(5);
+
+  const generated = await generateBookQuestions({
+    title: book.title,
+    author: book.author,
+    reflections: (sessions ?? []).map((s) => String(s.reflection)),
+    existingPrompts,
+    count: Math.min(ARCHIVE_SCAN_QUESTIONS, remaining),
+  });
+  if (!generated) {
+    throw new HttpError(502, 'The Archive did not answer. Try again shortly.');
+  }
+
+  const { data: questions, error } = await db
+    .from('retention_questions')
+    .insert(
+      generated.map((q) => ({
+        user_id: userId,
+        book_id: book.id,
+        prompt: q.prompt,
+        answer: q.answer,
+        source: 'system',
+        due_date: initialDueDate(ctx.today),
+      })),
+    )
+    .select('*');
+  if (error || !questions) throw new HttpError(500, 'Failed to bank generated questions');
+
+  // Mana is only spent on success — a silent Archive costs nothing.
+  const mana = clampMana(profile.mana - MANA_COSTS.study, profile.mana_max);
+  await db.from('profiles').update({ mana }).eq('user_id', userId);
+  profile.mana = mana;
+
+  return {
+    ok: true,
+    questions,
+    mana,
+    bank_remaining: remaining - questions.length,
+  };
 }
 
 // ── Perfect Clear: training + every side quest done in one day ──────────────

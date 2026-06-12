@@ -90,6 +90,7 @@ function KnowledgeCheckPanel() {
       <p className="font-sys text-[0.65rem] uppercase tracking-widest text-slate-500">
         {book ? `From “${book.title}”` : 'From your library'} · stage {question.stage + 1}/
         {RETENTION_INTERVALS.length}
+        {question.source === 'system' && ' · ⌬ archive'}
       </p>
       <p className="mt-3 text-sm leading-relaxed text-slate-200">{question.prompt}</p>
 
@@ -272,6 +273,19 @@ function BookActions({ book }: { book: Book }) {
       setAnswer('');
     });
 
+  const archiveScan = () =>
+    run(async () => {
+      const res = await gameAction<{ questions: unknown[]; bank_remaining: number }>(
+        'generate-questions',
+        { book_id: book.id },
+      );
+      pushAlert({
+        kind: 'success',
+        title: 'Archive scan complete',
+        body: `${res.questions.length} questions generated · −${MANA_COSTS.study} mana. They fall due tomorrow.`,
+      });
+    });
+
   return (
     <div className="border-t border-accent-cyan/15 p-3">
       <div className="grid grid-cols-3 gap-1">
@@ -384,6 +398,17 @@ function BookActions({ book }: { book: Book }) {
             onClick={bankQuestion}
           >
             ◈ Bank Question
+          </button>
+          <button
+            className="sys-btn sys-btn-ghost mt-2 w-full !min-h-[34px] !py-1 !text-[0.65rem]"
+            disabled={busy || book.pages_read <= 0 || (profile?.mana ?? 0) < MANA_COSTS.study}
+            onClick={archiveScan}
+          >
+            {book.pages_read <= 0
+              ? 'Read first — the Archive needs material'
+              : (profile?.mana ?? 0) < MANA_COSTS.study
+                ? 'Insufficient Mana for Archive Scan'
+                : `⌬ Archive Scan — AI questions (−${MANA_COSTS.study} ◈)`}
           </button>
         </div>
       )}
