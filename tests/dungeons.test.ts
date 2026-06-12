@@ -6,6 +6,7 @@ import {
   allDungeonsCleared,
   isBossReady,
   bossDefeated,
+  demoSearchUrl,
 } from '@game/dungeons.ts';
 import { baseTrainingTargets } from '@game/training.ts';
 
@@ -35,6 +36,27 @@ describe('dungeon phase definitions', () => {
       const keys = p.boss.benchmarks.map((b) => b.key);
       expect(new Set(keys).size).toBe(keys.length);
     }
+  });
+
+  it('every exercise carries a scheme and resolves to a YouTube demo search', () => {
+    for (const p of DUNGEON_PHASES) {
+      for (const ex of p.template) {
+        expect(ex.name.length).toBeGreaterThan(0);
+        expect(ex.scheme.length).toBeGreaterThan(0);
+        const url = demoSearchUrl(ex);
+        expect(url).toMatch(/^https:\/\/www\.youtube\.com\/results\?search_query=/);
+        expect(url).not.toContain(' ');
+      }
+    }
+  });
+
+  it('demo override replaces the default "<name> form" query', () => {
+    expect(demoSearchUrl({ name: 'Goblet Squat', scheme: '3×10' })).toContain(
+      'Goblet%20Squat%20form',
+    );
+    expect(demoSearchUrl({ name: 'X', scheme: '1×1', demo: 'custom query' })).toContain(
+      'custom%20query',
+    );
   });
 });
 

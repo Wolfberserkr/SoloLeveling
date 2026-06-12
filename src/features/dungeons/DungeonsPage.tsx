@@ -10,6 +10,7 @@ import {
   dungeonPhaseFor,
   allDungeonsCleared,
   isBossReady,
+  demoSearchUrl,
   MAX_DUNGEON_PHASE,
 } from '@game/dungeons.ts';
 import { MANA_COSTS } from '@game/mana.ts';
@@ -110,19 +111,35 @@ function DungeonRunPanel() {
 
       <div className="mt-4 flex flex-col gap-2">
         {def.template.map((exercise, i) => (
-          <button
-            key={exercise}
-            type="button"
-            onClick={() => setTicked((t) => ({ ...t, [i]: !t[i] }))}
-            className={`flex items-center gap-3 border p-2 text-left font-sys text-xs transition-colors ${
+          <div
+            key={exercise.name}
+            className={`flex items-stretch border transition-colors ${
               ticked[i]
                 ? 'border-accent-green/40 bg-accent-green/5 text-accent-green'
                 : 'border-accent-cyan/20 bg-bg-base/40 text-slate-300'
             }`}
           >
-            <span className="w-4 text-center">{ticked[i] ? '✓' : '·'}</span>
-            {exercise}
-          </button>
+            <button
+              type="button"
+              onClick={() => setTicked((t) => ({ ...t, [i]: !t[i] }))}
+              className="flex flex-1 items-center gap-3 p-2 text-left font-sys text-xs"
+            >
+              <span className="w-4 text-center">{ticked[i] ? '✓' : '·'}</span>
+              <span>
+                {exercise.name}
+                <span className="ml-2 opacity-60">{exercise.scheme}</span>
+              </span>
+            </button>
+            <a
+              href={demoSearchUrl(exercise)}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Demo: ${exercise.name}`}
+              className="flex items-center border-l border-accent-cyan/20 px-3 font-sys text-xs text-accent-cyan/80 hover:text-accent-cyan"
+            >
+              ▶
+            </a>
+          </div>
         ))}
       </div>
 
