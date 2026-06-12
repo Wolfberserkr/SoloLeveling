@@ -15,6 +15,8 @@ import type {
   SystemEvent,
   LiftLog,
   SystemMessage,
+  PlayerSkill,
+  PlayerTitle,
 } from '@/lib/types';
 
 type PlayerState = {
@@ -36,6 +38,8 @@ type PlayerState = {
   liftLogs: LiftLog[]; // recent top-set logs, newest first
   totals: TrainingTotals | null;
   messages: SystemMessage[];
+  skills: PlayerSkill[]; // unlocked passive skills (Phase 7)
+  titles: PlayerTitle[]; // earned titles (Phase 7)
   /** Full refresh: lazy daily reset on the server, then re-read everything. */
   loadAll: () => Promise<void>;
   /** Re-read DB state without re-running the daily reset. */
@@ -65,6 +69,8 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   liftLogs: [],
   totals: null,
   messages: [],
+  skills: [],
+  titles: [],
 
   loadAll: async () => {
     set({ loading: true, error: null });
@@ -125,6 +131,8 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       liftLogs: [],
       totals: null,
       messages: [],
+      skills: [],
+      titles: [],
     }),
 }));
 
@@ -146,6 +154,8 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     applicationsRes,
     eventRes,
     liftsRes,
+    skillsRes,
+    titlesRes,
   ] = await Promise.all([
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
@@ -209,6 +219,8 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
         .select('*')
         .order('local_date', { ascending: false })
         .limit(300),
+      supabase.from('player_skills').select('*'),
+      supabase.from('player_titles').select('*'),
     ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
@@ -242,5 +254,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     appliedTodayBookIds: todaysBookIds(applicationsRes.data),
     event: eventRow && eventRow.local_date === today ? eventRow : null,
     liftLogs: (liftsRes.data ?? []) as LiftLog[],
+    skills: (skillsRes.data ?? []) as PlayerSkill[],
+    titles: (titlesRes.data ?? []) as PlayerTitle[],
   });
 }

@@ -1,5 +1,8 @@
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { usePlayerStore } from '@/stores/playerStore';
+import { useUiStore } from '@/stores/uiStore';
+import { gameAction } from '@/lib/gameApi';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import { StatBar } from '@/components/system/StatBar';
 import { RankBadge } from '@/components/system/RankBadge';
@@ -7,6 +10,7 @@ import { ManaOrb } from '@/components/system/ManaOrb';
 import { GlitchText } from '@/components/system/GlitchText';
 import { levelProgress } from '@game/xpCurve.ts';
 import { STAT_GROUPS, STAT_LABELS, RANK_TITLES, type Rank } from '@game/constants.ts';
+import { CLASSES, classByKey, CLASS_UNLOCK_LEVEL, SKILLS, TITLES } from '@game/progression.ts';
 
 export function StatusPage() {
   const { profile, stats, totals, messages } = usePlayerStore();
@@ -14,6 +18,7 @@ export function StatusPage() {
 
   const progress = levelProgress(profile.xp_total);
   const statMap = Object.fromEntries(stats.map((s) => [s.stat, Number(s.value)]));
+  const playerClass = classByKey(profile.class);
 
   return (
     <div className="flex flex-col gap-4">
@@ -27,6 +32,7 @@ export function StatusPage() {
             </div>
             <div className="font-sys text-[0.65rem] uppercase tracking-widest text-slate-400">
               {profile.rank}-Rank · {RANK_TITLES[profile.rank as Rank] ?? ''}
+              {playerClass && <span className="text-accent-cyan"> · {playerClass.name}</span>}
               {profile.equipped_title && (
                 <span className="text-accent-gold"> · {profile.equipped_title}</span>
               )}
@@ -85,7 +91,7 @@ export function StatusPage() {
                       {key}
                     </div>
                     <div className="font-sys text-lg text-white">
-                      {statMap[key] ?? 10}
+                      {Number((statMap[key] ?? 10).toFixed(1))}
                     </div>
                   </motion.div>
                 ))}
@@ -94,6 +100,13 @@ export function StatusPage() {
           ))}
         </div>
       </SystemWindow>
+
+      {/* ── Class advancement (Phase 7) ── */}
+      {!profile.class && profile.level >= CLASS_UNLOCK_LEVEL && <ClassChoicePanel />}
+
+      {/* ── Skills & Titles (Phase 7) ── */}
+      <SkillsPanel />
+      <TitlesPanel />
 
       {/* ── Lifetime record ── */}
       <SystemWindow title="Record" accent="purple" delay={0.16}>
@@ -126,6 +139,174 @@ export function StatusPage() {
         )}
       </SystemWindow>
     </div>
+  );
+}
+
+// ── Class advancement: one path, chosen once, at the unlock level ────────────
+function ClassChoicePanel() {
+  const { refresh } = usePlayerStore();
+  const pushAlert = useUiStore((s) => s.pushAlert);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function choose() {
+    if (busy || !selected) return;
+    setBusy(true);
+    try {
+      await gameAction('choose-class', { class_key: selected });
+      const def = classByKey(selected);
+      pushAlert({
+        kind: 'success',
+        title: `CLASS ADVANCEMENT — ${def?.name ?? selected}`,
+        body: '+10% XP in this domain, from this day on.',
+      });
+      await refresh();
+    } catch (err) {
+      pushAlert({
+        kind: 'danger',
+        title: 'Advancement rejected',
+        body: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SystemWindow title="Class Advancement" accent="red" scan delay={0.1}>
+      <p className="text-xs leading-relaxed text-slate-400">
+        You have proven yourself worthy of a class. Choose your path — the choice is permanent,
+        and it shapes how the System rewards you.
+      </p>
+      <div className="mt-3 flex flex-col gap-2">
+        {CLASSES.map((c) => (
+          <button
+            key={c.key}
+            type="button"
+            onClick={() => setSelected(c.key)}
+            className={`border p-3 text-left transition-colors ${
+              selected === c.key
+                ? 'border-accent-cyan/70 bg-accent-cyan/10'
+                : 'border-accent-cyan/20 bg-bg-base/40'
+            }`}
+          >
+            <div className="font-display text-sm font-bold uppercase tracking-widest text-white">
+              {c.name}
+            </div>
+            <div className="mt-1 text-xs leading-relaxed text-slate-400">{c.line}</div>
+          </button>
+        ))}
+      </div>
+      <button className="sys-btn mt-3 w-full" disabled={busy || !selected} onClick={choose}>
+        {selected ? `⚔ Walk the path of the ${classByKey(selected)?.name}` : 'Choose a path'}
+      </button>
+    </SystemWindow>
+  );
+}
+
+// ── Skills: milestone-unlocked passives ──────────────────────────────────────
+function SkillsPanel() {
+  const { skills } = usePlayerStore();
+  const unlocked = new Set(skills.map((s) => s.skill_key));
+
+  return (
+    <SystemWindow title={`Skills — ${unlocked.size}/${SKILLS.length}`} delay={0.12}>
+      <div className="flex flex-col gap-2">
+        {SKILLS.map((skill) => {
+          const has = unlocked.has(skill.key);
+          return (
+            <div
+              key={skill.key}
+              className={`border p-2 ${has ? 'border-accent-cyan/40 bg-bg-base/40' : 'border-white/5 bg-bg-base/20 opacity-60'}`}
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <span
+                  className={`font-sys text-xs uppercase tracking-widest ${has ? 'text-accent-cyan glow-text' : 'text-slate-500'}`}
+                >
+                  {has ? `[${skill.name}]` : '[ ??? ]'}
+                </span>
+                <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-600">
+                  {has ? 'Passive' : 'Locked'}
+                </span>
+              </div>
+              <div className="mt-0.5 text-xs text-slate-400">
+                {has ? skill.perk : skill.requirement}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </SystemWindow>
+  );
+}
+
+// ── Titles: earned badges, one worn on the status line ───────────────────────
+function TitlesPanel() {
+  const { profile, titles, refresh } = usePlayerStore();
+  const pushAlert = useUiStore((s) => s.pushAlert);
+  const [busy, setBusy] = useState(false);
+  const earned = new Set(titles.map((t) => t.title_key));
+
+  async function equip(titleKey: string | null) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await gameAction<{ equipped_title: string | null }>('equip-title', {
+        title_key: titleKey,
+      });
+      pushAlert({
+        kind: 'success',
+        title: res.equipped_title ? `Title equipped — ${res.equipped_title}` : 'Title removed',
+      });
+      await refresh();
+    } catch (err) {
+      pushAlert({
+        kind: 'danger',
+        title: 'Title rejected',
+        body: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SystemWindow title={`Titles — ${earned.size}/${TITLES.length}`} accent="gold" delay={0.14}>
+      <div className="flex flex-col gap-2">
+        {TITLES.map((title) => {
+          const has = earned.has(title.key);
+          const worn = has && profile?.equipped_title === title.name;
+          return (
+            <div
+              key={title.key}
+              className={`flex items-center justify-between gap-2 border p-2 ${
+                has ? 'border-accent-gold/40 bg-bg-base/40' : 'border-white/5 bg-bg-base/20 opacity-60'
+              }`}
+            >
+              <div className="min-w-0">
+                <div
+                  className={`font-sys text-xs uppercase tracking-widest ${has ? 'text-accent-gold' : 'text-slate-500'}`}
+                >
+                  {has ? title.name : '???'}
+                </div>
+                <div className="mt-0.5 truncate text-[0.65rem] text-slate-500">
+                  {title.requirement}
+                </div>
+              </div>
+              {has && (
+                <button
+                  className="sys-btn sys-btn-ghost shrink-0 !min-h-[28px] !px-2 !py-0.5 !text-[0.6rem]"
+                  disabled={busy}
+                  onClick={() => equip(worn ? null : title.key)}
+                >
+                  {worn ? 'Unequip' : 'Equip'}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </SystemWindow>
   );
 }
 

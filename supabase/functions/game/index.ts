@@ -48,6 +48,19 @@ import {
 import { answerMatches, RIDDLE_MAX_ATTEMPTS } from '../_shared/game/riddles.ts';
 import { aiAvailable, generateBookQuestions } from '../_shared/ai.ts';
 import {
+  rankForLevel,
+  statAwardsFor,
+  xpMultiplier,
+  skillRegenBonus,
+  unlockedSkills,
+  earnedTitles,
+  classByKey,
+  titleByKey,
+  CLASS_UNLOCK_LEVEL,
+  type Snapshot,
+} from '../_shared/game/progression.ts';
+import { RANK_TITLES, type Rank } from '../_shared/game/constants.ts';
+import {
   TRAINING_XP,
   PERFECT_CLEAR_XP,
   GYM_SESSION_XP,
@@ -63,6 +76,8 @@ type Ctx = {
   userId: string;
   profile: Profile;
   today: string;
+  /** Unlocked skill keys, fetched once per request on first use. */
+  skillKeys?: string[];
 };
 
 type Profile = {
@@ -71,6 +86,7 @@ type Profile = {
   level: number;
   xp_total: number;
   rank: string;
+  class: string | null;
   mana: number;
   mana_max: number;
   mana_potions: number;
@@ -89,7 +105,7 @@ Deno.serve(async (req) => {
     const { data: profile, error } = await db
       .from('profiles')
       .select(
-        'user_id, timezone, level, xp_total, rank, mana, mana_max, mana_potions, fatigue, last_daily_reset',
+        'user_id, timezone, level, xp_total, rank, class, mana, mana_max, mana_potions, fatigue, last_daily_reset',
       )
       .eq('user_id', user.id)
       .single();
@@ -142,6 +158,10 @@ Deno.serve(async (req) => {
         return json(await answerRiddle(ctx, payload));
       case 'generate-questions':
         return json(await generateQuestions(ctx, payload));
+      case 'choose-class':
+        return json(await chooseClass(ctx, payload));
+      case 'equip-title':
+        return json(await equipTitle(ctx, payload));
       default:
         throw new HttpError(400, `Unknown action: ${action}`);
     }
@@ -205,7 +225,11 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
   }
 
   // Mana regen: a new day restores capacity before anything is asked of you.
-  const mana = clampMana(profile.mana + DAILY_REGEN, profile.mana_max);
+  // Meditation (Phase 7 skill) deepens the well.
+  const mana = clampMana(
+    profile.mana + DAILY_REGEN + skillRegenBonus(await getSkillKeys(ctx)),
+    profile.mana_max,
+  );
 
   // Recovery triggers on state; otherwise the System rolls today's flavor.
   const recovery = mana < LOW_MANA_THRESHOLD || fatigue >= FATIGUE_THRESHOLD;
@@ -280,6 +304,11 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
   profile.mana = mana;
   profile.fatigue = fatigue;
   profile.last_daily_reset = today;
+
+  // The day's first contact also settles rank, skills, and titles (Phase 7) —
+  // including anything earned before this code existed.
+  await syncRank(ctx);
+  await checkUnlocks(ctx);
 }
 
 async function getTodayQuest(ctx: Ctx) {
@@ -481,6 +510,7 @@ async function completeTraining(ctx: Ctx) {
     quest.id,
   );
   const perfect = await checkPerfectClear(ctx, { ...quest, status: 'completed' });
+  await checkUnlocks(ctx); // streak/day-count skills & titles land same-day
 
   return {
     ok: true,
@@ -520,6 +550,7 @@ async function completeSideQuest(ctx: Ctx, payload: { key?: string }) {
   const award = await awardXp(ctx, quest.xp_reward, 'daily_quest', quest.id);
   const training = await getTodayQuest(ctx);
   const perfect = await checkPerfectClear(ctx, training);
+  if (perfect) await checkUnlocks(ctx);
 
   return {
     ok: true,
@@ -690,6 +721,7 @@ async function completeGym(ctx: Ctx, payload: { notes?: string; kind?: string })
   }
 
   const award = await awardXp(ctx, GYM_SESSION_XP, 'gym_session', null);
+  await checkUnlocks(ctx);
   return {
     ok: true,
     award,
@@ -756,6 +788,7 @@ async function attemptBoss(ctx: Ctx, payload: { confirmed?: Record<string, unkno
     payload: { phase: dungeon.phase, next_phase: nextPhase },
   });
 
+  await checkUnlocks(ctx);
   return {
     ok: true,
     victory: true,
@@ -1008,6 +1041,7 @@ async function logReading(
       body: `${book.total_pages} pages conquered. Knowledge fades unless tested — your banked questions will keep coming due. Apply what you learned.`,
       payload: { book_id: book.id },
     });
+    await checkUnlocks(ctx);
   }
 
   return {
@@ -1113,6 +1147,7 @@ async function reviewQuestion(ctx: Ctx, payload: { question_id?: string; recalle
 
   // Honest recall pays; a lapse costs nothing but the climb back.
   const award = recalled ? await awardXp(ctx, RETENTION_PASS_XP, 'knowledge_check', question.id) : null;
+  if (outcome.mastered) await checkUnlocks(ctx);
 
   return {
     ok: true,
@@ -1144,6 +1179,7 @@ async function completeEvent(ctx: Ctx) {
     body: `The emergency quest is complete. +${event.xp_reward} XP. The System closes the gate behind you.`,
     payload: { event_id: event.id },
   });
+  await checkUnlocks(ctx);
 
   return { ok: true, award, event: { ...event, status: 'completed' } };
 }
@@ -1206,6 +1242,7 @@ async function answerRiddle(ctx: Ctx, payload: { guess?: string }) {
       body: `“${canonical}” — correct. +${event.xp_reward} XP. The System enjoys a worthy mind.`,
       payload: { event_id: event.id },
     });
+    await checkUnlocks(ctx);
     return { ok: true, correct: true, answer: canonical, award, event: updated };
   }
 
@@ -1324,7 +1361,7 @@ async function checkPerfectClear(
   return award;
 }
 
-// ── XP gate wrapper: rpc → level-up announcement ────────────────────────────
+// ── XP gate wrapper: multipliers → rpc → level/rank announcements ───────────
 async function awardXp(
   ctx: Ctx,
   amount: number,
@@ -1332,9 +1369,13 @@ async function awardXp(
   sourceRef: string | null,
   capEligible = true,
 ) {
+  // Class and skill perks (Phase 7) amplify the raw award before the cap.
+  const boosted = Math.round(
+    amount * xpMultiplier(ctx.profile.class, await getSkillKeys(ctx), source),
+  );
   const { data: award, error } = await ctx.db.rpc('award_xp', {
     p_user: ctx.userId,
-    p_amount: amount,
+    p_amount: boosted,
     p_source: source,
     p_source_ref: sourceRef,
     p_cap_eligible: capEligible,
@@ -1354,6 +1395,200 @@ async function awardXp(
       body: 'Your limits have shifted. The Daily Training Quest will scale accordingly.',
       payload: { new_level: award.new_level },
     });
+    await syncRank(ctx);
+  }
+
+  // Attributes train with the action itself; once the XP cap saturates,
+  // repeatable grinding stops moving them too (cap-exempt one-shots always do).
+  const bumps = statAwardsFor(source);
+  if (bumps && (award.credited > 0 || !capEligible)) {
+    const { error: bumpErr } = await ctx.db.rpc('bump_stats', {
+      p_user: ctx.userId,
+      p_bumps: bumps,
+    });
+    if (bumpErr) console.error('bump_stats failed:', bumpErr);
   }
   return award;
+}
+
+// ── Phase 7: Skills · Classes · Ranks · Titles ───────────────────────────────
+async function getSkillKeys(ctx: Ctx): Promise<string[]> {
+  if (ctx.skillKeys) return ctx.skillKeys;
+  const { data } = await ctx.db
+    .from('player_skills')
+    .select('skill_key')
+    .eq('user_id', ctx.userId);
+  ctx.skillKeys = (data ?? []).map((r) => String(r.skill_key));
+  return ctx.skillKeys;
+}
+
+/** Rank is derived from level; this settles profiles.rank and announces. */
+async function syncRank(ctx: Ctx) {
+  const target = rankForLevel(ctx.profile.level);
+  if (target === ctx.profile.rank) return;
+  await ctx.db.from('profiles').update({ rank: target }).eq('user_id', ctx.userId);
+  ctx.profile.rank = target;
+  await ctx.db.from('system_messages').insert({
+    user_id: ctx.userId,
+    kind: 'rank_up',
+    title: `RANK ADVANCEMENT — ${target}-Rank.`,
+    body: `The System reclassifies you: ${RANK_TITLES[target as Rank]}. Higher rank, heavier expectations.`,
+    payload: { rank: target },
+  });
+}
+
+/** Milestone sweep: unlock any skills and titles now earned, announce once.
+ * Idempotent (PK upserts) — safe to call after any milestone-shaped action. */
+async function checkUnlocks(ctx: Ctx) {
+  const { db, userId } = ctx;
+  const counting = { count: 'exact' as const, head: true };
+  const [totals, dungeon, gym, books, mastered, riddles, gates, perfects] = await Promise.all([
+    db
+      .from('training_totals')
+      .select('best_streak, days_completed, total_run_km')
+      .eq('user_id', userId)
+      .maybeSingle(),
+    db.from('dungeon_progress').select('cycles_cleared').eq('user_id', userId).maybeSingle(),
+    db.from('gym_sessions').select('id', counting).eq('user_id', userId),
+    db.from('books').select('id', counting).eq('user_id', userId).eq('status', 'finished'),
+    db
+      .from('retention_questions')
+      .select('id', counting)
+      .eq('user_id', userId)
+      .eq('mastered', true),
+    db
+      .from('system_events')
+      .select('id', counting)
+      .eq('user_id', userId)
+      .eq('kind', 'riddle')
+      .eq('status', 'completed'),
+    db
+      .from('system_events')
+      .select('id', counting)
+      .eq('user_id', userId)
+      .eq('kind', 'gate')
+      .eq('status', 'completed'),
+    db
+      .from('training_quests')
+      .select('id', counting)
+      .eq('user_id', userId)
+      .eq('perfect_clear', true),
+  ]);
+
+  const snapshot: Snapshot = {
+    level: ctx.profile.level,
+    bestStreak: totals.data?.best_streak ?? 0,
+    daysCompleted: totals.data?.days_completed ?? 0,
+    runKmTotal: Number(totals.data?.total_run_km ?? 0),
+    gymSessions: gym.count ?? 0,
+    bossClears: dungeon.data?.cycles_cleared ?? 0,
+    booksFinished: books.count ?? 0,
+    questionsMastered: mastered.count ?? 0,
+    riddlesSolved: riddles.count ?? 0,
+    gatesCleared: gates.count ?? 0,
+    perfectClears: perfects.count ?? 0,
+  };
+
+  const haveSkills = await getSkillKeys(ctx);
+  const newSkills = unlockedSkills(snapshot).filter((s) => !haveSkills.includes(s.key));
+  for (const skill of newSkills) {
+    const { error } = await db
+      .from('player_skills')
+      .upsert(
+        { user_id: userId, skill_key: skill.key },
+        { onConflict: 'user_id,skill_key', ignoreDuplicates: true },
+      );
+    if (error) {
+      console.error('player_skills upsert failed:', error);
+      continue;
+    }
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'skill_unlocked',
+      title: `SKILL ACQUIRED — [${skill.name}].`,
+      body: `${skill.requirement} — done. Passive effect: ${skill.perk}.`,
+      payload: { skill_key: skill.key },
+    });
+  }
+  if (newSkills.length > 0) {
+    ctx.skillKeys = [...haveSkills, ...newSkills.map((s) => s.key)];
+  }
+
+  const { data: titleRows } = await db
+    .from('player_titles')
+    .select('title_key')
+    .eq('user_id', userId);
+  const haveTitles = (titleRows ?? []).map((t) => String(t.title_key));
+  const newTitles = earnedTitles(snapshot).filter((t) => !haveTitles.includes(t.key));
+  for (const title of newTitles) {
+    const { error } = await db
+      .from('player_titles')
+      .upsert(
+        { user_id: userId, title_key: title.key },
+        { onConflict: 'user_id,title_key', ignoreDuplicates: true },
+      );
+    if (error) {
+      console.error('player_titles upsert failed:', error);
+      continue;
+    }
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'title_earned',
+      title: `TITLE EARNED — “${title.name}”.`,
+      body: `${title.requirement}: done. Equip it from the Status window.`,
+      payload: { title_key: title.key },
+    });
+  }
+
+  return {
+    new_skills: newSkills.map((s) => s.key),
+    new_titles: newTitles.map((t) => t.key),
+  };
+}
+
+// ── choose-class: one path, chosen once, at CLASS_UNLOCK_LEVEL ───────────────
+async function chooseClass(ctx: Ctx, payload: { class_key?: string }) {
+  const { db, userId, profile } = ctx;
+  if (profile.level < CLASS_UNLOCK_LEVEL) {
+    throw new HttpError(409, `Class advancement opens at Level ${CLASS_UNLOCK_LEVEL}.`);
+  }
+  if (profile.class) {
+    throw new HttpError(409, 'Class already chosen. The path is walked, not swapped.');
+  }
+  const def = classByKey(String(payload.class_key ?? ''));
+  if (!def) throw new HttpError(400, 'Unknown class');
+
+  await db.from('profiles').update({ class: def.key }).eq('user_id', userId);
+  profile.class = def.key;
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'class_advancement',
+    title: `CLASS ADVANCEMENT — ${def.name}.`,
+    body: `${def.line} +10% XP in this domain, from this day on.`,
+    payload: { class: def.key },
+  });
+
+  return { ok: true, class: def.key };
+}
+
+// ── equip-title: wear an earned title on the status line (or none) ───────────
+async function equipTitle(ctx: Ctx, payload: { title_key?: string | null }) {
+  const { db, userId } = ctx;
+  if (payload.title_key == null || payload.title_key === '') {
+    await db.from('profiles').update({ equipped_title: null }).eq('user_id', userId);
+    return { ok: true, equipped_title: null };
+  }
+
+  const def = titleByKey(String(payload.title_key));
+  if (!def) throw new HttpError(400, 'Unknown title');
+  const { data: owned } = await db
+    .from('player_titles')
+    .select('title_key')
+    .eq('user_id', userId)
+    .eq('title_key', def.key)
+    .maybeSingle();
+  if (!owned) throw new HttpError(409, 'Title not earned. The System does not lend honors.');
+
+  await db.from('profiles').update({ equipped_title: def.name }).eq('user_id', userId);
+  return { ok: true, equipped_title: def.name };
 }

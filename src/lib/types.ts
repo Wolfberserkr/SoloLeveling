@@ -149,6 +149,18 @@ export type SystemMessage = {
   created_at: string;
 };
 
+export type PlayerSkill = {
+  user_id: string;
+  skill_key: string;
+  unlocked_at: string;
+};
+
+export type PlayerTitle = {
+  user_id: string;
+  title_key: string;
+  earned_at: string;
+};
+
 export type TrainingTotals = {
   total_pushups: number;
   total_situps: number;
