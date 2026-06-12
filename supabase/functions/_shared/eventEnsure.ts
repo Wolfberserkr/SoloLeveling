@@ -3,7 +3,8 @@
 // day first. The roll is deterministic per user+date and the table has a
 // unique (user_id, local_date), so double invocation cannot double-spawn.
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import { rollSystemEvent, PITY_QUIET_DAYS } from './game/events.ts';
+import { rollSystemEvent, riddleBody, PITY_QUIET_DAYS } from './game/events.ts';
+import { generateRiddle } from './ai.ts';
 
 export type SystemEventRow = {
   id: string;
@@ -58,6 +59,17 @@ export async function ensureSystemEvent(
   const roll = rollSystemEvent(userId, today, level, await quietDays(db, userId, today));
   if (!roll) return null;
 
+  // Riddles (Phase 6): try the AI for a fresh one; the deterministic fallback
+  // from the roll already fills body/answer if the Archive is silent.
+  let riddle = roll.riddle ?? null;
+  if (roll.kind === 'riddle' && riddle) {
+    const generated = await generateRiddle(riddle.theme);
+    if (generated) {
+      riddle = { ...generated, theme: riddle.theme };
+      roll.body = riddleBody(generated.prompt);
+    }
+  }
+
   const { data: created, error } = await db
     .from('system_events')
     .insert({
@@ -87,6 +99,15 @@ export async function ensureSystemEvent(
   }
 
   // Instant effects + the announcement land exactly once, with the insert.
+  // The riddle's answer is stored where no client grant reaches (riddle_answers).
+  if (roll.kind === 'riddle' && riddle) {
+    const { error: answerErr } = await db.from('riddle_answers').insert({
+      event_id: created.id,
+      user_id: userId,
+      answer: riddle.answer,
+    });
+    if (answerErr) console.error('riddle_answers insert failed:', answerErr);
+  }
   if (roll.kind === 'potion_gift') {
     const { data: profile } = await db
       .from('profiles')

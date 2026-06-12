@@ -103,6 +103,7 @@ export type RetentionQuestion = {
   book_id: string;
   prompt: string;
   answer: string;
+  source: 'player' | 'system';
   stage: number;
   due_date: string | null;
   mastered: boolean;
@@ -123,10 +124,16 @@ export type SystemEvent = {
   id: string;
   user_id: string;
   local_date: string;
-  kind: 'gate' | 'mana_surge' | 'xp_surge' | 'potion_gift';
+  kind: 'gate' | 'mana_surge' | 'xp_surge' | 'potion_gift' | 'riddle';
   title: string;
   body: string;
-  payload: { challenge?: string; target?: number; label?: string };
+  payload: {
+    challenge?: string;
+    target?: number;
+    label?: string;
+    max_attempts?: number;
+    attempts_used?: number;
+  };
   status: 'active' | 'completed' | 'expired';
   xp_reward: number;
   completed_at: string | null;

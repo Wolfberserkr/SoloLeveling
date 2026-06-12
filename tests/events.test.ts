@@ -11,7 +11,8 @@ import {
   SYSTEM_EVENT_KINDS,
 } from '@game/events.ts';
 import { mulberry32 } from '@game/rng.ts';
-import { GATE_CLEAR_XP, TRAINING_XP } from '@game/constants.ts';
+import { GATE_CLEAR_XP, RIDDLE_SOLVE_XP, TRAINING_XP } from '@game/constants.ts';
+import { RIDDLE_MAX_ATTEMPTS } from '@game/riddles.ts';
 
 describe('system event roll', () => {
   it('is deterministic for the same user and date', () => {
@@ -45,6 +46,12 @@ describe('system event roll', () => {
       if (roll.kind === 'gate') {
         expect(roll.xpReward).toBe(GATE_CLEAR_XP);
         expect(roll.payload.label).toBeTruthy();
+      } else if (roll.kind === 'riddle') {
+        expect(roll.xpReward).toBe(RIDDLE_SOLVE_XP);
+        expect(roll.payload.max_attempts).toBe(RIDDLE_MAX_ATTEMPTS);
+        expect(roll.riddle?.prompt).toBeTruthy();
+        expect(roll.riddle?.answer).toBeTruthy();
+        expect(roll.body).toContain(roll.riddle!.prompt);
       } else {
         expect(roll.xpReward).toBe(0);
       }

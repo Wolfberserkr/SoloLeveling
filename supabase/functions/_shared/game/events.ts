@@ -8,12 +8,14 @@
 //   mana_surge   side quests cost no mana until midnight
 //   xp_surge     Daily Training Quest XP +50% today
 //   potion_gift  a Mana Potion materializes — the System rewards persistence
-// Passive events simply apply all day; only gates are completed by hand.
+//   riddle       (Phase 6) answer before midnight, RIDDLE_MAX_ATTEMPTS tries
+// Passive events simply apply all day; gates and riddles resolve by hand.
 // ─────────────────────────────────────────────────────────────────────────────
 import { dailyRng, pickWeighted } from './rng.ts';
-import { GATE_CLEAR_XP } from './constants.ts';
+import { GATE_CLEAR_XP, RIDDLE_SOLVE_XP } from './constants.ts';
+import { fallbackRiddle, riddleTheme, RIDDLE_MAX_ATTEMPTS, type Riddle } from './riddles.ts';
 
-export const SYSTEM_EVENT_KINDS = ['gate', 'mana_surge', 'xp_surge', 'potion_gift'] as const;
+export const SYSTEM_EVENT_KINDS = ['gate', 'mana_surge', 'xp_surge', 'potion_gift', 'riddle'] as const;
 export type SystemEventKind = (typeof SYSTEM_EVENT_KINDS)[number];
 
 /** Chance that any given day spawns an event. */
@@ -33,10 +35,11 @@ export function eventChance(quietDays: number): number {
 export const XP_SURGE_MULT = 1.5;
 
 const KIND_WEIGHTS: Array<{ kind: SystemEventKind; weight: number }> = [
-  { kind: 'gate', weight: 40 },
-  { kind: 'mana_surge', weight: 25 },
-  { kind: 'xp_surge', weight: 25 },
+  { kind: 'gate', weight: 35 },
+  { kind: 'mana_surge', weight: 20 },
+  { kind: 'xp_surge', weight: 20 },
   { kind: 'potion_gift', weight: 10 },
+  { kind: 'riddle', weight: 15 },
 ];
 
 // Gate challenges scale with level and are capped so they stay clearable
@@ -94,7 +97,15 @@ export type SystemEventRoll = {
   body: string;
   xpReward: number;
   payload: Record<string, unknown>;
+  /** Riddle events only: the deterministic fallback riddle and an AI theme.
+   * eventEnsure may swap in an AI-generated riddle before the insert. */
+  riddle?: Riddle & { theme: string };
 };
+
+/** Event body for a riddle prompt — also the push-notification text. */
+export function riddleBody(prompt: string): string {
+  return `${prompt}\n\nSpeak the answer for +${RIDDLE_SOLVE_XP} XP — ${RIDDLE_MAX_ATTEMPTS} attempts, gone at midnight.`;
+}
 
 /** Today's event for a user, or null. Same inputs, same roll. */
 export function rollSystemEvent(
@@ -142,6 +153,17 @@ export function rollSystemEvent(
         xpReward: 0,
         payload: {},
       };
+    case 'riddle': {
+      const riddle = fallbackRiddle(rand);
+      return {
+        kind,
+        title: 'THE SYSTEM POSES A RIDDLE.',
+        body: riddleBody(riddle.prompt),
+        xpReward: RIDDLE_SOLVE_XP,
+        payload: { max_attempts: RIDDLE_MAX_ATTEMPTS, attempts_used: 0 },
+        riddle: { ...riddle, theme: riddleTheme(rand) },
+      };
+    }
   }
 }
 

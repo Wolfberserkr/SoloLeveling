@@ -12,6 +12,8 @@
 
 export const MAX_ACTIVE_BOOKS = 10;
 export const MAX_QUESTIONS_PER_BOOK = 20;
+/** Questions per AI Archive Scan (Phase 6); the bank cap still applies. */
+export const ARCHIVE_SCAN_QUESTIONS = 5;
 export const MAX_SESSION_PAGES = 500;
 export const MIN_BOOK_PAGES = 10;
 export const MAX_BOOK_PAGES = 5000;
