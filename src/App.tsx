@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { usePlayerStore } from '@/stores/playerStore';
 import { BottomNav } from '@/components/system/BottomNav';
 import { SystemAlertStack } from '@/components/system/SystemAlertStack';
+import { OfflineBanner } from '@/components/system/OfflineBanner';
 import { LevelUpSequence } from '@/components/system/LevelUpSequence';
 import { GlitchText } from '@/components/system/GlitchText';
 import { LoginPage } from '@/features/auth/LoginPage';
@@ -89,6 +90,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <OfflineBanner />
       <SystemAlertStack />
       <LevelUpSequence />
       <Routes>

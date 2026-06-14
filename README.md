@@ -10,7 +10,7 @@ Framer Motion**, backed by **Supabase** (Postgres + Auth + Edge Functions).
 All XP, mana, and currency mutations run server-side in edge functions —
 the client cannot forge progress (RLS enforces it).
 
-## Status — Phase 7 of 8
+## Status — complete (8 of 8)
 
 | Phase | System | Status |
 |---|---|---|
@@ -21,13 +21,18 @@ the client cannot forge progress (RLS enforces it).
 | 5 | Cron · push notifications · random System Events | ✅ |
 | 6 | AI (Gemini) question banks & riddles | ✅ |
 | 7 | Ranks · living Stats · Titles · Classes · Skills | ✅ |
-| 8 | Legacy Boss (past self) · polish · PWA hardening | — |
+| 8 | Legacy Boss (past self) · polish · PWA hardening | ✅ |
 
 **Phase 7** brings the dormant identity fields to life: `rank` promotes by
 level (E→Monarch), the nine attributes grow from what you actually do, Titles
 are earned and equipped, a Class is chosen at C-Rank from your strongest stat
-group, and Essence Stones buy passive + active Skills. All mechanics live in
-`_shared/game/progression.ts` (pure, unit-tested) and are enforced server-side.
+group, and Essence Stones buy passive + active Skills.
+
+**Phase 8** closes the loop: every 90 days the System snapshots your measurable
+self; when it comes due, that past self rises as a **Legacy Boss** you must
+surpass on every core measure. Plus a split vendor bundle, an offline banner,
+and an install prompt. All mechanics live in `_shared/game/{progression,legacy}.ts`
+(pure, unit-tested) and are enforced server-side.
 
 ## Architecture
 

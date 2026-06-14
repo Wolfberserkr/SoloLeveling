@@ -45,6 +45,19 @@ export default defineConfig({
       '@game': `${root}supabase/functions/_shared/game`,
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Split heavy deps into their own long-cached chunks so the app code
+        // stays small and a release only re-downloads what changed.
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          motion: ['framer-motion'],
+          supabase: ['@supabase/supabase-js'],
+        },
+      },
+    },
+  },
   test: {
     environment: 'node',
     include: ['tests/**/*.test.ts'],

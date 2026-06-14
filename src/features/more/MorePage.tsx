@@ -5,8 +5,9 @@ import { usePlayerStore } from '@/stores/playerStore';
 import { useUiStore } from '@/stores/uiStore';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import { pushSupported, currentSubscription, enablePush, disablePush } from '@/lib/push';
+import { installAvailable, subscribeInstall, promptInstall } from '@/lib/install';
 
-const ROADMAP = [{ phase: 8, name: 'Legacy Boss — Past Self' }];
+const ROADMAP: Array<{ phase: number; name: string }> = [];
 
 export function MorePage() {
   const { profile, reset, refresh } = usePlayerStore();
@@ -83,18 +84,56 @@ export function MorePage() {
       </SystemWindow>
 
       <NotificationsPanel />
+      <InstallPanel />
 
       <SystemWindow title="System Expansion" accent="purple" delay={0.12}>
-        <ul className="flex flex-col gap-2 font-sys text-xs uppercase tracking-widest">
-          {ROADMAP.map((r) => (
-            <li key={r.phase} className="flex justify-between border-b border-white/5 pb-2">
-              <span className="text-slate-300">{r.name}</span>
-              <span className="text-slate-600">Phase {r.phase}</span>
-            </li>
-          ))}
-        </ul>
+        {ROADMAP.length === 0 ? (
+          <p className="font-sys text-[0.65rem] uppercase tracking-widest text-slate-500">
+            All eight phases online. The System is fully awakened — your transformation is the only
+            content left to write.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-2 font-sys text-xs uppercase tracking-widest">
+            {ROADMAP.map((r) => (
+              <li key={r.phase} className="flex justify-between border-b border-white/5 pb-2">
+                <span className="text-slate-300">{r.name}</span>
+                <span className="text-slate-600">Phase {r.phase}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </SystemWindow>
     </div>
+  );
+}
+
+function InstallPanel() {
+  const [available, setAvailable] = useState(installAvailable());
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => subscribeInstall(() => setAvailable(installAvailable())), []);
+  if (!available) return null;
+
+  async function install() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await promptInstall();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SystemWindow title="Install" accent="gold" delay={0.1}>
+      <p className="text-xs leading-relaxed text-slate-400">
+        Install The System to your device for a full-screen, offline-capable app and reliable
+        notifications.
+      </p>
+      <button className="sys-btn mt-3 w-full" disabled={busy} onClick={install}>
+        Install The System
+      </button>
+    </SystemWindow>
   );
 }
 

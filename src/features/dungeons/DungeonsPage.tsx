@@ -22,6 +22,7 @@ import {
   type SessionKind,
 } from '@game/dungeons.ts';
 import { MANA_COSTS } from '@game/mana.ts';
+import { LegacyPanel } from './LegacyPanel';
 import type { DungeonProgress, LiftLog, XpAward } from '@/lib/types';
 
 export function DungeonsPage() {
@@ -42,6 +43,7 @@ export function DungeonsPage() {
             </p>
           </div>
         </SystemWindow>
+        <LegacyPanel />
         <MetricsPanel />
       </div>
     );
@@ -51,6 +53,7 @@ export function DungeonsPage() {
     <div className="flex flex-col gap-4">
       <DungeonRunPanel />
       {isBossReady(dungeon.phase, dungeon.sessions_completed) && <BossPanel />}
+      <LegacyPanel />
       <MetricsPanel />
     </div>
   );
