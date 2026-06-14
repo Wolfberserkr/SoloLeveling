@@ -13,6 +13,7 @@ import { StatusPage } from '@/features/status/StatusPage';
 import { TrainingPage } from '@/features/training/TrainingPage';
 import { DungeonsPage } from '@/features/dungeons/DungeonsPage';
 import { LibraryPage } from '@/features/library/LibraryPage';
+import { SkillsPage } from '@/features/skills/SkillsPage';
 import { MorePage } from '@/features/more/MorePage';
 
 function Shell({ children }: { children: React.ReactNode }) {
@@ -63,6 +64,7 @@ function AuthedApp() {
         <Route path="/training" element={<TrainingPage />} />
         <Route path="/dungeons" element={<DungeonsPage />} />
         <Route path="/books" element={<LibraryPage />} />
+        <Route path="/skills" element={<SkillsPage />} />
         <Route path="/more" element={<MorePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

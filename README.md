@@ -10,7 +10,7 @@ Framer Motion**, backed by **Supabase** (Postgres + Auth + Edge Functions).
 All XP, mana, and currency mutations run server-side in edge functions —
 the client cannot forge progress (RLS enforces it).
 
-## Status — Phase 6 of 8
+## Status — Phase 7 of 8
 
 | Phase | System | Status |
 |---|---|---|
@@ -20,8 +20,14 @@ the client cannot forge progress (RLS enforces it).
 | 4 | Library: Read → Reflect → Apply → Retain · knowledge checks | ✅ |
 | 5 | Cron · push notifications · random System Events | ✅ |
 | 6 | AI (Gemini) question banks & riddles | ✅ |
-| 7 | Skills · Classes · Ranks · Titles | — |
+| 7 | Ranks · living Stats · Titles · Classes · Skills | ✅ |
 | 8 | Legacy Boss (past self) · polish · PWA hardening | — |
+
+**Phase 7** brings the dormant identity fields to life: `rank` promotes by
+level (E→Monarch), the nine attributes grow from what you actually do, Titles
+are earned and equipped, a Class is chosen at C-Rank from your strongest stat
+group, and Essence Stones buy passive + active Skills. All mechanics live in
+`_shared/game/progression.ts` (pure, unit-tested) and are enforced server-side.
 
 ## Architecture
 
