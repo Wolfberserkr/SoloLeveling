@@ -38,6 +38,28 @@ export type Skill = {
   last_used_at: string | null;
 };
 
+export type LegacyMetrics = {
+  level: number;
+  totalStats: number;
+  benchKg: number;
+  squatKg: number;
+  deadliftKg: number;
+  totalReps: number;
+  totalRunKm: number;
+  bestStreak: number;
+  booksFinished: number;
+};
+
+export type LegacySnapshot = {
+  id: string;
+  taken_on: string;
+  due_date: string;
+  metrics: LegacyMetrics;
+  status: 'armed' | 'defeated';
+  defeated_on: string | null;
+  last_attempt: string | null;
+};
+
 export type TrainingQuest = {
   id: string;
   user_id: string;

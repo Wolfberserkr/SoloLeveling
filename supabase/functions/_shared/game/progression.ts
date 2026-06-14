@@ -117,6 +117,8 @@ export type TitleDef = {
   metric: TitleMetric;
   threshold: number;
   essence: number;
+  /** Granted by a specific event (e.g. Legacy Boss), not by the metric sweep. */
+  manual?: boolean;
 };
 
 export const TITLES: TitleDef[] = [
@@ -142,11 +144,13 @@ export const TITLES: TitleDef[] = [
   { key: 'conqueror', name: 'Conqueror', description: 'Clear 5 dungeon cycles', metric: 'dungeonCycles', threshold: 5, essence: 150 },
   { key: 'double_digits', name: 'Double Digits', description: 'Reach Level 10', metric: 'level', threshold: 10, essence: 50 },
   { key: 'ascendant', name: 'The Ascendant', description: 'Reach S-Rank', metric: 'rankIndex', threshold: 5, essence: 200 },
+  // Manually granted by the Legacy Boss — never reached by the metric sweep.
+  { key: 'self_overcome', name: 'Self-Overcome', description: 'Defeat your past self', metric: 'level', threshold: Number.POSITIVE_INFINITY, essence: 0, manual: true },
 ];
 
-/** All title keys the Player currently qualifies for (earned or not). */
+/** All title keys the Player currently qualifies for via the metric sweep. */
 export function evaluateTitles(state: TitleState): string[] {
-  return TITLES.filter((t) => state[t.metric] >= t.threshold).map((t) => t.key);
+  return TITLES.filter((t) => !t.manual && state[t.metric] >= t.threshold).map((t) => t.key);
 }
 
 /** Catalog lookup by key. */

@@ -44,7 +44,15 @@ import {
   isBookFinished,
   initialDueDate,
   reviewOutcome,
+  addDays,
 } from '../_shared/game/library.ts';
+import {
+  LEGACY_HORIZON_DAYS,
+  LEGACY_CLEAR_XP,
+  compareLegacy,
+  legacyReward,
+  type LegacyMetrics,
+} from '../_shared/game/legacy.ts';
 import { answerMatches, RIDDLE_MAX_ATTEMPTS } from '../_shared/game/riddles.ts';
 import { aiAvailable, generateBookQuestions } from '../_shared/ai.ts';
 import {
@@ -184,6 +192,8 @@ Deno.serve(async (req) => {
         return json(await unlockSkill(ctx, payload));
       case 'use-skill':
         return json(await useSkill(ctx, payload));
+      case 'challenge-legacy':
+        return json(await challengeLegacy(ctx));
       default:
         throw new HttpError(400, `Unknown action: ${action}`);
     }
@@ -306,6 +316,9 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
   // Roll today's System Event (deterministic; cron may have beaten us to it).
   await ensureSystemEvent(db, userId, today, profile.level);
 
+  // The Legacy Boss: seed the first snapshot, and announce when one comes due.
+  await ensureLegacy(ctx);
+
   // Knowledge checks falling due surface once, at the day's first contact.
   const { count: dueChecks } = await db
     .from('retention_questions')
@@ -387,7 +400,7 @@ function activeKind(event: SystemEventRow | null): SystemEventKind | null {
 }
 
 async function getDailySnapshot(ctx: Ctx) {
-  const [quest, sideQuests, dungeon, event, gymToday] = await Promise.all([
+  const [quest, sideQuests, dungeon, event, gymToday, legacy] = await Promise.all([
     getTodayQuest(ctx),
     getTodaySideQuests(ctx),
     getDungeonProgress(ctx),
@@ -399,6 +412,7 @@ async function getDailySnapshot(ctx: Ctx) {
       .eq('local_date', ctx.today)
       .maybeSingle()
       .then((r) => r.data),
+    getArmedLegacy(ctx),
   ]);
   return {
     ok: true,
@@ -408,6 +422,8 @@ async function getDailySnapshot(ctx: Ctx) {
     dungeon,
     event,
     gym_done_today: Boolean(gymToday),
+    legacy,
+    legacy_due: Boolean(legacy && legacy.due_date <= ctx.today),
   };
 }
 
@@ -1660,4 +1676,169 @@ async function useSkill(ctx: Ctx, payload: { skill_key?: string }) {
   row.last_used_at = today;
 
   return { ok: true, skill: key, cooldown_days: def.cooldownDays ?? 0, ...result };
+}
+
+// ── Legacy Boss (Phase 8): snapshot, arm, and surpass your past self ─────────
+type LegacyRow = {
+  id: string;
+  taken_on: string;
+  due_date: string;
+  metrics: LegacyMetrics;
+  status: string;
+  defeated_on: string | null;
+  last_attempt: string | null;
+};
+
+/** Best logged top-set weight for any exercise whose name matches `pattern`. */
+async function bestLift(ctx: Ctx, pattern: string): Promise<number> {
+  const { data } = await ctx.db
+    .from('lift_logs')
+    .select('weight_kg')
+    .eq('user_id', ctx.userId)
+    .ilike('exercise', pattern)
+    .order('weight_kg', { ascending: false })
+    .limit(1);
+  return Number(data?.[0]?.weight_kg ?? 0);
+}
+
+/** Capture the Player's present measurable self for a Legacy snapshot. */
+async function captureLegacyMetrics(ctx: Ctx): Promise<LegacyMetrics> {
+  const [statsRes, totals, books, bench, squat, deadlift] = await Promise.all([
+    ctx.db.from('stats').select('value').eq('user_id', ctx.userId),
+    ctx.db.from('training_totals').select('*').eq('user_id', ctx.userId).maybeSingle(),
+    ctx.db
+      .from('books')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', ctx.userId)
+      .eq('status', 'finished'),
+    bestLift(ctx, '%bench%'),
+    bestLift(ctx, '%squat%'),
+    bestLift(ctx, '%deadlift%'),
+  ]);
+
+  const totalStats = (statsRes.data ?? []).reduce((sum, r) => sum + Number(r.value), 0);
+  const t = totals.data;
+  return {
+    level: ctx.profile.level,
+    totalStats: Math.round(totalStats * 100) / 100,
+    benchKg: bench,
+    squatKg: squat,
+    deadliftKg: deadlift,
+    totalReps:
+      Number(t?.total_pushups ?? 0) + Number(t?.total_situps ?? 0) + Number(t?.total_squats ?? 0),
+    totalRunKm: Number(t?.total_run_km ?? 0),
+    bestStreak: Number(t?.best_streak ?? 0),
+    booksFinished: books.count ?? 0,
+  };
+}
+
+async function getArmedLegacy(ctx: Ctx): Promise<LegacyRow | null> {
+  const { data } = await ctx.db
+    .from('legacy_snapshots')
+    .select('id, taken_on, due_date, metrics, status, defeated_on, last_attempt')
+    .eq('user_id', ctx.userId)
+    .eq('status', 'armed')
+    .maybeSingle();
+  return (data as LegacyRow) ?? null;
+}
+
+/** Seed the first snapshot if none exists; announce one that has come due. */
+async function ensureLegacy(ctx: Ctx): Promise<void> {
+  const { db, userId, today } = ctx;
+  const armed = await getArmedLegacy(ctx);
+
+  if (!armed) {
+    const metrics = await captureLegacyMetrics(ctx);
+    await db.from('legacy_snapshots').insert({
+      user_id: userId,
+      taken_on: today,
+      due_date: addDays(today, LEGACY_HORIZON_DAYS),
+      metrics,
+    });
+    return;
+  }
+
+  // Surface a due boss once per day (keyed on last_attempt being unset today).
+  if (armed.due_date <= today && armed.last_attempt !== today) {
+    const { data: recent } = await db
+      .from('system_messages')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('kind', 'legacy_ready')
+      .gte('created_at', `${today}T00:00:00Z`)
+      .limit(1);
+    if (!recent || recent.length === 0) {
+      await db.from('system_messages').insert({
+        user_id: userId,
+        kind: 'legacy_ready',
+        title: 'YOUR PAST SELF HAS RISEN.',
+        body: 'Ninety days ago the System recorded who you were. That self now stands as a boss. Face it from the Dungeons — surpass who you were.',
+        payload: { legacy_id: armed.id },
+      });
+    }
+  }
+}
+
+// ── challenge-legacy: fight your past self; surpass it to clear the boss ─────
+async function challengeLegacy(ctx: Ctx) {
+  const { db, userId, today } = ctx;
+  const armed = await getArmedLegacy(ctx);
+  if (!armed) throw new HttpError(404, 'No Legacy Boss is armed');
+  if (armed.due_date > today) {
+    throw new HttpError(409, 'Your past self has not yet risen — the snapshot is still maturing');
+  }
+  if (armed.last_attempt === today) {
+    throw new HttpError(409, 'One challenge per day. Train, recover, and return tomorrow.');
+  }
+
+  const current = await captureLegacyMetrics(ctx);
+  const verdict = compareLegacy(armed.metrics, current);
+
+  if (!verdict.victory) {
+    await db
+      .from('legacy_snapshots')
+      .update({ last_attempt: today })
+      .eq('id', armed.id);
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'legacy_failed',
+      title: 'Your past self stands unbeaten.',
+      body: `You matched ${verdict.coreBeaten}/${verdict.coreRequired} of the measures that matter. Close the gaps and challenge again tomorrow.`,
+      payload: { legacy_id: armed.id },
+    });
+    return { ok: true, victory: false, verdict, snapshot: armed };
+  }
+
+  // Victory — clear the boss, reward, and arm the next 90-day snapshot.
+  const reward = legacyReward(verdict);
+  await db
+    .from('legacy_snapshots')
+    .update({ status: 'defeated', defeated_on: today, last_attempt: today })
+    .eq('id', armed.id);
+
+  const award = await awardXp(ctx, reward.xp, 'legacy_clear', armed.id, false);
+  if (reward.essence > 0) await db.rpc('grant_essence', { p_user: userId, p_amount: reward.essence });
+
+  // The Self-Overcome title is granted by this event, not the metric sweep.
+  await db.from('titles').upsert(
+    { user_id: userId, title_key: 'self_overcome' },
+    { onConflict: 'user_id,title_key', ignoreDuplicates: true },
+  );
+
+  await db.from('legacy_snapshots').insert({
+    user_id: userId,
+    taken_on: today,
+    due_date: addDays(today, LEGACY_HORIZON_DAYS),
+    metrics: current,
+  });
+
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'legacy_cleared',
+    title: 'YOU HAVE SURPASSED YOUR PAST SELF.',
+    body: `Every measure that mattered, beaten. +${reward.xp} XP, +${reward.essence} Essence. A new snapshot is sealed — in 90 days, today's self becomes the boss.`,
+    payload: { legacy_id: armed.id },
+  });
+
+  return { ok: true, victory: true, verdict, award, reward };
 }

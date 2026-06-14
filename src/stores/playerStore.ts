@@ -6,6 +6,7 @@ import type {
   StatRow,
   Title,
   Skill,
+  LegacySnapshot,
   TrainingQuest,
   TrainingTotals,
   DailyQuest,
@@ -31,6 +32,7 @@ type PlayerState = {
   sleep: SleepLog | null; // today's log, if any
   dungeon: DungeonProgress | null;
   gymDoneToday: boolean;
+  legacy: LegacySnapshot | null; // the armed Legacy Boss, if any
   metrics: BodyMetrics | null; // latest entry
   books: Book[];
   dueQuestions: RetentionQuestion[]; // unmastered checks due today or earlier
@@ -62,6 +64,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   sleep: null,
   dungeon: null,
   gymDoneToday: false,
+  legacy: null,
   metrics: null,
   books: [],
   dueQuestions: [],
@@ -124,6 +127,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       sleep: null,
       dungeon: null,
       gymDoneToday: false,
+      legacy: null,
       metrics: null,
       books: [],
       dueQuestions: [],
@@ -156,6 +160,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     applicationsRes,
     eventRes,
     liftsRes,
+    legacyRes,
   ] = await Promise.all([
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
@@ -221,6 +226,12 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
         .select('*')
         .order('local_date', { ascending: false })
         .limit(300),
+      supabase
+        .from('legacy_snapshots')
+        .select('*')
+        .eq('status', 'armed')
+        .order('due_date')
+        .limit(1),
     ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
@@ -256,5 +267,6 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     appliedTodayBookIds: todaysBookIds(applicationsRes.data),
     event: eventRow && eventRow.local_date === today ? eventRow : null,
     liftLogs: (liftsRes.data ?? []) as LiftLog[],
+    legacy: ((legacyRes.data ?? [])[0] ?? null) as LegacySnapshot | null,
   });
 }

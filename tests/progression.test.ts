@@ -136,13 +136,31 @@ describe('titles', () => {
     expect(evaluateTitles({ ...ZERO_STATE, rankIndex: sRank })).toContain('ascendant');
   });
 
-  it('has unique keys and resolvable defs with positive essence', () => {
+  it('has unique keys and resolvable defs; metric-earned titles pay essence', () => {
     const keys = TITLES.map((t) => t.key);
     expect(new Set(keys).size).toBe(keys.length);
     for (const t of TITLES) {
       expect(titleDef(t.key)).toBe(t);
-      expect(t.essence).toBeGreaterThan(0);
+      if (!t.manual) expect(t.essence).toBeGreaterThan(0);
     }
+  });
+
+  it('excludes manual titles from the metric sweep', () => {
+    // self_overcome is granted by the Legacy Boss, never by evaluateTitles.
+    const maxed: TitleState = {
+      level: 999,
+      rankIndex: 99,
+      bestStreak: 9999,
+      daysCompleted: 9999,
+      totalReps: 9_999_999,
+      totalRunKm: 99999,
+      booksFinished: 9999,
+      questionsMastered: 9999,
+      dungeonCycles: 9999,
+      perfectClears: 9999,
+      riddlesSolved: 9999,
+    };
+    expect(evaluateTitles(maxed)).not.toContain('self_overcome');
   });
 });
 
