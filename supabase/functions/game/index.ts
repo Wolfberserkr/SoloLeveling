@@ -88,10 +88,14 @@ import {
 import {
   SHADOW_EXTRACT_MANA,
   bossShadowGrade,
+  gateShadowGrade,
+  bookShadowGrade,
   shadowPassive,
   armyCapacity,
   extractChance,
   shadowXpMultiplier,
+  shadowStatMultiplier,
+  shadowManaRegenBonus,
   type DeployedShadow,
   type ShadowGrade,
   type ShadowSource,
@@ -291,7 +295,10 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
 
   // Mana regen: a new day restores capacity before anything is asked of you.
   const mana = clampMana(
-    profile.mana + DAILY_REGEN + skillManaRegenBonus(ctx.skillKeys),
+    profile.mana +
+      DAILY_REGEN +
+      skillManaRegenBonus(ctx.skillKeys) +
+      shadowManaRegenBonus(ctx.deployedShadows),
     profile.mana_max,
   );
 
@@ -839,22 +846,8 @@ async function attemptBoss(ctx: Ctx, payload: { confirmed?: Record<string, unkno
   // One-shot reward — exempt from the daily cap (see award_xp).
   const award = await awardXp(ctx, BOSS_CLEAR_XP, 'boss_clear', null, false);
 
-  // The fallen boss becomes an extractable shadow (Phase 9). Idempotent per
-  // phase via the unique (user_id, source_type, source_ref) constraint.
-  await db.from('shadows').insert({
-    user_id: userId,
-    source_type: 'boss',
-    source_ref: String(dungeon.phase),
-    name: def.boss.name,
-    grade: bossShadowGrade(dungeon.phase),
-  });
-  await db.from('system_messages').insert({
-    user_id: userId,
-    kind: 'shadow_available',
-    title: `A shadow lingers — ${def.boss.name}.`,
-    body: 'The fallen boss can be raised. Visit the Shadow Army and ARISE — if your will is strong enough to bind it.',
-    payload: { source_type: 'boss', source_ref: String(dungeon.phase) },
-  });
+  // The fallen boss becomes an extractable shadow (Phase 9).
+  await dropShadow(ctx, 'boss', String(dungeon.phase), def.boss.name, bossShadowGrade(dungeon.phase));
 
   const cleared = allDungeonsCleared(nextPhase);
   await db.from('system_messages').insert({
@@ -1119,6 +1112,8 @@ async function logReading(
       body: `${book.total_pages} pages conquered. Knowledge fades unless tested — your banked questions will keep coming due. Apply what you learned.`,
       payload: { book_id: book.id },
     });
+    // A finished tome leaves a shadow of its knowledge (Phase 9).
+    await dropShadow(ctx, 'book', book.id, book.title, bookShadowGrade(book.total_pages));
   }
 
   return {
@@ -1255,6 +1250,9 @@ async function completeEvent(ctx: Ctx) {
     body: `The emergency quest is complete. +${event.xp_reward} XP. The System closes the gate behind you.`,
     payload: { event_id: event.id },
   });
+
+  // The sealed Gate leaves a shadow behind (Phase 9).
+  await dropShadow(ctx, 'gate', event.id, 'Gate Sentinel', gateShadowGrade(ctx.profile.level));
 
   return { ok: true, award, event: { ...event, status: 'completed' } };
 }
@@ -1465,7 +1463,7 @@ async function awardXp(
   // Effort trains attributes regardless of the daily XP cap — the act happened.
   const baseGains = statGainsFor(source);
   if (Object.keys(baseGains).length > 0) {
-    const statMult = skillStatMultiplier(ctx.skillKeys);
+    const statMult = skillStatMultiplier(ctx.skillKeys) * shadowStatMultiplier(ctx.deployedShadows);
     const gains =
       statMult === 1
         ? baseGains
@@ -1873,6 +1871,9 @@ async function challengeLegacy(ctx: Ctx) {
     { onConflict: 'user_id,title_key', ignoreDuplicates: true },
   );
 
+  // Your vanquished past self becomes the army's strongest shadow (Phase 9).
+  await dropShadow(ctx, 'legacy', armed.id, 'Your Past Self', 'Monarch');
+
   await db.from('legacy_snapshots').insert({
     user_id: userId,
     taken_on: today,
@@ -1892,6 +1893,36 @@ async function challengeLegacy(ctx: Ctx) {
 }
 
 // ── Shadow Army (Phase 9): Arise, deploy, recall ────────────────────────────
+// A cleared conquest drops an `available` shadow. Idempotent per conquest via
+// the unique (user_id, source_type, source_ref) constraint, so re-runs no-op.
+async function dropShadow(
+  ctx: Ctx,
+  sourceType: ShadowSource,
+  sourceRef: string,
+  name: string,
+  grade: ShadowGrade,
+) {
+  const { error } = await ctx.db.from('shadows').insert({
+    user_id: ctx.userId,
+    source_type: sourceType,
+    source_ref: sourceRef,
+    name,
+    grade,
+  });
+  if (error) {
+    if (error.code === '23505') return; // already dropped for this conquest
+    console.error('shadow drop failed:', error);
+    return;
+  }
+  await ctx.db.from('system_messages').insert({
+    user_id: ctx.userId,
+    kind: 'shadow_available',
+    title: `A shadow lingers — ${name}.`,
+    body: 'The fallen can be raised. Visit the Shadow Army and ARISE — if your will is strong enough to bind it.',
+    payload: { source_type: sourceType, source_ref: sourceRef },
+  });
+}
+
 async function getShadow(ctx: Ctx, shadowId: unknown) {
   const id = typeof shadowId === 'string' ? shadowId : '';
   if (!id) throw new HttpError(400, 'shadow_id required');

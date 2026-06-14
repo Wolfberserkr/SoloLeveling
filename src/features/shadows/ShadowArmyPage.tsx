@@ -15,9 +15,10 @@ import type { Shadow } from '@/lib/types';
 
 function passiveText(shadow: Shadow): string {
   const p = shadowPassive(shadow.source_type, shadow.grade);
-  const pct = Math.round((p.mult - 1) * 100);
+  if (p.kind === 'mana_regen') return `+${p.amount} daily mana regeneration`;
+  if (p.kind === 'stat') return `+${Math.round((p.mult - 1) * 100)}% attribute gains`;
   const where = p.sources === 'all' ? 'all sources' : 'its domain';
-  return `+${pct}% XP from ${where}`;
+  return `+${Math.round((p.mult - 1) * 100)}% XP from ${where}`;
 }
 
 export function ShadowArmyPage() {

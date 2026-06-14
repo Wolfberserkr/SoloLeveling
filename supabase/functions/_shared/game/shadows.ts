@@ -35,10 +35,13 @@ export const SHADOW_EXTRACT_MANA = 40; // mana spent per Arise attempt
 // Mana/effort sources a "body" shadow (from a gym boss) amplifies.
 const BODY_SOURCES = ['training_quest', 'perfect_clear', 'gym_session', 'boss_clear'];
 
-/** A passive conferred by a deployed shadow. (XP-domain buff in this slice.) */
-export type ShadowPassive = { kind: 'xp'; sources: string[] | 'all'; mult: number };
+/** A passive conferred by a deployed shadow. */
+export type ShadowPassive =
+  | { kind: 'xp'; sources: string[] | 'all'; mult: number }
+  | { kind: 'stat'; mult: number }
+  | { kind: 'mana_regen'; amount: number };
 
-/** Per-grade XP multiplier magnitude. */
+/** Per-grade XP / stat multiplier magnitude. */
 const GRADE_MULT: Record<ShadowGrade, number> = {
   Soldier: 1.03,
   Knight: 1.05,
@@ -46,6 +49,16 @@ const GRADE_MULT: Record<ShadowGrade, number> = {
   Marshal: 1.1,
   Commander: 1.13,
   Monarch: 1.2,
+};
+
+/** Per-grade daily mana regeneration granted by a Gate shadow. */
+const GRADE_REGEN: Record<ShadowGrade, number> = {
+  Soldier: 2,
+  Knight: 3,
+  'Elite Knight': 4,
+  Marshal: 5,
+  Commander: 6,
+  Monarch: 8,
 };
 
 /** Base Arise odds by grade — stronger enemies resist extraction. */
@@ -64,22 +77,36 @@ export function bossShadowGrade(phase: number): ShadowGrade {
   return byPhase[Math.min(Math.max(1, phase), byPhase.length) - 1];
 }
 
-/** The passive a shadow confers, from its source and grade. */
+/** Gate shadow grade scales with the Player's level when the Gate fell. */
+export function gateShadowGrade(level: number): ShadowGrade {
+  if (level >= 30) return 'Marshal';
+  if (level >= 20) return 'Elite Knight';
+  if (level >= 10) return 'Knight';
+  return 'Soldier';
+}
+
+/** Tome shadow grade scales with the length of the book conquered. */
+export function bookShadowGrade(totalPages: number): ShadowGrade {
+  if (totalPages >= 400) return 'Elite Knight';
+  if (totalPages >= 200) return 'Knight';
+  return 'Soldier';
+}
+
+/**
+ * The passive a shadow confers, by source and grade. Variety by source:
+ *   boss   → XP on body sources        gate   → daily mana regeneration
+ *   book   → all attribute gains       legacy → XP on every source (generalist)
+ */
 export function shadowPassive(source: ShadowSource, grade: ShadowGrade): ShadowPassive {
-  const mult = GRADE_MULT[grade];
   switch (source) {
     case 'boss':
-      return { kind: 'xp', sources: BODY_SOURCES, mult };
+      return { kind: 'xp', sources: BODY_SOURCES, mult: GRADE_MULT[grade] };
     case 'gate':
-      return { kind: 'xp', sources: ['gate_clear', 'daily_quest'], mult };
+      return { kind: 'mana_regen', amount: GRADE_REGEN[grade] };
     case 'book':
-      return {
-        kind: 'xp',
-        sources: ['reading_session', 'book_applied', 'book_finished', 'knowledge_check'],
-        mult,
-      };
+      return { kind: 'stat', mult: GRADE_MULT[grade] };
     case 'legacy':
-      return { kind: 'xp', sources: 'all', mult };
+      return { kind: 'xp', sources: 'all', mult: GRADE_MULT[grade] };
   }
 }
 
@@ -117,7 +144,27 @@ export function shadowXpMultiplier(deployed: DeployedShadow[], source: string): 
   let mult = 1;
   for (const s of deployed) {
     const p = shadowPassive(s.source_type, s.grade);
-    if (p.sources === 'all' || p.sources.includes(source)) mult *= p.mult;
+    if (p.kind === 'xp' && (p.sources === 'all' || p.sources.includes(source))) mult *= p.mult;
   }
   return mult;
+}
+
+/** Combined attribute-gain multiplier from all deployed shadows. */
+export function shadowStatMultiplier(deployed: DeployedShadow[]): number {
+  let mult = 1;
+  for (const s of deployed) {
+    const p = shadowPassive(s.source_type, s.grade);
+    if (p.kind === 'stat') mult *= p.mult;
+  }
+  return mult;
+}
+
+/** Extra daily mana regeneration from all deployed shadows. */
+export function shadowManaRegenBonus(deployed: DeployedShadow[]): number {
+  let bonus = 0;
+  for (const s of deployed) {
+    const p = shadowPassive(s.source_type, s.grade);
+    if (p.kind === 'mana_regen') bonus += p.amount;
+  }
+  return bonus;
 }
