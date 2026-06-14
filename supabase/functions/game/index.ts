@@ -57,6 +57,8 @@ import {
   RETENTION_PASS_XP,
   FAILURE_LOAD_MODIFIER,
 } from '../_shared/game/constants.ts';
+import { RANK_TITLES } from '../_shared/game/constants.ts';
+import { rankForLevel, statGainsFor, RANK_UP_ESSENCE } from '../_shared/game/progression.ts';
 
 type Ctx = {
   db: ReturnType<typeof adminClient>;
@@ -1345,6 +1347,16 @@ async function awardXp(
     throw new HttpError(500, 'XP award failed');
   }
 
+  // Effort trains attributes regardless of the daily XP cap — the act happened.
+  const gains = statGainsFor(source);
+  if (Object.keys(gains).length > 0) {
+    const { error: statErr } = await ctx.db.rpc('increment_stats', {
+      p_user: ctx.userId,
+      p_gains: gains,
+    });
+    if (statErr) console.error('increment_stats failed:', statErr);
+  }
+
   if (award.leveled_up) {
     ctx.profile.level = award.new_level;
     await ctx.db.from('system_messages').insert({
@@ -1354,6 +1366,22 @@ async function awardXp(
       body: 'Your limits have shifted. The Daily Training Quest will scale accordingly.',
       payload: { new_level: award.new_level },
     });
+
+    // A level-up may cross a rank threshold — promote and pay Essence Stones.
+    const newRank = rankForLevel(award.new_level);
+    if (newRank !== ctx.profile.rank) {
+      await ctx.db.from('profiles').update({ rank: newRank }).eq('user_id', ctx.userId);
+      // essence_stones is server-authoritative; add without a read-modify-write.
+      await ctx.db.rpc('grant_essence', { p_user: ctx.userId, p_amount: RANK_UP_ESSENCE });
+      ctx.profile.rank = newRank;
+      await ctx.db.from('system_messages').insert({
+        user_id: ctx.userId,
+        kind: 'rank_up',
+        title: `RANK UP — You are now ${newRank}-Rank.`,
+        body: `The System reclassifies you as a ${RANK_TITLES[newRank]}. +${RANK_UP_ESSENCE} Essence Stones. Power recognized is power earned.`,
+        payload: { rank: newRank },
+      });
+    }
   }
   return award;
 }
