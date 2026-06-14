@@ -5,6 +5,7 @@ import { StatBar } from '@/components/system/StatBar';
 import { RankBadge } from '@/components/system/RankBadge';
 import { ManaOrb } from '@/components/system/ManaOrb';
 import { GlitchText } from '@/components/system/GlitchText';
+import { TitlesPanel } from './TitlesPanel';
 import { levelProgress } from '@game/xpCurve.ts';
 import { STAT_GROUPS, STAT_LABELS, RANK_TITLES, type Rank } from '@game/constants.ts';
 
@@ -94,6 +95,9 @@ export function StatusPage() {
           ))}
         </div>
       </SystemWindow>
+
+      {/* ── Titles ── */}
+      <TitlesPanel />
 
       {/* ── Lifetime record ── */}
       <SystemWindow title="Record" accent="purple" delay={0.16}>

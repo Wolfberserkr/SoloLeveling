@@ -57,8 +57,15 @@ import {
   RETENTION_PASS_XP,
   FAILURE_LOAD_MODIFIER,
 } from '../_shared/game/constants.ts';
-import { RANK_TITLES } from '../_shared/game/constants.ts';
-import { rankForLevel, statGainsFor, RANK_UP_ESSENCE } from '../_shared/game/progression.ts';
+import { RANK_TITLES, RANKS } from '../_shared/game/constants.ts';
+import {
+  rankForLevel,
+  statGainsFor,
+  RANK_UP_ESSENCE,
+  evaluateTitles,
+  titleDef,
+  type TitleState,
+} from '../_shared/game/progression.ts';
 
 type Ctx = {
   db: ReturnType<typeof adminClient>;
@@ -144,6 +151,8 @@ Deno.serve(async (req) => {
         return json(await answerRiddle(ctx, payload));
       case 'generate-questions':
         return json(await generateQuestions(ctx, payload));
+      case 'equip-title':
+        return json(await equipTitle(ctx, payload));
       default:
         throw new HttpError(400, `Unknown action: ${action}`);
     }
@@ -1383,5 +1392,98 @@ async function awardXp(
       });
     }
   }
+
+  // Any award may push a tracked metric over a title threshold.
+  await checkTitles(ctx);
   return award;
+}
+
+// ── Titles: sweep tracked metrics, grant any newly earned (Phase 7) ─────────
+async function checkTitles(ctx: Ctx): Promise<string[]> {
+  const { db, userId } = ctx;
+  const [totals, dungeon, booksRes, masteredRes, perfectRes, riddlesRes, earnedRes] =
+    await Promise.all([
+      db.from('training_totals').select('*').eq('user_id', userId).maybeSingle(),
+      db.from('dungeon_progress').select('cycles_cleared').eq('user_id', userId).maybeSingle(),
+      db
+        .from('books')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('status', 'finished'),
+      db
+        .from('retention_questions')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('mastered', true),
+      db
+        .from('training_quests')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('perfect_clear', true),
+      db
+        .from('xp_ledger')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('source', 'riddle_solved'),
+      db.from('titles').select('title_key').eq('user_id', userId),
+    ]);
+
+  const state: TitleState = {
+    level: ctx.profile.level,
+    rankIndex: Math.max(0, RANKS.indexOf(ctx.profile.rank as (typeof RANKS)[number])),
+    bestStreak: totals.data?.best_streak ?? 0,
+    daysCompleted: totals.data?.days_completed ?? 0,
+    totalReps:
+      Number(totals.data?.total_pushups ?? 0) +
+      Number(totals.data?.total_situps ?? 0) +
+      Number(totals.data?.total_squats ?? 0),
+    totalRunKm: Number(totals.data?.total_run_km ?? 0),
+    booksFinished: booksRes.count ?? 0,
+    questionsMastered: masteredRes.count ?? 0,
+    dungeonCycles: dungeon.data?.cycles_cleared ?? 0,
+    perfectClears: perfectRes.count ?? 0,
+    riddlesSolved: riddlesRes.count ?? 0,
+  };
+
+  const earned = new Set((earnedRes.data ?? []).map((r) => r.title_key as string));
+  const newly = evaluateTitles(state).filter((key) => !earned.has(key));
+  if (newly.length === 0) return [];
+
+  await db.from('titles').insert(newly.map((title_key) => ({ user_id: userId, title_key })));
+  for (const key of newly) {
+    const def = titleDef(key);
+    if (!def) continue;
+    if (def.essence > 0) await db.rpc('grant_essence', { p_user: userId, p_amount: def.essence });
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'title_earned',
+      title: `TITLE EARNED — “${def.name}”.`,
+      body: `${def.description}. +${def.essence} Essence Stones. Equip it from your Status to wear it.`,
+      payload: { title_key: key },
+    });
+  }
+  return newly;
+}
+
+// ── equip-title: wear an earned title (empty key clears it) ──────────────────
+async function equipTitle(ctx: Ctx, payload: { title_key?: string }) {
+  const key = typeof payload.title_key === 'string' ? payload.title_key.trim() : '';
+
+  if (!key) {
+    await ctx.db.from('profiles').update({ equipped_title: null }).eq('user_id', ctx.userId);
+    return { ok: true, equipped_title: null };
+  }
+
+  const def = titleDef(key);
+  if (!def) throw new HttpError(404, 'No such title');
+  const { data: owned } = await ctx.db
+    .from('titles')
+    .select('title_key')
+    .eq('user_id', ctx.userId)
+    .eq('title_key', key)
+    .maybeSingle();
+  if (!owned) throw new HttpError(409, 'You have not earned that title');
+
+  await ctx.db.from('profiles').update({ equipped_title: def.name }).eq('user_id', ctx.userId);
+  return { ok: true, equipped_title: def.name };
 }

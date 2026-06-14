@@ -4,6 +4,7 @@ import { gameAction } from '@/lib/gameApi';
 import type {
   Profile,
   StatRow,
+  Title,
   TrainingQuest,
   TrainingTotals,
   DailyQuest,
@@ -22,6 +23,7 @@ type PlayerState = {
   error: string | null;
   profile: Profile | null;
   stats: StatRow[];
+  titles: Title[];
   training: TrainingQuest | null;
   quests: DailyQuest[];
   sleep: SleepLog | null; // today's log, if any
@@ -51,6 +53,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   error: null,
   profile: null,
   stats: [],
+  titles: [],
   training: null,
   quests: [],
   sleep: null,
@@ -111,6 +114,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       error: null,
       profile: null,
       stats: [],
+      titles: [],
       training: null,
       quests: [],
       sleep: null,
@@ -132,6 +136,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
   const [
     profileRes,
     statsRes,
+    titlesRes,
     totalsRes,
     messagesRes,
     trainingRes,
@@ -149,6 +154,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
   ] = await Promise.all([
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
+      supabase.from('titles').select('*').order('earned_at'),
       supabase.from('training_totals').select('*').single(),
       supabase
         .from('system_messages')
@@ -228,6 +234,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
   set({
     profile: profileRes.data as Profile,
     stats: (statsRes.data ?? []) as StatRow[],
+    titles: (titlesRes.data ?? []) as Title[],
     totals: (totalsRes.data ?? null) as TrainingTotals | null,
     messages: (messagesRes.data ?? []) as SystemMessage[],
     training,

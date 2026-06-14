@@ -25,6 +25,12 @@ export type StatRow = {
   value: number;
 };
 
+export type Title = {
+  user_id: string;
+  title_key: string;
+  earned_at: string;
+};
+
 export type TrainingQuest = {
   id: string;
   user_id: string;

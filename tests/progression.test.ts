@@ -1,6 +1,28 @@
 import { describe, it, expect } from 'vitest';
-import { rankForLevel, RANK_THRESHOLDS, statGainsFor } from '@game/progression.ts';
+import {
+  rankForLevel,
+  RANK_THRESHOLDS,
+  statGainsFor,
+  evaluateTitles,
+  titleDef,
+  TITLES,
+  type TitleState,
+} from '@game/progression.ts';
 import { RANKS, STATS } from '@game/constants.ts';
+
+const ZERO_STATE: TitleState = {
+  level: 1,
+  rankIndex: 0,
+  bestStreak: 0,
+  daysCompleted: 0,
+  totalReps: 0,
+  totalRunKm: 0,
+  booksFinished: 0,
+  questionsMastered: 0,
+  dungeonCycles: 0,
+  perfectClears: 0,
+  riddlesSolved: 0,
+};
 
 describe('rank progression', () => {
   it('starts at E-Rank', () => {
@@ -75,5 +97,39 @@ describe('stat growth from activity', () => {
   it('pays one-shot clears larger jumps than repeatables', () => {
     expect(statGainsFor('boss_clear').STR!).toBeGreaterThan(statGainsFor('gym_session').STR!);
     expect(statGainsFor('book_finished').INT!).toBeGreaterThan(statGainsFor('reading_session').INT!);
+  });
+});
+
+describe('titles', () => {
+  it('grants nothing at a zeroed start', () => {
+    expect(evaluateTitles(ZERO_STATE)).toEqual([]);
+  });
+
+  it('grants the first-quest title on day one', () => {
+    expect(evaluateTitles({ ...ZERO_STATE, daysCompleted: 1 })).toContain('awakened');
+  });
+
+  it('is cumulative — higher tiers include lower ones', () => {
+    const earned = evaluateTitles({ ...ZERO_STATE, bestStreak: 100 });
+    expect(earned).toEqual(expect.arrayContaining(['consistent', 'relentless', 'unbroken']));
+  });
+
+  it('gates a title strictly below its threshold', () => {
+    expect(evaluateTitles({ ...ZERO_STATE, bestStreak: 6 })).not.toContain('consistent');
+    expect(evaluateTitles({ ...ZERO_STATE, bestStreak: 7 })).toContain('consistent');
+  });
+
+  it('maps S-Rank to the Ascendant title', () => {
+    const sRank = RANKS.indexOf('S');
+    expect(evaluateTitles({ ...ZERO_STATE, rankIndex: sRank })).toContain('ascendant');
+  });
+
+  it('has unique keys and resolvable defs with positive essence', () => {
+    const keys = TITLES.map((t) => t.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const t of TITLES) {
+      expect(titleDef(t.key)).toBe(t);
+      expect(t.essence).toBeGreaterThan(0);
+    }
   });
 });

@@ -88,3 +88,68 @@ const STAT_GAINS: Record<XpSource, StatGain> = {
 export function statGainsFor(source: string): StatGain {
   return STAT_GAINS[source as XpSource] ?? {};
 }
+
+// ── Titles (achievements) ─────────────────────────────────────────────────────
+// Earned by crossing a milestone on one tracked metric. Each pays a one-time
+// Essence reward. A Player equips one earned title to display on their Status.
+
+/** The numeric snapshot evaluateTitles measures against. */
+export type TitleState = {
+  level: number;
+  rankIndex: number; // index into RANKS (E=0 … Monarch=7)
+  bestStreak: number;
+  daysCompleted: number;
+  totalReps: number; // push-ups + sit-ups + squats, lifetime
+  totalRunKm: number;
+  booksFinished: number;
+  questionsMastered: number;
+  dungeonCycles: number;
+  perfectClears: number;
+  riddlesSolved: number;
+};
+
+export type TitleMetric = keyof TitleState;
+
+export type TitleDef = {
+  key: string;
+  name: string;
+  description: string;
+  metric: TitleMetric;
+  threshold: number;
+  essence: number;
+};
+
+export const TITLES: TitleDef[] = [
+  // First steps
+  { key: 'awakened', name: 'The Awakened', description: 'Complete your first Daily Training Quest', metric: 'daysCompleted', threshold: 1, essence: 20 },
+  { key: 'reader', name: 'Reader', description: 'Finish your first tome', metric: 'booksFinished', threshold: 1, essence: 20 },
+  { key: 'dungeon_breaker', name: 'Dungeon Breaker', description: 'Clear your first dungeon', metric: 'dungeonCycles', threshold: 1, essence: 30 },
+  // Consistency
+  { key: 'consistent', name: 'The Consistent', description: 'Reach a 7-day streak', metric: 'bestStreak', threshold: 7, essence: 30 },
+  { key: 'relentless', name: 'The Relentless', description: 'Reach a 30-day streak', metric: 'bestStreak', threshold: 30, essence: 75 },
+  { key: 'unbroken', name: 'The Unbroken', description: 'Reach a 100-day streak', metric: 'bestStreak', threshold: 100, essence: 200 },
+  // Volume
+  { key: 'disciplined', name: 'The Disciplined', description: 'Complete 50 training days', metric: 'daysCompleted', threshold: 50, essence: 75 },
+  { key: 'veteran', name: 'Veteran', description: 'Complete 200 training days', metric: 'daysCompleted', threshold: 200, essence: 200 },
+  { key: 'iron_forged', name: 'Iron-Forged', description: 'Log 10,000 lifetime reps', metric: 'totalReps', threshold: 10000, essence: 100 },
+  { key: 'pathfinder', name: 'Pathfinder', description: 'Run 100 km in total', metric: 'totalRunKm', threshold: 100, essence: 100 },
+  // Mind
+  { key: 'scholar', name: 'Scholar', description: 'Finish 10 tomes', metric: 'booksFinished', threshold: 10, essence: 150 },
+  { key: 'sage', name: 'Sage', description: 'Master 50 knowledge checks', metric: 'questionsMastered', threshold: 50, essence: 150 },
+  { key: 'riddle_solver', name: 'Riddle-Solver', description: 'Solve 10 System riddles', metric: 'riddlesSolved', threshold: 10, essence: 75 },
+  // Mastery
+  { key: 'perfectionist', name: 'The Perfectionist', description: 'Achieve 10 Perfect Clears', metric: 'perfectClears', threshold: 10, essence: 100 },
+  { key: 'conqueror', name: 'Conqueror', description: 'Clear 5 dungeon cycles', metric: 'dungeonCycles', threshold: 5, essence: 150 },
+  { key: 'double_digits', name: 'Double Digits', description: 'Reach Level 10', metric: 'level', threshold: 10, essence: 50 },
+  { key: 'ascendant', name: 'The Ascendant', description: 'Reach S-Rank', metric: 'rankIndex', threshold: 5, essence: 200 },
+];
+
+/** All title keys the Player currently qualifies for (earned or not). */
+export function evaluateTitles(state: TitleState): string[] {
+  return TITLES.filter((t) => state[t.metric] >= t.threshold).map((t) => t.key);
+}
+
+/** Catalog lookup by key. */
+export function titleDef(key: string): TitleDef | undefined {
+  return TITLES.find((t) => t.key === key);
+}
