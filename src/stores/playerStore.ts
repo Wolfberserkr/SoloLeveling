@@ -6,6 +6,7 @@ import type {
   StatRow,
   Title,
   Skill,
+  Shadow,
   LegacySnapshot,
   TrainingQuest,
   TrainingTotals,
@@ -27,6 +28,7 @@ type PlayerState = {
   stats: StatRow[];
   titles: Title[];
   skills: Skill[];
+  shadows: Shadow[];
   training: TrainingQuest | null;
   quests: DailyQuest[];
   sleep: SleepLog | null; // today's log, if any
@@ -59,6 +61,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   stats: [],
   titles: [],
   skills: [],
+  shadows: [],
   training: null,
   quests: [],
   sleep: null,
@@ -122,6 +125,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       stats: [],
       titles: [],
       skills: [],
+      shadows: [],
       training: null,
       quests: [],
       sleep: null,
@@ -161,6 +165,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     eventRes,
     liftsRes,
     legacyRes,
+    shadowsRes,
   ] = await Promise.all([
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
@@ -232,6 +237,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
         .eq('status', 'armed')
         .order('due_date')
         .limit(1),
+      supabase.from('shadows').select('*').order('created_at'),
     ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
@@ -268,5 +274,6 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     event: eventRow && eventRow.local_date === today ? eventRow : null,
     liftLogs: (liftsRes.data ?? []) as LiftLog[],
     legacy: ((legacyRes.data ?? [])[0] ?? null) as LegacySnapshot | null,
+    shadows: (shadowsRes.data ?? []) as Shadow[],
   });
 }
