@@ -6,15 +6,7 @@ import { useUiStore } from '@/stores/uiStore';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import { pushSupported, currentSubscription, enablePush, disablePush } from '@/lib/push';
 
-const ROADMAP = [
-  { phase: 2, name: 'Mana Economy & Daily Quests' },
-  { phase: 3, name: 'Gym Dungeons & Boss Fights' },
-  { phase: 4, name: 'Library & Knowledge Engine' },
-  { phase: 5, name: 'System Events & Notifications' },
-  { phase: 6, name: 'AI Knowledge Generation' },
-  { phase: 7, name: 'Skills · Classes · Ranks' },
-  { phase: 8, name: 'Legacy Boss — Past Self' },
-];
+const ROADMAP = [{ phase: 8, name: 'Legacy Boss — Past Self' }];
 
 export function MorePage() {
   const { profile, reset, refresh } = usePlayerStore();

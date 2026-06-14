@@ -11,6 +11,14 @@ import {
   classDef,
   eligibleClasses,
   classXpMultiplier,
+  SKILLS,
+  skillDef,
+  skillPrereqError,
+  skillCooldownRemaining,
+  skillXpMultiplier,
+  skillStatMultiplier,
+  skillManaRegenBonus,
+  hasStreakShield,
 } from '@game/progression.ts';
 import { RANKS, STATS } from '@game/constants.ts';
 
@@ -172,5 +180,50 @@ describe('classes', () => {
     const keys = CLASSES.map((c) => c.key);
     expect(new Set(keys).size).toBe(keys.length);
     for (const c of CLASSES) expect(classDef(c.key)).toBe(c);
+  });
+});
+
+describe('skills', () => {
+  it('has unique keys with resolvable defs and consistent active fields', () => {
+    const keys = SKILLS.map((s) => s.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const s of SKILLS) {
+      expect(skillDef(s.key)).toBe(s);
+      expect(s.essenceCost).toBeGreaterThan(0);
+      if (s.type === 'active') {
+        expect(s.cooldownDays).toBeGreaterThan(0);
+        expect(s.effect).toBeTruthy();
+      }
+    }
+  });
+
+  it('gates unlock by level and rank', () => {
+    const steel = skillDef('steel_will')!; // reqLevel 8, reqRank C
+    expect(skillPrereqError(steel, { level: 4, rankIndex: 0 })).toMatch(/Level 8/);
+    expect(skillPrereqError(steel, { level: 8, rankIndex: 0 })).toMatch(/C-Rank/);
+    expect(skillPrereqError(steel, { level: 8, rankIndex: RANKS.indexOf('C') })).toBeNull();
+  });
+
+  it('counts down an active cooldown by local days', () => {
+    expect(skillCooldownRemaining(null, 3, '2026-06-14')).toBe(0);
+    expect(skillCooldownRemaining('2026-06-14', 3, '2026-06-14')).toBe(3);
+    expect(skillCooldownRemaining('2026-06-14', 3, '2026-06-16')).toBe(1);
+    expect(skillCooldownRemaining('2026-06-14', 3, '2026-06-17')).toBe(0);
+    expect(skillCooldownRemaining('2026-06-14', 3, '2026-06-20')).toBe(0);
+  });
+
+  it('stacks passive XP, stat, and regen modifiers', () => {
+    expect(skillXpMultiplier(['scholars_insight'], 'reading_session')).toBeCloseTo(1.1);
+    expect(skillXpMultiplier(['scholars_insight'], 'gym_session')).toBe(1);
+    expect(skillStatMultiplier(['iron_discipline'])).toBeCloseTo(1.15);
+    expect(skillStatMultiplier([])).toBe(1);
+    expect(skillManaRegenBonus(['mana_spring'])).toBe(15);
+    expect(hasStreakShield(['steel_will'])).toBe(true);
+    expect(hasStreakShield(['mana_spring'])).toBe(false);
+  });
+
+  it('ignores unknown or active keys in passive modifiers', () => {
+    expect(skillXpMultiplier(['second_wind', 'nonsense'], 'gym_session')).toBe(1);
+    expect(skillStatMultiplier(['transmute'])).toBe(1);
   });
 });

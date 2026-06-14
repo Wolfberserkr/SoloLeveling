@@ -5,6 +5,7 @@ import type {
   Profile,
   StatRow,
   Title,
+  Skill,
   TrainingQuest,
   TrainingTotals,
   DailyQuest,
@@ -24,6 +25,7 @@ type PlayerState = {
   profile: Profile | null;
   stats: StatRow[];
   titles: Title[];
+  skills: Skill[];
   training: TrainingQuest | null;
   quests: DailyQuest[];
   sleep: SleepLog | null; // today's log, if any
@@ -54,6 +56,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   profile: null,
   stats: [],
   titles: [],
+  skills: [],
   training: null,
   quests: [],
   sleep: null,
@@ -115,6 +118,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       profile: null,
       stats: [],
       titles: [],
+      skills: [],
       training: null,
       quests: [],
       sleep: null,
@@ -137,6 +141,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     profileRes,
     statsRes,
     titlesRes,
+    skillsRes,
     totalsRes,
     messagesRes,
     trainingRes,
@@ -155,6 +160,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
       supabase.from('titles').select('*').order('earned_at'),
+      supabase.from('skills').select('*').order('unlocked_at'),
       supabase.from('training_totals').select('*').single(),
       supabase
         .from('system_messages')
@@ -235,6 +241,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     profile: profileRes.data as Profile,
     stats: (statsRes.data ?? []) as StatRow[],
     titles: (titlesRes.data ?? []) as Title[],
+    skills: (skillsRes.data ?? []) as Skill[],
     totals: (totalsRes.data ?? null) as TrainingTotals | null,
     messages: (messagesRes.data ?? []) as SystemMessage[],
     training,

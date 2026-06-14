@@ -69,13 +69,24 @@ import {
   classDef,
   eligibleClasses,
   JOB_CHANGE_RANK,
+  skillDef,
+  skillPrereqError,
+  skillCooldownRemaining,
+  skillXpMultiplier,
+  skillStatMultiplier,
+  skillManaRegenBonus,
+  hasStreakShield,
 } from '../_shared/game/progression.ts';
+
+type SkillRow = { skill_key: string; last_used_at: string | null };
 
 type Ctx = {
   db: ReturnType<typeof adminClient>;
   userId: string;
   profile: Profile;
   today: string;
+  skills: SkillRow[];
+  skillKeys: string[];
 };
 
 type Profile = {
@@ -85,6 +96,7 @@ type Profile = {
   xp_total: number;
   rank: string;
   class: string | null;
+  essence_stones: number;
   mana: number;
   mana_max: number;
   mana_potions: number;
@@ -103,17 +115,25 @@ Deno.serve(async (req) => {
     const { data: profile, error } = await db
       .from('profiles')
       .select(
-        'user_id, timezone, level, xp_total, rank, class, mana, mana_max, mana_potions, fatigue, last_daily_reset',
+        'user_id, timezone, level, xp_total, rank, class, essence_stones, mana, mana_max, mana_potions, fatigue, last_daily_reset',
       )
       .eq('user_id', user.id)
       .single();
     if (error || !profile) throw new HttpError(404, 'Profile not found');
+
+    const { data: skillRows } = await db
+      .from('skills')
+      .select('skill_key, last_used_at')
+      .eq('user_id', user.id);
+    const skills = (skillRows ?? []) as SkillRow[];
 
     const ctx: Ctx = {
       db,
       userId: user.id,
       profile: profile as Profile,
       today: localDateInTz(profile.timezone),
+      skills,
+      skillKeys: skills.map((s) => s.skill_key),
     };
 
     // Lazy daily reset: the System catches up before any action.
@@ -160,6 +180,10 @@ Deno.serve(async (req) => {
         return json(await equipTitle(ctx, payload));
       case 'choose-class':
         return json(await chooseClass(ctx, payload));
+      case 'unlock-skill':
+        return json(await unlockSkill(ctx, payload));
+      case 'use-skill':
+        return json(await useSkill(ctx, payload));
       default:
         throw new HttpError(400, `Unknown action: ${action}`);
     }
@@ -213,17 +237,25 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
     .select('current_streak, last_completed_date')
     .eq('user_id', userId)
     .single();
+  // Steel Will (passive) forgives a single missed day before the streak breaks.
+  const twoDaysAgo = previousDate(yesterday);
+  const shielded =
+    hasStreakShield(ctx.skillKeys) && totals?.last_completed_date === twoDaysAgo;
   if (
     totals &&
     totals.current_streak > 0 &&
     totals.last_completed_date !== yesterday &&
-    totals.last_completed_date !== today
+    totals.last_completed_date !== today &&
+    !shielded
   ) {
     await db.from('training_totals').update({ current_streak: 0 }).eq('user_id', userId);
   }
 
   // Mana regen: a new day restores capacity before anything is asked of you.
-  const mana = clampMana(profile.mana + DAILY_REGEN, profile.mana_max);
+  const mana = clampMana(
+    profile.mana + DAILY_REGEN + skillManaRegenBonus(ctx.skillKeys),
+    profile.mana_max,
+  );
 
   // Recovery triggers on state; otherwise the System rolls today's flavor.
   const recovery = mana < LOW_MANA_THRESHOLD || fatigue >= FATIGUE_THRESHOLD;
@@ -1350,8 +1382,9 @@ async function awardXp(
   sourceRef: string | null,
   capEligible = true,
 ) {
-  // A class's discipline amplifies XP from its matching sources before the cap.
-  const effectiveAmount = Math.round(amount * classXpMultiplier(ctx.profile.class, source));
+  // Class discipline and passive skills amplify XP for matching sources before the cap.
+  const xpMult = classXpMultiplier(ctx.profile.class, source) * skillXpMultiplier(ctx.skillKeys, source);
+  const effectiveAmount = Math.round(amount * xpMult);
   const { data: award, error } = await ctx.db.rpc('award_xp', {
     p_user: ctx.userId,
     p_amount: effectiveAmount,
@@ -1366,8 +1399,15 @@ async function awardXp(
   }
 
   // Effort trains attributes regardless of the daily XP cap — the act happened.
-  const gains = statGainsFor(source);
-  if (Object.keys(gains).length > 0) {
+  const baseGains = statGainsFor(source);
+  if (Object.keys(baseGains).length > 0) {
+    const statMult = skillStatMultiplier(ctx.skillKeys);
+    const gains =
+      statMult === 1
+        ? baseGains
+        : Object.fromEntries(
+            Object.entries(baseGains).map(([k, v]) => [k, Math.round(v * statMult * 100) / 100]),
+          );
     const { error: statErr } = await ctx.db.rpc('increment_stats', {
       p_user: ctx.userId,
       p_gains: gains,
@@ -1526,4 +1566,98 @@ async function chooseClass(ctx: Ctx, payload: { class_key?: string }) {
   });
 
   return { ok: true, class: def.key };
+}
+
+// ── unlock-skill: spend Essence to learn a passive or active ability ────────
+async function unlockSkill(ctx: Ctx, payload: { skill_key?: string }) {
+  const { db, userId, profile } = ctx;
+  const key = typeof payload.skill_key === 'string' ? payload.skill_key.trim() : '';
+  const def = skillDef(key);
+  if (!def) throw new HttpError(404, 'No such skill');
+  if (ctx.skillKeys.includes(key)) throw new HttpError(409, 'Skill already learned');
+
+  const rankIndex = Math.max(0, RANKS.indexOf(profile.rank as (typeof RANKS)[number]));
+  const locked = skillPrereqError(def, { level: profile.level, rankIndex });
+  if (locked) throw new HttpError(409, locked);
+  if (profile.essence_stones < def.essenceCost) {
+    throw new HttpError(409, `Not enough Essence — ${def.essenceCost} required`);
+  }
+
+  const { error: insErr } = await db.from('skills').insert({ user_id: userId, skill_key: key });
+  if (insErr) {
+    if (insErr.code === '23505') throw new HttpError(409, 'Skill already learned');
+    console.error('skills insert failed:', insErr);
+    throw new HttpError(500, 'Failed to learn skill');
+  }
+
+  const essence = profile.essence_stones - def.essenceCost;
+  await db.from('profiles').update({ essence_stones: essence }).eq('user_id', userId);
+  profile.essence_stones = essence;
+  ctx.skills.push({ skill_key: key, last_used_at: null });
+  ctx.skillKeys.push(key);
+
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'skill_unlocked',
+    title: `SKILL LEARNED — ${def.name}.`,
+    body: `${def.description}. −${def.essenceCost} Essence Stones.`,
+    payload: { skill_key: key },
+  });
+
+  return { ok: true, skill: key, essence };
+}
+
+// ── use-skill: trigger an active ability (cooldown + mana gated) ─────────────
+async function useSkill(ctx: Ctx, payload: { skill_key?: string }) {
+  const { db, userId, profile, today } = ctx;
+  const key = typeof payload.skill_key === 'string' ? payload.skill_key.trim() : '';
+  const def = skillDef(key);
+  if (!def) throw new HttpError(404, 'No such skill');
+  if (def.type !== 'active') throw new HttpError(409, 'That skill is passive — it is always on');
+
+  const row = ctx.skills.find((s) => s.skill_key === key);
+  if (!row) throw new HttpError(409, 'You have not learned that skill');
+
+  const remaining = skillCooldownRemaining(row.last_used_at, def.cooldownDays ?? 0, today);
+  if (remaining > 0) {
+    throw new HttpError(409, `On cooldown — ${remaining} day${remaining === 1 ? '' : 's'} left`);
+  }
+
+  const manaCost = def.manaCost ?? 0;
+  if (manaCost > 0 && profile.mana < manaCost) {
+    throw new HttpError(409, 'Insufficient mana for this skill');
+  }
+
+  const update: Record<string, number> = {};
+  let result: Record<string, unknown> = {};
+  switch (def.effect) {
+    case 'restore_mana': {
+      update.mana = profile.mana_max;
+      result = { mana: update.mana, restored: update.mana - profile.mana };
+      break;
+    }
+    case 'purge_fatigue': {
+      update.fatigue = 0;
+      result = { fatigue: 0 };
+      break;
+    }
+    case 'craft_potion': {
+      update.mana = clampMana(profile.mana - manaCost, profile.mana_max);
+      update.mana_potions = profile.mana_potions + 1;
+      result = { mana: update.mana, potions: update.mana_potions };
+      break;
+    }
+    default:
+      throw new HttpError(500, 'Skill has no effect');
+  }
+
+  await db.from('profiles').update(update).eq('user_id', userId);
+  if (update.mana !== undefined) profile.mana = update.mana;
+  if (update.fatigue !== undefined) profile.fatigue = update.fatigue;
+  if (update.mana_potions !== undefined) profile.mana_potions = update.mana_potions;
+
+  await db.from('skills').update({ last_used_at: today }).eq('user_id', userId).eq('skill_key', key);
+  row.last_used_at = today;
+
+  return { ok: true, skill: key, cooldown_days: def.cooldownDays ?? 0, ...result };
 }

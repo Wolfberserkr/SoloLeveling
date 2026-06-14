@@ -31,6 +31,13 @@ export type Title = {
   earned_at: string;
 };
 
+export type Skill = {
+  user_id: string;
+  skill_key: string;
+  unlocked_at: string;
+  last_used_at: string | null;
+};
+
 export type TrainingQuest = {
   id: string;
   user_id: string;

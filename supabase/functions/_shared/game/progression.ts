@@ -216,3 +216,121 @@ export function classXpMultiplier(classKey: string | null | undefined, source: s
   if (def.xpBonusSources === 'all') return def.xpBonusMult;
   return (def.xpBonusSources as string[]).includes(source) ? def.xpBonusMult : 1;
 }
+
+// ── Skills (Essence-purchased passives + active abilities) ─────────────────────
+// Passives fold continuously into the XP/stat/mana math (the server passes the
+// set of unlocked keys). Actives have an immediate effect, a mana cost, and a
+// cooldown measured in local days.
+
+export type SkillType = 'passive' | 'active';
+export type ActiveEffect = 'restore_mana' | 'purge_fatigue' | 'craft_potion';
+
+/** Library sources a Scholar's Insight passive amplifies. */
+const LIBRARY_SOURCES: XpSource[] = [
+  'reading_session',
+  'book_finished',
+  'book_applied',
+  'knowledge_check',
+];
+
+export type SkillDef = {
+  key: string;
+  name: string;
+  description: string;
+  type: SkillType;
+  essenceCost: number;
+  reqLevel: number;
+  reqRank?: Rank;
+  // passive effect knobs (read by the modifier helpers below):
+  xpSources?: XpSource[] | 'all';
+  xpMult?: number;
+  statMult?: number;
+  manaRegenBonus?: number;
+  streakShield?: boolean;
+  // active effect knobs:
+  cooldownDays?: number;
+  manaCost?: number;
+  effect?: ActiveEffect;
+};
+
+export const SKILLS: SkillDef[] = [
+  // Passives
+  { key: 'scholars_insight', name: "Scholar's Insight", description: '+10% XP from all Library activity', type: 'passive', essenceCost: 100, reqLevel: 5, xpSources: LIBRARY_SOURCES, xpMult: 1.1 },
+  { key: 'mana_spring', name: 'Mana Spring', description: '+15 daily mana regeneration', type: 'passive', essenceCost: 100, reqLevel: 5, manaRegenBonus: 15 },
+  { key: 'iron_discipline', name: 'Iron Discipline', description: '+15% attribute gains from all effort', type: 'passive', essenceCost: 150, reqLevel: 8, statMult: 1.15 },
+  { key: 'steel_will', name: 'Steel Will', description: 'Your streak survives a single missed day', type: 'passive', essenceCost: 200, reqLevel: 8, reqRank: 'C', streakShield: true },
+  // Actives
+  { key: 'second_wind', name: 'Second Wind', description: 'Instantly restore mana to full', type: 'active', essenceCost: 120, reqLevel: 4, cooldownDays: 3, manaCost: 0, effect: 'restore_mana' },
+  { key: 'meditate', name: 'Meditate', description: 'Purge all accumulated fatigue', type: 'active', essenceCost: 80, reqLevel: 4, cooldownDays: 2, manaCost: 0, effect: 'purge_fatigue' },
+  { key: 'transmute', name: 'Transmute', description: 'Spend 40 mana to craft a Mana Potion', type: 'active', essenceCost: 150, reqLevel: 6, cooldownDays: 1, manaCost: 40, effect: 'craft_potion' },
+];
+
+/** Catalog lookup by key. */
+export function skillDef(key: string): SkillDef | undefined {
+  return SKILLS.find((s) => s.key === key);
+}
+
+/** Context for prerequisite checks (essence/ownership handled by the caller). */
+export type SkillReqContext = { level: number; rankIndex: number };
+
+/** Reason a skill is prerequisite-locked, or null if the prereqs are met. */
+export function skillPrereqError(def: SkillDef, ctx: SkillReqContext): string | null {
+  if (ctx.level < def.reqLevel) return `Requires Level ${def.reqLevel}`;
+  if (def.reqRank && ctx.rankIndex < RANKS.indexOf(def.reqRank)) {
+    return `Requires ${def.reqRank}-Rank`;
+  }
+  return null;
+}
+
+const ONE_DAY_MS = 86_400_000;
+
+/** Whole days between two YYYY-MM-DD dates (later − earlier). */
+function daysBetween(earlier: string, later: string): number {
+  return Math.round((Date.parse(later) - Date.parse(earlier)) / ONE_DAY_MS);
+}
+
+/** Days left on an active skill's cooldown (0 = ready). */
+export function skillCooldownRemaining(
+  lastUsed: string | null,
+  cooldownDays: number,
+  today: string,
+): number {
+  if (!lastUsed) return 0;
+  return Math.max(0, cooldownDays - daysBetween(lastUsed.slice(0, 10), today));
+}
+
+// ── Passive modifier helpers (server passes unlocked skill keys) ──────────────
+function passives(keys: string[]): SkillDef[] {
+  return keys.map(skillDef).filter((d): d is SkillDef => !!d && d.type === 'passive');
+}
+
+/** Combined passive XP multiplier for a source. */
+export function skillXpMultiplier(keys: string[], source: string): number {
+  let mult = 1;
+  for (const d of passives(keys)) {
+    if (d.xpMult == null) continue;
+    if (d.xpSources === 'all' || (d.xpSources as string[] | undefined)?.includes(source)) {
+      mult *= d.xpMult;
+    }
+  }
+  return mult;
+}
+
+/** Combined passive attribute-gain multiplier. */
+export function skillStatMultiplier(keys: string[]): number {
+  let mult = 1;
+  for (const d of passives(keys)) if (d.statMult != null) mult *= d.statMult;
+  return mult;
+}
+
+/** Extra daily mana regeneration from passives. */
+export function skillManaRegenBonus(keys: string[]): number {
+  let bonus = 0;
+  for (const d of passives(keys)) bonus += d.manaRegenBonus ?? 0;
+  return bonus;
+}
+
+/** Whether any unlocked passive grants a one-day streak shield. */
+export function hasStreakShield(keys: string[]): boolean {
+  return passives(keys).some((d) => d.streakShield);
+}
