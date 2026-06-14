@@ -38,6 +38,19 @@ export type Skill = {
   last_used_at: string | null;
 };
 
+export type Shadow = {
+  id: string;
+  user_id: string;
+  source_type: 'boss' | 'gate' | 'book' | 'legacy';
+  source_ref: string;
+  name: string;
+  grade: 'Soldier' | 'Knight' | 'Elite Knight' | 'Marshal' | 'Commander' | 'Monarch';
+  status: 'available' | 'arisen';
+  deployed: boolean;
+  arisen_at: string | null;
+  created_at: string;
+};
+
 export type LegacyMetrics = {
   level: number;
   totalStats: number;

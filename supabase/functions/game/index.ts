@@ -85,6 +85,21 @@ import {
   skillManaRegenBonus,
   hasStreakShield,
 } from '../_shared/game/progression.ts';
+import {
+  SHADOW_EXTRACT_MANA,
+  bossShadowGrade,
+  gateShadowGrade,
+  bookShadowGrade,
+  shadowPassive,
+  armyCapacity,
+  extractChance,
+  shadowXpMultiplier,
+  shadowStatMultiplier,
+  shadowManaRegenBonus,
+  type DeployedShadow,
+  type ShadowGrade,
+  type ShadowSource,
+} from '../_shared/game/shadows.ts';
 
 type SkillRow = { skill_key: string; last_used_at: string | null };
 
@@ -95,6 +110,7 @@ type Ctx = {
   today: string;
   skills: SkillRow[];
   skillKeys: string[];
+  deployedShadows: DeployedShadow[];
 };
 
 type Profile = {
@@ -135,6 +151,15 @@ Deno.serve(async (req) => {
       .eq('user_id', user.id);
     const skills = (skillRows ?? []) as SkillRow[];
 
+    // Deployed shadows confer passive buffs; load them once for the XP gate.
+    const { data: shadowRows } = await db
+      .from('shadows')
+      .select('source_type, grade')
+      .eq('user_id', user.id)
+      .eq('status', 'arisen')
+      .eq('deployed', true);
+    const deployedShadows = (shadowRows ?? []) as DeployedShadow[];
+
     const ctx: Ctx = {
       db,
       userId: user.id,
@@ -142,6 +167,7 @@ Deno.serve(async (req) => {
       today: localDateInTz(profile.timezone),
       skills,
       skillKeys: skills.map((s) => s.skill_key),
+      deployedShadows,
     };
 
     // Lazy daily reset: the System catches up before any action.
@@ -194,6 +220,12 @@ Deno.serve(async (req) => {
         return json(await useSkill(ctx, payload));
       case 'challenge-legacy':
         return json(await challengeLegacy(ctx));
+      case 'extract-shadow':
+        return json(await extractShadow(ctx, payload));
+      case 'deploy-shadow':
+        return json(await setShadowDeployed(ctx, payload, true));
+      case 'recall-shadow':
+        return json(await setShadowDeployed(ctx, payload, false));
       default:
         throw new HttpError(400, `Unknown action: ${action}`);
     }
@@ -263,7 +295,10 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
 
   // Mana regen: a new day restores capacity before anything is asked of you.
   const mana = clampMana(
-    profile.mana + DAILY_REGEN + skillManaRegenBonus(ctx.skillKeys),
+    profile.mana +
+      DAILY_REGEN +
+      skillManaRegenBonus(ctx.skillKeys) +
+      shadowManaRegenBonus(ctx.deployedShadows),
     profile.mana_max,
   );
 
@@ -811,6 +846,9 @@ async function attemptBoss(ctx: Ctx, payload: { confirmed?: Record<string, unkno
   // One-shot reward — exempt from the daily cap (see award_xp).
   const award = await awardXp(ctx, BOSS_CLEAR_XP, 'boss_clear', null, false);
 
+  // The fallen boss becomes an extractable shadow (Phase 9).
+  await dropShadow(ctx, 'boss', String(dungeon.phase), def.boss.name, bossShadowGrade(dungeon.phase));
+
   const cleared = allDungeonsCleared(nextPhase);
   await db.from('system_messages').insert({
     user_id: userId,
@@ -1074,6 +1112,8 @@ async function logReading(
       body: `${book.total_pages} pages conquered. Knowledge fades unless tested — your banked questions will keep coming due. Apply what you learned.`,
       payload: { book_id: book.id },
     });
+    // A finished tome leaves a shadow of its knowledge (Phase 9).
+    await dropShadow(ctx, 'book', book.id, book.title, bookShadowGrade(book.total_pages));
   }
 
   return {
@@ -1210,6 +1250,9 @@ async function completeEvent(ctx: Ctx) {
     body: `The emergency quest is complete. +${event.xp_reward} XP. The System closes the gate behind you.`,
     payload: { event_id: event.id },
   });
+
+  // The sealed Gate leaves a shadow behind (Phase 9).
+  await dropShadow(ctx, 'gate', event.id, 'Gate Sentinel', gateShadowGrade(ctx.profile.level));
 
   return { ok: true, award, event: { ...event, status: 'completed' } };
 }
@@ -1399,7 +1442,10 @@ async function awardXp(
   capEligible = true,
 ) {
   // Class discipline and passive skills amplify XP for matching sources before the cap.
-  const xpMult = classXpMultiplier(ctx.profile.class, source) * skillXpMultiplier(ctx.skillKeys, source);
+  const xpMult =
+    classXpMultiplier(ctx.profile.class, source) *
+    skillXpMultiplier(ctx.skillKeys, source) *
+    shadowXpMultiplier(ctx.deployedShadows, source);
   const effectiveAmount = Math.round(amount * xpMult);
   const { data: award, error } = await ctx.db.rpc('award_xp', {
     p_user: ctx.userId,
@@ -1417,7 +1463,7 @@ async function awardXp(
   // Effort trains attributes regardless of the daily XP cap — the act happened.
   const baseGains = statGainsFor(source);
   if (Object.keys(baseGains).length > 0) {
-    const statMult = skillStatMultiplier(ctx.skillKeys);
+    const statMult = skillStatMultiplier(ctx.skillKeys) * shadowStatMultiplier(ctx.deployedShadows);
     const gains =
       statMult === 1
         ? baseGains
@@ -1825,6 +1871,9 @@ async function challengeLegacy(ctx: Ctx) {
     { onConflict: 'user_id,title_key', ignoreDuplicates: true },
   );
 
+  // Your vanquished past self becomes the army's strongest shadow (Phase 9).
+  await dropShadow(ctx, 'legacy', armed.id, 'Your Past Self', 'Monarch');
+
   await db.from('legacy_snapshots').insert({
     user_id: userId,
     taken_on: today,
@@ -1841,4 +1890,119 @@ async function challengeLegacy(ctx: Ctx) {
   });
 
   return { ok: true, victory: true, verdict, award, reward };
+}
+
+// ── Shadow Army (Phase 9): Arise, deploy, recall ────────────────────────────
+// A cleared conquest drops an `available` shadow. Idempotent per conquest via
+// the unique (user_id, source_type, source_ref) constraint, so re-runs no-op.
+async function dropShadow(
+  ctx: Ctx,
+  sourceType: ShadowSource,
+  sourceRef: string,
+  name: string,
+  grade: ShadowGrade,
+) {
+  const { error } = await ctx.db.from('shadows').insert({
+    user_id: ctx.userId,
+    source_type: sourceType,
+    source_ref: sourceRef,
+    name,
+    grade,
+  });
+  if (error) {
+    if (error.code === '23505') return; // already dropped for this conquest
+    console.error('shadow drop failed:', error);
+    return;
+  }
+  await ctx.db.from('system_messages').insert({
+    user_id: ctx.userId,
+    kind: 'shadow_available',
+    title: `A shadow lingers — ${name}.`,
+    body: 'The fallen can be raised. Visit the Shadow Army and ARISE — if your will is strong enough to bind it.',
+    payload: { source_type: sourceType, source_ref: sourceRef },
+  });
+}
+
+async function getShadow(ctx: Ctx, shadowId: unknown) {
+  const id = typeof shadowId === 'string' ? shadowId : '';
+  if (!id) throw new HttpError(400, 'shadow_id required');
+  const { data } = await ctx.db
+    .from('shadows')
+    .select('*')
+    .eq('user_id', ctx.userId)
+    .eq('id', id)
+    .maybeSingle();
+  if (!data) throw new HttpError(404, 'No such shadow');
+  return data;
+}
+
+// ── extract-shadow: spend mana, roll the Arise; failure keeps the conquest ──
+async function extractShadow(ctx: Ctx, payload: { shadow_id?: string }) {
+  const { db, userId, profile } = ctx;
+  const shadow = await getShadow(ctx, payload.shadow_id);
+  if (shadow.status !== 'available') throw new HttpError(409, 'That shadow is already arisen');
+  if (profile.mana < SHADOW_EXTRACT_MANA) {
+    throw new HttpError(409, 'Insufficient mana to attempt extraction');
+  }
+
+  // Mana is spent on every attempt; the conquest survives a failed Arise.
+  const mana = clampMana(profile.mana - SHADOW_EXTRACT_MANA, profile.mana_max);
+  await db.from('profiles').update({ mana }).eq('user_id', userId);
+  profile.mana = mana;
+
+  const chance = extractChance(shadow.grade as ShadowGrade, profile.rank);
+  const success = Math.random() < chance;
+
+  if (!success) {
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'shadow_failed',
+      title: `${shadow.name} resists.`,
+      body: `The extraction failed — ${SHADOW_EXTRACT_MANA} mana spent. The shadow lingers; gather your strength and command it to ARISE again.`,
+      payload: { shadow_id: shadow.id },
+    });
+    return { ok: true, success: false, chance, mana, shadow };
+  }
+
+  const { data: arisen } = await db
+    .from('shadows')
+    .update({ status: 'arisen', arisen_at: new Date().toISOString() })
+    .eq('id', shadow.id)
+    .select('*')
+    .single();
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'shadow_arisen',
+    title: `ARISE — ${shadow.name} answers.`,
+    body: `A ${shadow.grade} shadow joins your army. Deploy it from the Shadow Army to wield its power.`,
+    payload: { shadow_id: shadow.id },
+  });
+  return { ok: true, success: true, chance, mana, shadow: arisen ?? shadow };
+}
+
+// ── deploy/recall-shadow: manage the active set within army capacity ─────────
+async function setShadowDeployed(ctx: Ctx, payload: { shadow_id?: string }, deployed: boolean) {
+  const { db, userId, profile } = ctx;
+  const shadow = await getShadow(ctx, payload.shadow_id);
+  if (shadow.status !== 'arisen') throw new HttpError(409, 'Only arisen shadows can be deployed');
+
+  if (deployed) {
+    if (shadow.deployed) return { ok: true, shadow };
+    const { count } = await db
+      .from('shadows')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('deployed', true);
+    if ((count ?? 0) >= armyCapacity(profile.rank)) {
+      throw new HttpError(409, `Army at capacity (${armyCapacity(profile.rank)}). Recall a shadow first.`);
+    }
+  }
+
+  const { data: updated } = await db
+    .from('shadows')
+    .update({ deployed })
+    .eq('id', shadow.id)
+    .select('*')
+    .single();
+  return { ok: true, shadow: updated ?? { ...shadow, deployed } };
 }
