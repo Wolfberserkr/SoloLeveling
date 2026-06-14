@@ -6,8 +6,10 @@ import { RankBadge } from '@/components/system/RankBadge';
 import { ManaOrb } from '@/components/system/ManaOrb';
 import { GlitchText } from '@/components/system/GlitchText';
 import { TitlesPanel } from './TitlesPanel';
+import { ClassPanel } from './ClassPanel';
 import { levelProgress } from '@game/xpCurve.ts';
 import { STAT_GROUPS, STAT_LABELS, RANK_TITLES, type Rank } from '@game/constants.ts';
+import { classDef } from '@game/progression.ts';
 
 export function StatusPage() {
   const { profile, stats, totals, messages } = usePlayerStore();
@@ -28,6 +30,9 @@ export function StatusPage() {
             </div>
             <div className="font-sys text-[0.65rem] uppercase tracking-widest text-slate-400">
               {profile.rank}-Rank · {RANK_TITLES[profile.rank as Rank] ?? ''}
+              {classDef(profile.class) && (
+                <span className="text-accent-purple"> · {classDef(profile.class)!.name}</span>
+              )}
               {profile.equipped_title && (
                 <span className="text-accent-gold"> · {profile.equipped_title}</span>
               )}
@@ -95,6 +100,9 @@ export function StatusPage() {
           ))}
         </div>
       </SystemWindow>
+
+      {/* ── Class ── */}
+      <ClassPanel />
 
       {/* ── Titles ── */}
       <TitlesPanel />

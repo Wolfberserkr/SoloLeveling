@@ -65,6 +65,10 @@ import {
   evaluateTitles,
   titleDef,
   type TitleState,
+  classXpMultiplier,
+  classDef,
+  eligibleClasses,
+  JOB_CHANGE_RANK,
 } from '../_shared/game/progression.ts';
 
 type Ctx = {
@@ -80,6 +84,7 @@ type Profile = {
   level: number;
   xp_total: number;
   rank: string;
+  class: string | null;
   mana: number;
   mana_max: number;
   mana_potions: number;
@@ -98,7 +103,7 @@ Deno.serve(async (req) => {
     const { data: profile, error } = await db
       .from('profiles')
       .select(
-        'user_id, timezone, level, xp_total, rank, mana, mana_max, mana_potions, fatigue, last_daily_reset',
+        'user_id, timezone, level, xp_total, rank, class, mana, mana_max, mana_potions, fatigue, last_daily_reset',
       )
       .eq('user_id', user.id)
       .single();
@@ -153,6 +158,8 @@ Deno.serve(async (req) => {
         return json(await generateQuestions(ctx, payload));
       case 'equip-title':
         return json(await equipTitle(ctx, payload));
+      case 'choose-class':
+        return json(await chooseClass(ctx, payload));
       default:
         throw new HttpError(400, `Unknown action: ${action}`);
     }
@@ -1343,9 +1350,11 @@ async function awardXp(
   sourceRef: string | null,
   capEligible = true,
 ) {
+  // A class's discipline amplifies XP from its matching sources before the cap.
+  const effectiveAmount = Math.round(amount * classXpMultiplier(ctx.profile.class, source));
   const { data: award, error } = await ctx.db.rpc('award_xp', {
     p_user: ctx.userId,
-    p_amount: amount,
+    p_amount: effectiveAmount,
     p_source: source,
     p_source_ref: sourceRef,
     p_cap_eligible: capEligible,
@@ -1486,4 +1495,35 @@ async function equipTitle(ctx: Ctx, payload: { title_key?: string }) {
 
   await ctx.db.from('profiles').update({ equipped_title: def.name }).eq('user_id', ctx.userId);
   return { ok: true, equipped_title: def.name };
+}
+
+// ── choose-class: the job change — one-time, gated by rank + dominant stats ──
+async function chooseClass(ctx: Ctx, payload: { class_key?: string }) {
+  const { db, userId, profile } = ctx;
+  if (profile.class) throw new HttpError(409, 'Your class is already set');
+  if (RANKS.indexOf(profile.rank as (typeof RANKS)[number]) < RANKS.indexOf(JOB_CHANGE_RANK)) {
+    throw new HttpError(409, `The job change unlocks at ${JOB_CHANGE_RANK}-Rank`);
+  }
+
+  const key = typeof payload.class_key === 'string' ? payload.class_key.trim() : '';
+  const def = classDef(key);
+  if (!def) throw new HttpError(404, 'No such class');
+
+  const { data: statRows } = await db.from('stats').select('stat, value').eq('user_id', userId);
+  const stats = Object.fromEntries((statRows ?? []).map((r) => [r.stat, Number(r.value)]));
+  if (!eligibleClasses(stats).some((c) => c.key === def.key)) {
+    throw new HttpError(409, 'Your attributes do not qualify you for that class');
+  }
+
+  await db.from('profiles').update({ class: def.key }).eq('user_id', userId);
+  profile.class = def.key;
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'class_awakened',
+    title: `CLASS AWAKENED — ${def.name}.`,
+    body: `${def.perk}. The path you walk is now your own.`,
+    payload: { class_key: def.key },
+  });
+
+  return { ok: true, class: def.key };
 }

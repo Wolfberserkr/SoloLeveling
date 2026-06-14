@@ -7,6 +7,10 @@ import {
   titleDef,
   TITLES,
   type TitleState,
+  CLASSES,
+  classDef,
+  eligibleClasses,
+  classXpMultiplier,
 } from '@game/progression.ts';
 import { RANKS, STATS } from '@game/constants.ts';
 
@@ -131,5 +135,42 @@ describe('titles', () => {
       expect(titleDef(t.key)).toBe(t);
       expect(t.essence).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('classes', () => {
+  it('offers the dominant stat group as eligible options', () => {
+    const physical = eligibleClasses({ STR: 30, END: 30, AGI: 30, INT: 10, WIS: 10, STA: 10, WIL: 10, DIS: 10, CHA: 10 });
+    expect(physical.every((c) => c.group === 'Physical')).toBe(true);
+    expect(physical.length).toBeGreaterThanOrEqual(2);
+
+    const mental = eligibleClasses({ STR: 10, END: 10, AGI: 10, INT: 40, WIS: 40, STA: 40, WIL: 10, DIS: 10, CHA: 10 });
+    expect(mental.every((c) => c.group === 'Mental')).toBe(true);
+  });
+
+  it('falls back to the first group on a flat profile (tie)', () => {
+    const flat = eligibleClasses({ STR: 10, END: 10, AGI: 10, INT: 10, WIS: 10, STA: 10, WIL: 10, DIS: 10, CHA: 10 });
+    expect(flat.every((c) => c.group === 'Physical')).toBe(true);
+  });
+
+  it('applies the XP bonus only to matching sources', () => {
+    expect(classXpMultiplier('mage', 'reading_session')).toBeCloseTo(1.15);
+    expect(classXpMultiplier('mage', 'gym_session')).toBe(1);
+  });
+
+  it('warden boosts every source', () => {
+    expect(classXpMultiplier('warden', 'gym_session')).toBeCloseTo(1.08);
+    expect(classXpMultiplier('warden', 'riddle_solved')).toBeCloseTo(1.08);
+  });
+
+  it('returns 1 for no class', () => {
+    expect(classXpMultiplier(null, 'gym_session')).toBe(1);
+    expect(classXpMultiplier('nonsense', 'gym_session')).toBe(1);
+  });
+
+  it('has unique keys with resolvable defs', () => {
+    const keys = CLASSES.map((c) => c.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const c of CLASSES) expect(classDef(c.key)).toBe(c);
   });
 });

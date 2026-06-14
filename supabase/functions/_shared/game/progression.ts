@@ -10,7 +10,7 @@
 // Ranks track the Daily Training Quest tiers (see TRAINING_TIERS) so a rank-up
 // lands on the same level a new training band opens.
 // ─────────────────────────────────────────────────────────────────────────────
-import { RANKS, type Rank, type StatKey } from './constants.ts';
+import { RANKS, STAT_GROUPS, type Rank, type StatKey } from './constants.ts';
 
 /**
  * Lowest level at which each rank is held. Aligned to TRAINING_TIERS
@@ -152,4 +152,67 @@ export function evaluateTitles(state: TitleState): string[] {
 /** Catalog lookup by key. */
 export function titleDef(key: string): TitleDef | undefined {
   return TITLES.find((t) => t.key === key);
+}
+
+// ── Classes (the job change) ──────────────────────────────────────────────────
+// At C-Rank the System offers a class. The Player picks from the two classes in
+// their dominant stat group (see eligibleClasses). Each class grants a passive
+// XP bonus on the sources that match its discipline.
+
+export type StatGroupName = (typeof STAT_GROUPS)[number]['name'];
+
+export type ClassDef = {
+  key: string;
+  name: string;
+  group: StatGroupName;
+  perk: string;
+  /** Sources the bonus applies to, or 'all' for a flat generalist bonus. */
+  xpBonusSources: XpSource[] | 'all';
+  xpBonusMult: number;
+};
+
+/** Rank at which the job change unlocks. */
+export const JOB_CHANGE_RANK: Rank = 'C';
+
+export const CLASSES: ClassDef[] = [
+  // Physical — STR · END · AGI
+  { key: 'berserker', name: 'Berserker', group: 'Physical', perk: '+15% XP from gym dungeons & bosses', xpBonusSources: ['gym_session', 'boss_clear'], xpBonusMult: 1.15 },
+  { key: 'vanguard', name: 'Vanguard', group: 'Physical', perk: '+15% XP from Daily Training & Perfect Clears', xpBonusSources: ['training_quest', 'perfect_clear'], xpBonusMult: 1.15 },
+  // Mental — INT · WIS · STA
+  { key: 'mage', name: 'Mage', group: 'Mental', perk: '+15% XP from reading & finishing tomes', xpBonusSources: ['reading_session', 'book_finished'], xpBonusMult: 1.15 },
+  { key: 'sage', name: 'Sage', group: 'Mental', perk: '+15% XP from knowledge checks, riddles & applied insight', xpBonusSources: ['knowledge_check', 'riddle_solved', 'book_applied'], xpBonusMult: 1.15 },
+  // Character — WIL · DIS · CHA
+  { key: 'commander', name: 'Commander', group: 'Character', perk: '+15% XP from side quests & gates', xpBonusSources: ['daily_quest', 'gate_clear'], xpBonusMult: 1.15 },
+  { key: 'warden', name: 'Warden', group: 'Character', perk: '+8% XP from every source', xpBonusSources: 'all', xpBonusMult: 1.08 },
+];
+
+/** Catalog lookup by key. */
+export function classDef(key: string | null | undefined): ClassDef | undefined {
+  if (!key) return undefined;
+  return CLASSES.find((c) => c.key === key);
+}
+
+/**
+ * Classes the Player may choose, drawn from their single strongest stat group.
+ * Ties resolve to the earlier group in STAT_GROUPS order (Physical→Mental→Character).
+ */
+export function eligibleClasses(stats: Partial<Record<StatKey, number>>): ClassDef[] {
+  let best: StatGroupName = STAT_GROUPS[0].name;
+  let bestSum = -Infinity;
+  for (const group of STAT_GROUPS) {
+    const sum = group.stats.reduce((acc, s) => acc + (Number(stats[s]) || 0), 0);
+    if (sum > bestSum) {
+      bestSum = sum;
+      best = group.name;
+    }
+  }
+  return CLASSES.filter((c) => c.group === best);
+}
+
+/** XP multiplier a class confers on a given source (1 if none / not matched). */
+export function classXpMultiplier(classKey: string | null | undefined, source: string): number {
+  const def = classDef(classKey);
+  if (!def) return 1;
+  if (def.xpBonusSources === 'all') return def.xpBonusMult;
+  return (def.xpBonusSources as string[]).includes(source) ? def.xpBonusMult : 1;
 }
