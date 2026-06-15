@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { usePlayerStore } from '@/stores/playerStore';
 import { useUiStore } from '@/stores/uiStore';
 import { SystemWindow } from '@/components/system/SystemWindow';
+import { TitlesPanel } from '@/features/status/TitlesPanel';
 import { pushSupported, currentSubscription, enablePush, disablePush } from '@/lib/push';
 import { installAvailable, subscribeInstall, promptInstall } from '@/lib/install';
 
@@ -103,6 +104,9 @@ export function MorePage() {
           </ul>
         )}
       </SystemWindow>
+
+      {/* ── Titles ── */}
+      <TitlesPanel />
     </div>
   );
 }
