@@ -1,5 +1,5 @@
-import { motion } from 'framer-motion';
-import type { ReactNode } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { useState, type ReactNode } from 'react';
 
 type Accent = 'cyan' | 'purple' | 'gold' | 'red' | 'green';
 
@@ -9,6 +9,10 @@ type Props = {
   scan?: boolean;
   delay?: number;
   className?: string;
+  /** Render a chevron in the header that collapses the body. Requires a title. */
+  collapsible?: boolean;
+  /** When collapsible, start collapsed. */
+  defaultCollapsed?: boolean;
   children: ReactNode;
 };
 
@@ -23,8 +27,13 @@ export function SystemWindow({
   scan = false,
   delay = 0,
   className = '',
+  collapsible = false,
+  defaultCollapsed = false,
   children,
 }: Props) {
+  const [collapsed, setCollapsed] = useState(collapsible && defaultCollapsed);
+  const canCollapse = collapsible && Boolean(title);
+
   return (
     <motion.section
       initial={{ opacity: 0, clipPath: 'inset(45% 0% 45% 0%)', filter: 'brightness(2.4)' }}
@@ -32,13 +41,47 @@ export function SystemWindow({
       transition={{ duration: 0.42, delay, ease: [0.22, 1, 0.36, 1] }}
       className={`sys-window sys-window-${accent} ${scan ? 'scan-overlay' : ''} ${className}`}
     >
-      {title && (
-        <header className="px-4 pt-3">
-          <h2 className="sys-title sys-bracket text-xs">{title}</h2>
-          <div className="sys-divider mt-2" />
-        </header>
-      )}
-      <div className="p-4">{children}</div>
+      {title &&
+        (canCollapse ? (
+          <header className="px-4 pt-3">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between"
+              aria-expanded={!collapsed}
+              onClick={() => setCollapsed((c) => !c)}
+            >
+              <h2 className="sys-title sys-bracket text-xs">{title}</h2>
+              <motion.span
+                className="font-sys text-xs text-accent-cyan"
+                animate={{ rotate: collapsed ? 0 : 180 }}
+                transition={{ duration: 0.2 }}
+                aria-hidden
+              >
+                ▾
+              </motion.span>
+            </button>
+            <div className="sys-divider mt-2" />
+          </header>
+        ) : (
+          <header className="px-4 pt-3">
+            <h2 className="sys-title sys-bracket text-xs">{title}</h2>
+            <div className="sys-divider mt-2" />
+          </header>
+        ))}
+      <AnimatePresence initial={false}>
+        {!collapsed && (
+          <motion.div
+            key="body"
+            initial={canCollapse ? { height: 0, opacity: 0 } : false}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="p-4">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.section>
   );
 }

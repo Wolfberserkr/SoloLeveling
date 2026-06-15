@@ -41,7 +41,7 @@ export function TitlesPanel() {
   }
 
   return (
-    <SystemWindow title="Titles" accent="gold" delay={0.2}>
+    <SystemWindow title="Titles" accent="gold" delay={0.2} collapsible defaultCollapsed>
       <p className="mb-3 font-sys text-[0.65rem] uppercase tracking-widest text-slate-500">
         {earned.size} / {TITLES.length} earned · tap an earned title to equip it
       </p>

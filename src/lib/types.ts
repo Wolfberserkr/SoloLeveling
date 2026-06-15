@@ -16,6 +16,7 @@ export type Profile = {
   equipped_title: string | null;
   fatigue: number;
   last_daily_reset: string | null;
+  reminder_hour: number;
   created_at: string;
 };
 
