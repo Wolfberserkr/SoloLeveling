@@ -226,6 +226,8 @@ Deno.serve(async (req) => {
         return json(await setShadowDeployed(ctx, payload, true));
       case 'recall-shadow':
         return json(await setShadowDeployed(ctx, payload, false));
+      case 'reset-progress':
+        return json(await resetProgress(ctx, payload));
       default:
         throw new HttpError(400, `Unknown action: ${action}`);
     }
@@ -235,6 +237,86 @@ Deno.serve(async (req) => {
     return json({ error: 'Internal error' }, 500);
   }
 });
+
+// ── reset-progress: wipe all gameplay rows and re-seed a fresh account ──────
+// Destructive and irreversible. The client gates this behind a typed
+// confirmation; the server requires confirm === 'RESET' as a second guard.
+// Device push subscriptions are kept (they are not progress), as is profile
+// identity (display_name, timezone, reminder_hour).
+const RESET_STATS = ['STR', 'END', 'AGI', 'INT', 'WIS', 'STA', 'WIL', 'DIS', 'CHA'];
+
+async function resetProgress(ctx: Ctx, payload: { confirm?: string }) {
+  const { db, userId, today } = ctx;
+  if (payload?.confirm !== 'RESET') throw new HttpError(400, 'Reset not confirmed');
+
+  // Child tables first. FK cascades from books / system_events would also
+  // cover their dependents, but deleting explicitly keeps the order safe and
+  // the intent obvious.
+  const tables = [
+    'riddle_answers',
+    'reading_sessions',
+    'book_applications',
+    'retention_questions',
+    'system_events',
+    'books',
+    'gym_sessions',
+    'lift_logs',
+    'body_metrics',
+    'sleep_logs',
+    'daily_quests',
+    'training_quests',
+    'xp_ledger',
+    'legacy_snapshots',
+    'shadows',
+    'skills',
+    'titles',
+    'system_messages',
+    'notification_log',
+    'stats',
+    'training_totals',
+    'dungeon_progress',
+  ];
+  for (const table of tables) {
+    const { error } = await db.from(table).delete().eq('user_id', userId);
+    if (error) {
+      console.error(`reset-progress: failed clearing ${table}:`, error);
+      throw new HttpError(500, `Failed to clear ${table}`);
+    }
+  }
+
+  // Re-seed the baseline rows handle_new_user creates for a fresh account.
+  await db.from('stats').insert(RESET_STATS.map((stat) => ({ user_id: userId, stat })));
+  await db.from('training_totals').insert({ user_id: userId });
+  await db.from('dungeon_progress').insert({ user_id: userId });
+
+  // Profile back to level 1; identity and notification settings are preserved.
+  await db
+    .from('profiles')
+    .update({
+      level: 1,
+      xp_total: 0,
+      rank: 'E',
+      class: null,
+      mana: 100,
+      mana_max: 100,
+      mana_potions: 0,
+      essence_stones: 0,
+      equipped_title: null,
+      fatigue: 0,
+      journey_started_at: today,
+      last_daily_reset: null,
+    })
+    .eq('user_id', userId);
+
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'awakening',
+    title: 'You have acquired the qualifications to be a Player.',
+    body: 'The System has rebound itself to you. Your transformation begins anew. Complete your Daily Training Quest to earn experience. There are no shortcuts.',
+  });
+
+  return { ok: true, reset: true };
+}
 
 // ── Daily reset (idempotent, keyed on profiles.last_daily_reset) ───────────
 async function ensureDailyState(ctx: Ctx): Promise<void> {

@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { usePlayerStore } from '@/stores/playerStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore, type DistanceUnit } from '@/stores/settingsStore';
+import { gameAction } from '@/lib/gameApi';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import { TitlesPanel } from '@/features/status/TitlesPanel';
 import { pushSupported, currentSubscription, enablePush, disablePush } from '@/lib/push';
@@ -90,6 +91,7 @@ export function MorePage() {
       <PreferencesPanel />
       <InstallPanel />
       <DataPanel />
+      <ResetPanel />
       <AboutPanel />
 
       <SystemWindow title="System Expansion" accent="purple" delay={0.12}>
@@ -387,6 +389,85 @@ function DataPanel() {
       <button className="sys-btn sys-btn-ghost mt-3 w-full" onClick={exportData}>
         Export my data
       </button>
+    </SystemWindow>
+  );
+}
+
+function ResetPanel() {
+  const { loadAll } = usePlayerStore();
+  const pushAlert = useUiStore((s) => s.pushAlert);
+  const navigate = useNavigate();
+  const [confirming, setConfirming] = useState(false);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const ready = text.trim().toUpperCase() === 'RESET';
+
+  function cancel() {
+    setConfirming(false);
+    setText('');
+  }
+
+  async function reset() {
+    if (busy || !ready) return;
+    setBusy(true);
+    try {
+      await gameAction('reset-progress', { confirm: 'RESET' });
+      await loadAll();
+      cancel();
+      pushAlert({
+        kind: 'warning',
+        title: 'Progress reset',
+        body: 'The System has rebound itself. You begin again at Level 1.',
+      });
+      navigate('/', { replace: true });
+    } catch (err) {
+      pushAlert({
+        kind: 'danger',
+        title: 'Reset failed',
+        body: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SystemWindow title="Reset Progress" accent="red" delay={0.12}>
+      <p className="text-xs leading-relaxed text-slate-400">
+        Permanently erase all progress — levels, XP, stats, titles, shadows, dungeons, library, and
+        records — and begin again at Level 1. Your name, timezone, and reminder time are kept. This
+        cannot be undone.
+      </p>
+      {!confirming ? (
+        <button className="sys-btn sys-btn-danger mt-3 w-full" onClick={() => setConfirming(true)}>
+          Reset progress…
+        </button>
+      ) : (
+        <div className="mt-3 flex flex-col gap-2">
+          <label className="font-sys text-[0.65rem] uppercase tracking-widest text-accent-red">
+            Type RESET to confirm
+          </label>
+          <input
+            autoFocus
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="RESET"
+            className="border border-accent-red/40 bg-bg-base/60 px-2 py-1 font-sys text-sm uppercase tracking-widest text-white outline-none focus:border-accent-red"
+          />
+          <div className="flex gap-2">
+            <button className="sys-btn sys-btn-ghost flex-1" disabled={busy} onClick={cancel}>
+              Cancel
+            </button>
+            <button
+              className="sys-btn sys-btn-danger flex-1"
+              disabled={!ready || busy}
+              onClick={reset}
+            >
+              {busy ? 'Resetting…' : 'Erase everything'}
+            </button>
+          </div>
+        </div>
+      )}
     </SystemWindow>
   );
 }
