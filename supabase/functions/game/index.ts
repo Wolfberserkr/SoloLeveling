@@ -100,6 +100,21 @@ import {
   type ShadowGrade,
   type ShadowSource,
 } from '../_shared/game/shadows.ts';
+import {
+  EXPLORE_MANA_COST,
+  EXPLORES_PER_DAY,
+  rollScenario,
+  monsterScaling,
+  successChance,
+  rollOutcome,
+  rollLoot,
+  rollConsolationXp,
+  resolveSeed,
+  rankIndexOf,
+} from '../_shared/game/encounters.ts';
+import { itemStatMultiplier, applyConsumable, itemDef } from '../_shared/game/items.ts';
+import { mulberry32 } from '../_shared/game/rng.ts';
+import { type StatKey } from '../_shared/game/constants.ts';
 
 type SkillRow = { skill_key: string; last_used_at: string | null };
 
@@ -111,6 +126,8 @@ type Ctx = {
   skills: SkillRow[];
   skillKeys: string[];
   deployedShadows: DeployedShadow[];
+  /** Per-attribute gain multipliers from active, non-expired equipped gear. */
+  gearMults: Partial<Record<StatKey, number>>;
 };
 
 type Profile = {
@@ -125,6 +142,7 @@ type Profile = {
   mana_max: number;
   mana_potions: number;
   fatigue: number;
+  explores_today: number;
   last_daily_reset: string | null;
 };
 
@@ -139,7 +157,7 @@ Deno.serve(async (req) => {
     const { data: profile, error } = await db
       .from('profiles')
       .select(
-        'user_id, timezone, level, xp_total, rank, class, essence_stones, mana, mana_max, mana_potions, fatigue, last_daily_reset',
+        'user_id, timezone, level, xp_total, rank, class, essence_stones, mana, mana_max, mana_potions, fatigue, explores_today, last_daily_reset',
       )
       .eq('user_id', user.id)
       .single();
@@ -160,6 +178,15 @@ Deno.serve(async (req) => {
       .eq('deployed', true);
     const deployedShadows = (shadowRows ?? []) as DeployedShadow[];
 
+    // Active, non-expired gear multiplies its affinity attribute's gains.
+    const { data: gearRows } = await db
+      .from('equipment')
+      .select('item_key, expires_at')
+      .eq('user_id', user.id)
+      .eq('active', true)
+      .gt('expires_at', new Date().toISOString());
+    const gearMults = itemStatMultiplier((gearRows ?? []).map((g) => g.item_key as string));
+
     const ctx: Ctx = {
       db,
       userId: user.id,
@@ -168,6 +195,7 @@ Deno.serve(async (req) => {
       skills,
       skillKeys: skills.map((s) => s.skill_key),
       deployedShadows,
+      gearMults,
     };
 
     // Lazy daily reset: the System catches up before any action.
@@ -226,6 +254,18 @@ Deno.serve(async (req) => {
         return json(await setShadowDeployed(ctx, payload, true));
       case 'recall-shadow':
         return json(await setShadowDeployed(ctx, payload, false));
+      case 'explore-encounter':
+        return json(await exploreEncounter(ctx));
+      case 'resolve-encounter':
+        return json(await resolveEncounter(ctx, payload));
+      case 'use-item':
+        return json(await useItem(ctx, payload));
+      case 'equip-item':
+        return json(await equipItem(ctx, payload));
+      case 'unequip-item':
+        return json(await unequipItem(ctx, payload));
+      case 'reset-progress':
+        return json(await resetProgress(ctx, payload));
       default:
         throw new HttpError(400, `Unknown action: ${action}`);
     }
@@ -235,6 +275,338 @@ Deno.serve(async (req) => {
     return json({ error: 'Internal error' }, 500);
   }
 });
+
+// ── reset-progress: wipe all gameplay rows and re-seed a fresh account ──────
+// Destructive and irreversible. The client gates this behind a typed
+// confirmation; the server requires confirm === 'RESET' as a second guard.
+// Device push subscriptions are kept (they are not progress), as is profile
+// identity (display_name, timezone, reminder_hour).
+const RESET_STATS = ['STR', 'END', 'AGI', 'INT', 'WIS', 'STA', 'WIL', 'DIS', 'CHA'];
+
+async function resetProgress(ctx: Ctx, payload: { confirm?: string }) {
+  const { db, userId, today } = ctx;
+  if (payload?.confirm !== 'RESET') throw new HttpError(400, 'Reset not confirmed');
+
+  // Child tables first. FK cascades from books / system_events would also
+  // cover their dependents, but deleting explicitly keeps the order safe and
+  // the intent obvious.
+  const tables = [
+    'riddle_answers',
+    'reading_sessions',
+    'book_applications',
+    'retention_questions',
+    'system_events',
+    'books',
+    'gym_sessions',
+    'lift_logs',
+    'body_metrics',
+    'sleep_logs',
+    'daily_quests',
+    'training_quests',
+    'xp_ledger',
+    'legacy_snapshots',
+    'shadows',
+    'skills',
+    'titles',
+    'system_messages',
+    'notification_log',
+    'stats',
+    'training_totals',
+    'dungeon_progress',
+  ];
+  for (const table of tables) {
+    const { error } = await db.from(table).delete().eq('user_id', userId);
+    if (error) {
+      console.error(`reset-progress: failed clearing ${table}:`, error);
+      throw new HttpError(500, `Failed to clear ${table}`);
+    }
+  }
+
+  // Re-seed the baseline rows handle_new_user creates for a fresh account.
+  await db.from('stats').insert(RESET_STATS.map((stat) => ({ user_id: userId, stat })));
+  await db.from('training_totals').insert({ user_id: userId });
+  await db.from('dungeon_progress').insert({ user_id: userId });
+
+  // Profile back to level 1; identity and notification settings are preserved.
+  await db
+    .from('profiles')
+    .update({
+      level: 1,
+      xp_total: 0,
+      rank: 'E',
+      class: null,
+      mana: 100,
+      mana_max: 100,
+      mana_potions: 0,
+      essence_stones: 0,
+      equipped_title: null,
+      fatigue: 0,
+      journey_started_at: today,
+      last_daily_reset: null,
+    })
+    .eq('user_id', userId);
+
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'awakening',
+    title: 'You have acquired the qualifications to be a Player.',
+    body: 'The System has rebound itself to you. Your transformation begins anew. Complete your Daily Training Quest to earn experience. There are no shortcuts.',
+  });
+
+  return { ok: true, reset: true };
+}
+
+// ── explore-encounter: spend mana, roll a DND-style scenario ────────────────
+async function exploreEncounter(ctx: Ctx) {
+  const { db, userId, profile, today } = ctx;
+
+  const { data: active } = await db
+    .from('encounters')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .maybeSingle();
+  if (active) throw new HttpError(409, 'Resolve your current encounter first.');
+
+  if (profile.explores_today >= EXPLORES_PER_DAY) {
+    throw new HttpError(409, 'No explorations left today. Return tomorrow.');
+  }
+  if (profile.mana < EXPLORE_MANA_COST) {
+    throw new HttpError(409, 'Insufficient mana to Explore. Recover first.');
+  }
+
+  // The nine attributes set each action's odds.
+  const { data: statRows } = await db.from('stats').select('stat, value').eq('user_id', userId);
+  const statMap: Record<string, number> = {};
+  for (const r of statRows ?? []) statMap[r.stat as string] = Number(r.value);
+
+  const rankIndex = rankIndexOf(profile.rank);
+  const scaling = monsterScaling(profile.level, rankIndex);
+  const seed = Math.floor(Math.random() * 0x7fffffff);
+  const scenario = rollScenario(mulberry32(seed), rankIndex);
+
+  const choices = scenario.choices.map((c) => {
+    const difficulty = c.baseDifficulty + scaling.difficultyBonus;
+    const statValue = statMap[c.stat] ?? 10;
+    return {
+      choice_key: c.key,
+      label: c.label,
+      stat: c.stat,
+      difficulty,
+      success_chance: Math.round(successChance(statValue, difficulty) * 100) / 100,
+    };
+  });
+
+  const mana = clampMana(profile.mana - EXPLORE_MANA_COST, profile.mana_max);
+  await db
+    .from('profiles')
+    .update({ mana, explores_today: profile.explores_today + 1 })
+    .eq('user_id', userId);
+  profile.mana = mana;
+  profile.explores_today += 1;
+
+  const { data: encounter, error } = await db
+    .from('encounters')
+    .insert({
+      user_id: userId,
+      local_date: today,
+      scenario_key: scenario.key,
+      seed,
+      level: profile.level,
+      rank: profile.rank,
+      mana_spent: EXPLORE_MANA_COST,
+      payload: { title: scenario.title, body: scenario.body, choices },
+      status: 'active',
+    })
+    .select('*')
+    .single();
+  if (error || !encounter) {
+    if (error?.code === '23505') throw new HttpError(409, 'Resolve your current encounter first.');
+    throw new HttpError(500, 'The path did not open. Try again.');
+  }
+
+  return { ok: true, encounter, mana, explores_left: EXPLORES_PER_DAY - profile.explores_today };
+}
+
+// ── resolve-encounter: take an action, roll the stat check, pay out ─────────
+async function resolveEncounter(ctx: Ctx, payload: { choice_key?: string }) {
+  const { db, userId } = ctx;
+  const choiceKey = typeof payload.choice_key === 'string' ? payload.choice_key : '';
+
+  const { data: encounter } = await db
+    .from('encounters')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .maybeSingle();
+  if (!encounter) throw new HttpError(404, 'No active encounter.');
+
+  const choices = (encounter.payload?.choices ?? []) as Array<{
+    choice_key: string;
+    stat: string;
+    difficulty: number;
+  }>;
+  const choice = choices.find((c) => c.choice_key === choiceKey);
+  if (!choice) throw new HttpError(400, 'No such action.');
+
+  const { data: statRow } = await db
+    .from('stats')
+    .select('value')
+    .eq('user_id', userId)
+    .eq('stat', choice.stat)
+    .maybeSingle();
+  const statValue = Number(statRow?.value ?? 10);
+
+  const rand = mulberry32(resolveSeed(Number(encounter.seed), choiceKey));
+  const success = rollOutcome(rand, statValue, choice.difficulty);
+  const rankIndex = rankIndexOf(encounter.rank);
+
+  let essence = 0;
+  let items: Array<{ key: string; qty: number }> = [];
+  let shadow: { name: string; grade: string } | null = null;
+  let award;
+
+  if (success) {
+    const loot = rollLoot(rand, monsterScaling(encounter.level, rankIndex), rankIndex);
+    award = await awardXp(ctx, loot.xp, 'encounter', encounter.id);
+    essence = loot.essence;
+    if (essence > 0) await db.rpc('grant_essence', { p_user: userId, p_amount: essence });
+    items = loot.items;
+    for (const it of items) {
+      await db.rpc('grant_item', { p_user: userId, p_item_key: it.key, p_qty: it.qty });
+    }
+    if (loot.shadow) {
+      shadow = loot.shadow;
+      await dropShadow(ctx, 'encounter', encounter.id, loot.shadow.name, loot.shadow.grade as ShadowGrade);
+    }
+  } else {
+    award = await awardXp(ctx, rollConsolationXp(rand), 'encounter', encounter.id);
+  }
+
+  const result = { success, xp: award.credited, essence, items, shadow };
+  await db
+    .from('encounters')
+    .update({
+      status: success ? 'won' : 'lost',
+      chosen_key: choiceKey,
+      result,
+      resolved_at: new Date().toISOString(),
+    })
+    .eq('id', encounter.id);
+
+  const itemNames = items.map((it) => itemDef(it.key)?.name ?? it.key);
+  const title = encounter.payload?.title ?? 'Encounter';
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: success ? 'encounter_won' : 'encounter_lost',
+    title: success ? `ENCOUNTER CLEARED — ${title}.` : `Encounter lost — ${title}.`,
+    body: success
+      ? `+${award.credited} XP, +${essence} Essence${itemNames.length ? `, items: ${itemNames.join(', ')}` : ''}.${shadow ? ` A shadow lingers — ${shadow.name}.` : ''}`
+      : `The check failed. +${award.credited} XP for the attempt. Train and return.`,
+    payload: { encounter_id: encounter.id },
+  });
+
+  return {
+    ok: true,
+    success,
+    award,
+    essence,
+    items,
+    shadow,
+    encounter: { ...encounter, status: success ? 'won' : 'lost' },
+  };
+}
+
+// ── use-item: consume a held item and apply its effect ──────────────────────
+async function useItem(ctx: Ctx, payload: { item_key?: string }) {
+  const { db, userId, profile } = ctx;
+  const key = typeof payload.item_key === 'string' ? payload.item_key : '';
+  const def = itemDef(key);
+  if (!def || def.category !== 'consumable') throw new HttpError(400, 'Not a usable item.');
+
+  const { data: consumed } = await db.rpc('consume_item', {
+    p_user: userId,
+    p_item_key: key,
+    p_qty: 1,
+  });
+  if (!consumed) throw new HttpError(409, 'You do not have that item.');
+
+  const effect = applyConsumable(key);
+  const out: Record<string, unknown> = { ok: true, used: key };
+  switch (effect.kind) {
+    case 'mana': {
+      const mana = clampMana(profile.mana + effect.amount, profile.mana_max);
+      await db.from('profiles').update({ mana }).eq('user_id', userId);
+      profile.mana = mana;
+      out.mana = mana;
+      break;
+    }
+    case 'essence': {
+      await db.rpc('grant_essence', { p_user: userId, p_amount: effect.amount });
+      out.essence = effect.amount;
+      break;
+    }
+    case 'xp': {
+      out.award = await awardXp(ctx, effect.amount, 'item', null);
+      break;
+    }
+    case 'fatigue_purge': {
+      await db.from('profiles').update({ fatigue: 0 }).eq('user_id', userId);
+      profile.fatigue = 0;
+      out.fatigue = 0;
+      break;
+    }
+  }
+  return out;
+}
+
+// ── equip-item: consume a piece of gear for a timed attribute buff ──────────
+async function equipItem(ctx: Ctx, payload: { item_key?: string }) {
+  const { db, userId } = ctx;
+  const key = typeof payload.item_key === 'string' ? payload.item_key : '';
+  const def = itemDef(key);
+  if (!def || def.category !== 'gear' || !def.durationHours) {
+    throw new HttpError(400, 'Not equippable gear.');
+  }
+
+  const { data: consumed } = await db.rpc('consume_item', {
+    p_user: userId,
+    p_item_key: key,
+    p_qty: 1,
+  });
+  if (!consumed) throw new HttpError(409, 'You do not have that gear.');
+
+  const expiresAt = new Date(Date.now() + def.durationHours * 3600 * 1000).toISOString();
+  const { data: equip, error } = await db
+    .from('equipment')
+    .insert({ user_id: userId, item_key: key, expires_at: expiresAt, active: true })
+    .select('*')
+    .single();
+  if (error || !equip) throw new HttpError(500, 'Failed to equip.');
+
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'gear_equipped',
+    title: `Equipped — ${def.name}.`,
+    body: `${def.description} The buff fades when it expires.`,
+  });
+  return { ok: true, equipment: equip };
+}
+
+// ── unequip-item: end an active buff early (no refund — gear is spent) ───────
+async function unequipItem(ctx: Ctx, payload: { id?: string }) {
+  const { db, userId } = ctx;
+  const id = typeof payload.id === 'string' ? payload.id : '';
+  if (!id) throw new HttpError(400, 'id required');
+  const { error } = await db
+    .from('equipment')
+    .update({ active: false })
+    .eq('user_id', userId)
+    .eq('id', id)
+    .eq('active', true);
+  if (error) throw new HttpError(500, 'Failed to unequip.');
+  return { ok: true, unequipped: id };
+}
 
 // ── Daily reset (idempotent, keyed on profiles.last_daily_reset) ───────────
 async function ensureDailyState(ctx: Ctx): Promise<void> {
@@ -371,12 +743,21 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
     });
   }
 
+  // Retire any gear whose temporary buff has run out.
+  await db
+    .from('equipment')
+    .update({ active: false })
+    .eq('user_id', userId)
+    .eq('active', true)
+    .lte('expires_at', new Date().toISOString());
+
   await db
     .from('profiles')
-    .update({ last_daily_reset: today, mana, fatigue })
+    .update({ last_daily_reset: today, mana, fatigue, explores_today: 0 })
     .eq('user_id', userId);
   profile.mana = mana;
   profile.fatigue = fatigue;
+  profile.explores_today = 0;
   profile.last_daily_reset = today;
 }
 
@@ -1464,11 +1845,15 @@ async function awardXp(
   const baseGains = statGainsFor(source);
   if (Object.keys(baseGains).length > 0) {
     const statMult = skillStatMultiplier(ctx.skillKeys) * shadowStatMultiplier(ctx.deployedShadows);
+    const hasGear = Object.keys(ctx.gearMults).length > 0;
     const gains =
-      statMult === 1
+      statMult === 1 && !hasGear
         ? baseGains
         : Object.fromEntries(
-            Object.entries(baseGains).map(([k, v]) => [k, Math.round(v * statMult * 100) / 100]),
+            Object.entries(baseGains).map(([k, v]) => {
+              const m = statMult * (ctx.gearMults[k as StatKey] ?? 1);
+              return [k, Math.round(v * m * 100) / 100];
+            }),
           );
     const { error: statErr } = await ctx.db.rpc('increment_stats', {
       p_user: ctx.userId,

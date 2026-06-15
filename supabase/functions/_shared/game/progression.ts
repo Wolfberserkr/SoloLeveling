@@ -57,7 +57,9 @@ export type XpSource =
   | 'book_finished'
   | 'knowledge_check'
   | 'gate_clear'
-  | 'riddle_solved';
+  | 'riddle_solved'
+  | 'encounter'
+  | 'item';
 
 type StatGain = Partial<Record<StatKey, number>>;
 
@@ -78,6 +80,9 @@ const STAT_GAINS: Record<XpSource, StatGain> = {
   // System Events test agility under pressure and a sharp mind.
   gate_clear: { AGI: 0.4, WIL: 0.4 },
   riddle_solved: { STA: 0.4, INT: 0.3 },
+  // Encounters reward quick wits and resolve; item XP trains nothing on its own.
+  encounter: { AGI: 0.2, WIL: 0.2 },
+  item: {},
 };
 
 /**

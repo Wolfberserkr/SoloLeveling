@@ -17,6 +17,7 @@ export type Profile = {
   fatigue: number;
   last_daily_reset: string | null;
   reminder_hour: number;
+  explores_today: number;
   created_at: string;
 };
 
@@ -42,7 +43,7 @@ export type Skill = {
 export type Shadow = {
   id: string;
   user_id: string;
-  source_type: 'boss' | 'gate' | 'book' | 'legacy';
+  source_type: 'boss' | 'gate' | 'book' | 'legacy' | 'encounter';
   source_ref: string;
   name: string;
   grade: 'Soldier' | 'Knight' | 'Elite Knight' | 'Marshal' | 'Commander' | 'Monarch';
@@ -217,4 +218,53 @@ export type XpAward = {
   old_level: number;
   new_level: number;
   leveled_up: boolean;
+};
+
+export type EncounterChoice = {
+  choice_key: string;
+  label: string;
+  stat: StatKey;
+  difficulty: number;
+  success_chance: number; // 0–1
+};
+
+export type Encounter = {
+  id: string;
+  user_id: string;
+  local_date: string;
+  scenario_key: string;
+  level: number;
+  rank: string;
+  mana_spent: number;
+  payload: {
+    title: string;
+    body: string;
+    choices: EncounterChoice[];
+  };
+  status: 'active' | 'won' | 'lost';
+  chosen_key: string | null;
+  result: {
+    success: boolean;
+    xp: number;
+    essence: number;
+    items: Array<{ key: string; qty: number }>;
+    shadow: { name: string; grade: string } | null;
+  } | null;
+  created_at: string;
+  resolved_at: string | null;
+};
+
+export type InventoryItem = {
+  user_id: string;
+  item_key: string;
+  quantity: number;
+};
+
+export type EquippedItem = {
+  id: string;
+  user_id: string;
+  item_key: string;
+  equipped_at: string;
+  expires_at: string;
+  active: boolean;
 };

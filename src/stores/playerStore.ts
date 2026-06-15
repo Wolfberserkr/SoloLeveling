@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { supabase } from '@/lib/supabase';
 import { gameAction } from '@/lib/gameApi';
+import { EXPLORES_PER_DAY } from '@game/encounters.ts';
 import type {
   Profile,
   StatRow,
@@ -19,6 +20,9 @@ import type {
   SystemEvent,
   LiftLog,
   SystemMessage,
+  Encounter,
+  InventoryItem,
+  EquippedItem,
 } from '@/lib/types';
 
 type PlayerState = {
@@ -44,6 +48,10 @@ type PlayerState = {
   liftLogs: LiftLog[]; // recent top-set logs, newest first
   totals: TrainingTotals | null;
   messages: SystemMessage[];
+  inventory: InventoryItem[];
+  equipment: EquippedItem[]; // active gear only
+  encounter: Encounter | null; // the active encounter, if any
+  exploresLeftToday: number;
   /** Full refresh: lazy daily reset on the server, then re-read everything. */
   loadAll: () => Promise<void>;
   /** Re-read DB state without re-running the daily reset. */
@@ -77,6 +85,10 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   liftLogs: [],
   totals: null,
   messages: [],
+  inventory: [],
+  equipment: [],
+  encounter: null,
+  exploresLeftToday: EXPLORES_PER_DAY,
 
   loadAll: async () => {
     set({ loading: true, error: null });
@@ -141,6 +153,10 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       liftLogs: [],
       totals: null,
       messages: [],
+      inventory: [],
+      equipment: [],
+      encounter: null,
+      exploresLeftToday: EXPLORES_PER_DAY,
     }),
 }));
 
@@ -166,6 +182,9 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     liftsRes,
     legacyRes,
     shadowsRes,
+    inventoryRes,
+    equipmentRes,
+    encounterRes,
   ] = await Promise.all([
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
@@ -238,6 +257,9 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
         .order('due_date')
         .limit(1),
       supabase.from('shadows').select('*').order('created_at'),
+      supabase.from('inventory').select('*').gt('quantity', 0).order('item_key'),
+      supabase.from('equipment').select('*').eq('active', true).order('expires_at'),
+      supabase.from('encounters').select('*').eq('status', 'active').maybeSingle(),
     ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
@@ -275,5 +297,12 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     liftLogs: (liftsRes.data ?? []) as LiftLog[],
     legacy: ((legacyRes.data ?? [])[0] ?? null) as LegacySnapshot | null,
     shadows: (shadowsRes.data ?? []) as Shadow[],
+    inventory: (inventoryRes.data ?? []) as InventoryItem[],
+    equipment: (equipmentRes.data ?? []) as EquippedItem[],
+    encounter: (encounterRes.data ?? null) as Encounter | null,
+    exploresLeftToday: Math.max(
+      0,
+      EXPLORES_PER_DAY - Number((profileRes.data as Profile).explores_today ?? 0),
+    ),
   });
 }
