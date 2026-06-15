@@ -7,7 +7,7 @@ import { usePlayerStore } from '@/stores/playerStore';
 import { BottomNav } from '@/components/system/BottomNav';
 import { SystemAlertStack } from '@/components/system/SystemAlertStack';
 import { OfflineBanner } from '@/components/system/OfflineBanner';
-import { LevelUpSequence } from '@/components/system/LevelUpSequence';
+import { CinematicOverlay } from '@/components/system/CinematicOverlay';
 import { GlitchText } from '@/components/system/GlitchText';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { StatusPage } from '@/features/status/StatusPage';
@@ -17,6 +17,7 @@ import { LibraryPage } from '@/features/library/LibraryPage';
 import { SkillsPage } from '@/features/skills/SkillsPage';
 import { ShadowArmyPage } from '@/features/shadows/ShadowArmyPage';
 import { MorePage } from '@/features/more/MorePage';
+import { DemoPage } from '@/features/demo/DemoPage';
 
 function Shell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -94,9 +95,10 @@ export default function App() {
     <BrowserRouter>
       <OfflineBanner />
       <SystemAlertStack />
-      <LevelUpSequence />
+      <CinematicOverlay />
       <Routes>
         <Route path="/login" element={session ? <Navigate to="/" replace /> : <LoginPage />} />
+        <Route path="/demo" element={<DemoPage />} />
         <Route path="/*" element={session ? <AuthedApp /> : <Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
