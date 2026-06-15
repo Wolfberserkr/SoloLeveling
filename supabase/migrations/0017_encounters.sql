@@ -9,24 +9,34 @@
 -- Tier B everywhere: clients SELECT their own rows; the `game` edge function
 -- (service role) does every write, via direct updates and the grant_item /
 -- consume_item RPCs (mirroring grant_essence in 0011).
+--
+-- Written to be safely re-runnable (IF [NOT] EXISTS / guarded) so a partial
+-- apply can be repeated.
 -- ═══════════════════════════════════════════════════════════════════════════
 
 -- Daily Explore allowance lives on the profile, reset by ensureDailyState.
 -- Server-written only — NOT added to the client-updatable column grant.
 alter table public.profiles
-  add column explores_today int not null default 0;
+  add column if not exists explores_today int not null default 0;
 
 -- Encounters can be extracted as Shadows: widen the source_type constraint.
-alter table public.shadows drop constraint shadows_source_type_check;
-alter table public.shadows
-  add constraint shadows_source_type_check
-  check (source_type in ('boss','gate','book','legacy','encounter'));
+-- Guarded so this migration still applies if the shadows table (0015) is not
+-- present yet — the encounter shadow-drop simply no-ops until it exists.
+do $$
+begin
+  if to_regclass('public.shadows') is not null then
+    alter table public.shadows drop constraint if exists shadows_source_type_check;
+    alter table public.shadows
+      add constraint shadows_source_type_check
+      check (source_type in ('boss','gate','book','legacy','encounter'));
+  end if;
+end $$;
 
 -- ── encounters ──────────────────────────────────────────────────────────────
 -- One 'active' encounter at a time (must be resolved before exploring again);
 -- resolved rows are history. The rolled scenario + choices live in payload; the
 -- per-attempt RNG seed makes resolution reproducible without being replayable.
-create table public.encounters (
+create table if not exists public.encounters (
   id            uuid primary key default gen_random_uuid(),
   user_id       uuid not null references auth.users(id) on delete cascade,
   local_date    date not null,
@@ -45,17 +55,19 @@ create table public.encounters (
 );
 
 -- At most one active encounter per user.
-create unique index encounters_one_active
+create unique index if not exists encounters_one_active
   on public.encounters (user_id) where status = 'active';
-create index encounters_user_date on public.encounters (user_id, local_date desc);
+create index if not exists encounters_user_date
+  on public.encounters (user_id, local_date desc);
 
 alter table public.encounters enable row level security;
+drop policy if exists "encounters_select_own" on public.encounters;
 create policy "encounters_select_own" on public.encounters
   for select using (auth.uid() = user_id);
 grant select on public.encounters to authenticated;
 
 -- ── inventory ───────────────────────────────────────────────────────────────
-create table public.inventory (
+create table if not exists public.inventory (
   user_id    uuid not null references auth.users(id) on delete cascade,
   item_key   text not null,                  -- references the code catalog (items.ts)
   quantity   int not null default 0 check (quantity >= 0),
@@ -64,6 +76,7 @@ create table public.inventory (
 );
 
 alter table public.inventory enable row level security;
+drop policy if exists "inventory_select_own" on public.inventory;
 create policy "inventory_select_own" on public.inventory
   for select using (auth.uid() = user_id);
 grant select on public.inventory to authenticated;
@@ -72,7 +85,7 @@ grant select on public.inventory to authenticated;
 -- Equipped gear is temporary: consumed on equip, expires at expires_at. The
 -- itemStatMultiplier only counts active, non-expired rows; ensureDailyState
 -- sweeps expired ones inactive.
-create table public.equipment (
+create table if not exists public.equipment (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users(id) on delete cascade,
   item_key    text not null,
@@ -81,9 +94,10 @@ create table public.equipment (
   active      boolean not null default true
 );
 
-create index equipment_user_active on public.equipment (user_id, active);
+create index if not exists equipment_user_active on public.equipment (user_id, active);
 
 alter table public.equipment enable row level security;
+drop policy if exists "equipment_select_own" on public.equipment;
 create policy "equipment_select_own" on public.equipment
   for select using (auth.uid() = user_id);
 grant select on public.equipment to authenticated;
