@@ -8,6 +8,7 @@ import { StatBar } from '@/components/system/StatBar';
 import { SideQuestsPanel } from '@/features/training/SideQuestsPanel';
 import { RecoveryPanel } from '@/features/training/RecoveryPanel';
 import { EventPanel } from '@/features/training/EventPanel';
+import { EncounterPanel } from '@/features/training/EncounterPanel';
 import type { TrainingQuest, XpAward } from '@/lib/types';
 
 type ExerciseKey = 'pushups' | 'situps' | 'squats' | 'run_km';
@@ -109,6 +110,7 @@ export function TrainingPage() {
   return (
     <div className="flex flex-col gap-4">
       <EventPanel />
+      <EncounterPanel />
       <SystemWindow title="Daily Quest — Train to Become Strong" scan>
         <div className="mb-3 flex items-center justify-between font-sys text-[0.65rem] uppercase tracking-widest text-slate-400">
           <span>{training.local_date}</span>

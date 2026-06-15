@@ -8,6 +8,7 @@ import { GlitchText } from '@/components/system/GlitchText';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { formatDistance } from '@/lib/units';
 import { ClassPanel } from './ClassPanel';
+import { InventoryPanel } from './InventoryPanel';
 import { levelProgress } from '@game/xpCurve.ts';
 import { STAT_GROUPS, STAT_LABELS, RANK_TITLES, type Rank } from '@game/constants.ts';
 import { classDef } from '@game/progression.ts';
@@ -105,6 +106,9 @@ export function StatusPage() {
 
       {/* ── Class ── */}
       <ClassPanel />
+
+      {/* ── Inventory ── */}
+      <InventoryPanel />
 
       {/* ── Lifetime record ── */}
       <SystemWindow title="Record" accent="purple" delay={0.16}>
