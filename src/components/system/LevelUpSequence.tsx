@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect } from 'react';
 import { useUiStore } from '@/stores/uiStore';
+import { chime, haptic } from '@/lib/feedback';
 import { GlitchText } from './GlitchText';
 
 const PARTICLES = Array.from({ length: 24 }, (_, i) => ({
@@ -20,7 +21,8 @@ export function LevelUpSequence() {
 
   useEffect(() => {
     if (level === null) return;
-    if ('vibrate' in navigator) navigator.vibrate([60, 40, 120]);
+    haptic([60, 40, 120]);
+    chime('levelup');
     const t = setTimeout(clear, 3400);
     return () => clearTimeout(t);
   }, [level, clear]);

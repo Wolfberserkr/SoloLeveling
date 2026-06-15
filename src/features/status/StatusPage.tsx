@@ -5,6 +5,8 @@ import { StatBar } from '@/components/system/StatBar';
 import { RankBadge } from '@/components/system/RankBadge';
 import { ManaOrb } from '@/components/system/ManaOrb';
 import { GlitchText } from '@/components/system/GlitchText';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { formatDistance } from '@/lib/units';
 import { ClassPanel } from './ClassPanel';
 import { levelProgress } from '@game/xpCurve.ts';
 import { STAT_GROUPS, STAT_LABELS, RANK_TITLES, type Rank } from '@game/constants.ts';
@@ -12,6 +14,7 @@ import { classDef } from '@game/progression.ts';
 
 export function StatusPage() {
   const { profile, stats, totals, messages } = usePlayerStore();
+  const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   if (!profile) return null;
 
   const progress = levelProgress(profile.xp_total);
@@ -109,7 +112,7 @@ export function StatusPage() {
           <Record label="Push-ups" value={totals?.total_pushups ?? 0} />
           <Record label="Sit-ups" value={totals?.total_situps ?? 0} />
           <Record label="Squats" value={totals?.total_squats ?? 0} />
-          <Record label="Distance" value={`${Number(totals?.total_run_km ?? 0).toFixed(1)} km`} />
+          <Record label="Distance" value={formatDistance(Number(totals?.total_run_km ?? 0), distanceUnit)} />
           <Record label="Days trained" value={totals?.days_completed ?? 0} />
           <Record label="Best streak" value={totals?.best_streak ?? 0} />
         </div>

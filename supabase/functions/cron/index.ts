@@ -17,8 +17,7 @@ import { ensureSystemEvent } from '../_shared/eventEnsure.ts';
 
 const MORNING_START = 8;
 const MORNING_END = 12; // exclusive
-const EVENING_START = 18;
-const EVENING_END = 22; // exclusive
+const DEFAULT_REMINDER_HOUR = 18;
 
 type Db = ReturnType<typeof adminClient>;
 
@@ -26,6 +25,7 @@ type CronProfile = {
   user_id: string;
   timezone: string;
   level: number;
+  reminder_hour: number | null;
 };
 
 Deno.serve(async (req) => {
@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
 
   const { data: profiles, error } = await db
     .from('profiles')
-    .select('user_id, timezone, level');
+    .select('user_id, timezone, level, reminder_hour');
   if (error) {
     console.error('cron: profiles read failed:', error);
     return new Response(JSON.stringify({ error: 'profiles read failed' }), { status: 500 });
@@ -98,7 +98,8 @@ async function tickUser(db: Db, profile: CronProfile, canPush: boolean): Promise
     }
   }
 
-  if (hour >= EVENING_START && hour < EVENING_END && canPush) {
+  const reminderHour = profile.reminder_hour ?? DEFAULT_REMINDER_HOUR;
+  if (hour === reminderHour && canPush) {
     // Pending OR missing — a player who never opened the app needs the
     // reminder most. (The quest row is only created on first contact.)
     const { data: quest } = await db

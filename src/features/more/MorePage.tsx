@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { usePlayerStore } from '@/stores/playerStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useSettingsStore, type DistanceUnit } from '@/stores/settingsStore';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import { TitlesPanel } from '@/features/status/TitlesPanel';
 import { pushSupported, currentSubscription, enablePush, disablePush } from '@/lib/push';
@@ -85,7 +86,11 @@ export function MorePage() {
       </SystemWindow>
 
       <NotificationsPanel />
+      <ReminderPanel />
+      <PreferencesPanel />
       <InstallPanel />
+      <DataPanel />
+      <AboutPanel />
 
       <SystemWindow title="System Expansion" accent="purple" delay={0.12}>
         {ROADMAP.length === 0 ? (
@@ -199,6 +204,218 @@ function NotificationsPanel() {
           first (Share → Add to Home Screen), then enable here.
         </p>
       )}
+    </SystemWindow>
+  );
+}
+
+function Toggle({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description?: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className="flex w-full items-center justify-between gap-3 border-b border-white/5 py-3 text-left last:border-b-0"
+    >
+      <span className="min-w-0">
+        <span className="block font-sys text-xs uppercase tracking-widest text-white">{label}</span>
+        {description && (
+          <span className="mt-0.5 block font-sys text-[0.6rem] leading-relaxed text-slate-500">
+            {description}
+          </span>
+        )}
+      </span>
+      <span
+        className={`relative h-5 w-9 shrink-0 rounded-full border transition-colors ${
+          checked ? 'border-accent-cyan bg-accent-cyan/30' : 'border-white/15 bg-bg-base/60'
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-3.5 w-3.5 rounded-full transition-all ${
+            checked ? 'left-[1.15rem] bg-accent-cyan' : 'left-0.5 bg-slate-500'
+          }`}
+          style={checked ? { boxShadow: '0 0 8px #4ecbff' } : undefined}
+        />
+      </span>
+    </button>
+  );
+}
+
+function ReminderPanel() {
+  const { profile, refresh } = usePlayerStore();
+  const pushAlert = useUiStore((s) => s.pushAlert);
+  const [busy, setBusy] = useState(false);
+  const current = profile?.reminder_hour ?? 18;
+
+  async function update(hour: number) {
+    if (busy || !profile || hour === current) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ reminder_hour: hour })
+        .eq('user_id', profile.user_id);
+      if (error) throw new Error(error.message);
+      pushAlert({
+        kind: 'success',
+        title: 'Reminder set',
+        body: `The evening Daily Quest reminder will fire around ${String(hour).padStart(2, '0')}:00 your time.`,
+      });
+      await refresh();
+    } catch (err) {
+      pushAlert({
+        kind: 'danger',
+        title: 'Could not set reminder',
+        body: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SystemWindow title="Daily Reminder" accent="gold" delay={0.09}>
+      <p className="text-xs leading-relaxed text-slate-400">
+        The hour the System checks in if your Daily Training Quest is still unresolved. Times are in
+        your own timezone.
+      </p>
+      <label className="mt-3 flex items-center justify-between font-sys text-xs uppercase tracking-widest text-slate-400">
+        <span>Reminder hour</span>
+        <select
+          className="border border-accent-cyan/30 bg-bg-base/60 px-2 py-1 text-white"
+          disabled={busy}
+          value={current}
+          onChange={(e) => void update(Number(e.target.value))}
+        >
+          {Array.from({ length: 24 }, (_, h) => (
+            <option key={h} value={h}>
+              {String(h).padStart(2, '0')}:00
+            </option>
+          ))}
+        </select>
+      </label>
+    </SystemWindow>
+  );
+}
+
+function PreferencesPanel() {
+  const { sound, haptics, distanceUnit, setSound, setHaptics, setDistanceUnit } = useSettingsStore();
+  const units: DistanceUnit[] = ['km', 'mi'];
+
+  return (
+    <SystemWindow title="Preferences" delay={0.1}>
+      <Toggle
+        label="Sounds"
+        description="Short System chimes on alerts and level-ups."
+        checked={sound}
+        onChange={setSound}
+      />
+      <Toggle
+        label="Haptics"
+        description="Vibration feedback on supported devices."
+        checked={haptics}
+        onChange={setHaptics}
+      />
+      <div className="flex items-center justify-between py-3">
+        <span className="font-sys text-xs uppercase tracking-widest text-white">Distance unit</span>
+        <div className="flex overflow-hidden border border-accent-cyan/30">
+          {units.map((u) => (
+            <button
+              key={u}
+              type="button"
+              onClick={() => setDistanceUnit(u)}
+              className={`px-3 py-1 font-sys text-xs uppercase tracking-widest transition-colors ${
+                distanceUnit === u ? 'bg-accent-cyan/20 text-accent-cyan' : 'text-slate-500'
+              }`}
+            >
+              {u}
+            </button>
+          ))}
+        </div>
+      </div>
+    </SystemWindow>
+  );
+}
+
+function DataPanel() {
+  const pushAlert = useUiStore((s) => s.pushAlert);
+
+  function exportData() {
+    const s = usePlayerStore.getState();
+    const snapshot = {
+      exported_at: new Date().toISOString(),
+      app_version: __APP_VERSION__,
+      profile: s.profile,
+      stats: s.stats,
+      titles: s.titles,
+      skills: s.skills,
+      shadows: s.shadows,
+      totals: s.totals,
+      books: s.books,
+      liftLogs: s.liftLogs,
+      messages: s.messages,
+    };
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const stamp = new Date().toISOString().slice(0, 10);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `the-system-${s.profile?.display_name ?? 'player'}-${stamp}.json`.toLowerCase();
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    pushAlert({ kind: 'success', title: 'Data exported', body: 'Your records were saved to a file.' });
+  }
+
+  return (
+    <SystemWindow title="Data" accent="purple" delay={0.11}>
+      <p className="text-xs leading-relaxed text-slate-400">
+        Download a JSON snapshot of your profile, stats, titles, records, and System log from this
+        session.
+      </p>
+      <button className="sys-btn sys-btn-ghost mt-3 w-full" onClick={exportData}>
+        Export my data
+      </button>
+    </SystemWindow>
+  );
+}
+
+function AboutPanel() {
+  const built = (() => {
+    try {
+      return new Date(__BUILD_DATE__).toLocaleString();
+    } catch {
+      return __BUILD_DATE__;
+    }
+  })();
+
+  return (
+    <SystemWindow title="About" delay={0.13}>
+      <div className="font-sys text-xs uppercase tracking-widest text-slate-400">
+        <div className="flex justify-between border-b border-white/5 py-2">
+          <span>App</span>
+          <span className="text-white">The System — Solo Leveling</span>
+        </div>
+        <div className="flex justify-between border-b border-white/5 py-2">
+          <span>Version</span>
+          <span className="text-white">{__APP_VERSION__}</span>
+        </div>
+        <div className="flex justify-between py-2">
+          <span>Build</span>
+          <span className="text-white">{built}</span>
+        </div>
+      </div>
     </SystemWindow>
   );
 }

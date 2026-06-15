@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect } from 'react';
 import { useUiStore, type SystemAlert } from '@/stores/uiStore';
+import { chime, haptic } from '@/lib/feedback';
 
 const ACCENT: Record<SystemAlert['kind'], string> = {
   info: 'sys-window-cyan',
@@ -13,9 +14,11 @@ function AlertCard({ alert }: { alert: SystemAlert }) {
   const dismiss = useUiStore((s) => s.dismissAlert);
 
   useEffect(() => {
+    chime(alert.kind);
+    haptic(alert.kind === 'danger' ? [40, 30, 40] : 30);
     const t = setTimeout(() => dismiss(alert.id), 5200);
     return () => clearTimeout(t);
-  }, [alert.id, dismiss]);
+  }, [alert.id, alert.kind, dismiss]);
 
   return (
     <motion.div
