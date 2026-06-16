@@ -16,6 +16,7 @@ export type Profile = {
   essence_stones: number;
   equipped_title: string | null;
   fatigue: number;
+  training_load: number;
   last_daily_reset: string | null;
   reminder_hour: number;
   explores_today: number;

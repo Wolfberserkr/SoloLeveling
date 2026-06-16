@@ -144,6 +144,7 @@ type Profile = {
   mana_potions: number;
   fatigue: number;
   explores_today: number;
+  training_load: number;
   last_daily_reset: string | null;
 };
 
@@ -158,7 +159,7 @@ Deno.serve(async (req) => {
     const { data: profile, error } = await db
       .from('profiles')
       .select(
-        'user_id, timezone, level, xp_total, rank, class, essence_stones, mana, mana_max, mana_potions, fatigue, explores_today, last_daily_reset',
+        'user_id, timezone, level, xp_total, rank, class, essence_stones, mana, mana_max, mana_potions, fatigue, explores_today, training_load, last_daily_reset',
       )
       .eq('user_id', user.id)
       .single();
@@ -345,6 +346,7 @@ async function resetProgress(ctx: Ctx, payload: { confirm?: string }) {
       essence_stones: 0,
       equipped_title: null,
       fatigue: 0,
+      training_load: 1.0,
       journey_started_at: today,
       last_daily_reset: null,
     })
@@ -683,9 +685,16 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
   const variant = recovery ? 'recovery' : rollTrainingVariant(userId, today);
 
   // Generate today's training quest (unique constraint makes this idempotent).
-  // Each cleared dungeon raises the baseline one notch.
+  // Each cleared dungeon raises the baseline one notch; the coach's adaptive
+  // load (tuned weekly) multiplies on top of the failure modifier.
   const dungeon = await getDungeonProgress(ctx);
-  const targets = trainingTargetsFor(profile.level, dungeon.cycles_cleared, loadModifier, variant);
+  const loadFactor = Number(profile.training_load ?? 1);
+  const targets = trainingTargetsFor(
+    profile.level,
+    dungeon.cycles_cleared,
+    loadModifier * loadFactor,
+    variant,
+  );
   await db.from('training_quests').upsert(
     {
       user_id: userId,
@@ -1069,7 +1078,7 @@ async function logSleep(ctx: Ctx, payload: { hours?: number }) {
     const targets = trainingTargetsFor(
       profile.level,
       0,
-      Number(training.load_modifier),
+      Number(training.load_modifier) * Number(profile.training_load ?? 1),
       'recovery',
     );
     const { data: retargeted } = await db

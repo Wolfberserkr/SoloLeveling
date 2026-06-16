@@ -62,12 +62,17 @@ triggers Sunday generation over the last 7 days of quests / lifts / sleep /
 metrics / retention; plateau & deload detection feeds `training.ts` target
 tuning; a "System Assessment" card on Status.
 
-**First slice:** read-only weekly narrative review (no adaptive targets yet) —
-purely additive, low risk. ✅ *shipped* — `_shared/game/review.ts` (pure
-summary), `_shared/ai.ts#generateWeeklyReview`, the `weekly_reviews` table, and
-a "System Assessment" card on Status; the cron heartbeat auto-generates each
-Monday. **Next:** adaptive target tuning (plateau/deload detection feeding
-`training.ts`).
+**Shipped:**
+- *Weekly review* — `_shared/game/review.ts` (pure summary),
+  `_shared/ai.ts#generateWeeklyReview`, the `weekly_reviews` table, and a
+  "System Assessment" card on Status; the cron heartbeat auto-generates each
+  Monday, with an on-demand request as fallback.
+- *Adaptive targets* — `adaptiveLoad` (pure, bounded plateau/deload detection)
+  feeds a persistent `profiles.training_load` the coach tunes weekly; the Daily
+  Training Quest multiplies its targets by it in `ensureDailyState`.
+
+**Next:** richer coaching (per-exercise focus, streak-risk nudges) and folding
+the review into a Sunday recap push.
 
 ## Phase 11 — Seasons & live-ops
 

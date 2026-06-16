@@ -86,6 +86,21 @@ export function SystemAssessmentPanel() {
               value={formatDistance(weeklyReview.summary.runKm, distanceUnit)}
             />
           </div>
+
+          {weeklyReview.summary.load && weeklyReview.summary.load.reason !== 'hold' && (
+            <div
+              className={`mt-3 border-l-2 pl-3 font-sys text-[0.65rem] uppercase tracking-widest ${
+                weeklyReview.summary.load.reason === 'progress'
+                  ? 'border-accent-gold/60 text-accent-gold'
+                  : 'border-mana/60 text-mana'
+              }`}
+            >
+              {weeklyReview.summary.load.reason === 'progress' ? 'Overload' : 'Deload'} — training
+              load {weeklyReview.summary.load.delta > 0 ? '+' : '−'}
+              {Math.round(Math.abs(weeklyReview.summary.load.delta) * 100)}% →{' '}
+              {Math.round(weeklyReview.summary.load.after * 100)}% this week
+            </div>
+          )}
         </>
       ) : (
         <p className="font-sys text-xs uppercase tracking-widest text-slate-500">

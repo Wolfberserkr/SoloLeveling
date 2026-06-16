@@ -53,7 +53,10 @@ same gates as skills.
 pure math (`_shared/game/review.ts`) and narrated by Gemini in the System's voice
 (`_shared/ai.ts`), stored one-per-week in `weekly_reviews`. The cron heartbeat
 auto-generates the assessment each Monday; players can also request it on demand
-from their Status. No rewards or adaptive targets yet — that comes next.
+from their Status. The same review tunes **adaptive targets** — a bounded
+plateau/deload detector nudges a persistent `training_load` that the Daily
+Training Quest scales by, so a strong, recovered week earns progressive overload
+and a rough one earns a deload.
 
 ## Architecture
 

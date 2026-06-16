@@ -7,7 +7,7 @@
 // Pure aggregation lives in _shared/game/review.ts; the narrative comes from
 // _shared/ai.ts. This module is the IO seam between them. Deno-only.
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import { weekWindow, summarizeWeek } from './game/review.ts';
+import { weekWindow, summarizeWeek, adaptiveLoad } from './game/review.ts';
 import { aiAvailable, generateWeeklyReview } from './ai.ts';
 
 export type WeeklyReviewRow = {
@@ -61,7 +61,7 @@ export async function ensureWeeklyReview(
   const dayStart = `${window.start}T00:00:00Z`;
   const dayEnd = `${window.end}T23:59:59.999Z`;
 
-  const [quests, sideQuests, sleep, ledger, reading, books, prs, newShadows, metrics, totals] =
+  const [quests, sideQuests, sleep, ledger, reading, books, prs, newShadows, metrics, totals, profile] =
     await Promise.all([
       db
         .from('training_quests')
@@ -122,6 +122,7 @@ export async function ensureWeeklyReview(
         .lte('local_date', window.end)
         .order('local_date', { ascending: true }),
       db.from('training_totals').select('current_streak').eq('user_id', userId).maybeSingle(),
+      db.from('profiles').select('training_load').eq('user_id', userId).maybeSingle(),
     ]);
 
   const summary = summarizeWeek({
@@ -137,6 +138,9 @@ export async function ensureWeeklyReview(
     bodyMetrics: metrics.data ?? [],
     streakEnd: totals.data?.current_streak ?? 0,
   });
+
+  // Adaptive targets: nudge next week's load from this week's performance.
+  summary.load = adaptiveLoad(summary, Number(profile.data?.training_load ?? 1));
 
   const narrative = await generateWeeklyReview(summary);
   if (!narrative) return { status: 'ai_silent' };
@@ -160,6 +164,15 @@ export async function ensureWeeklyReview(
     }
     console.error('weekly_reviews insert failed:', error);
     return { status: 'ai_silent' };
+  }
+
+  // Apply the tuned load so the coming week's Daily Quests scale by it. Only on
+  // a real change — a 'hold' leaves the multiplier (and the profile) untouched.
+  if (summary.load && summary.load.after !== summary.load.before) {
+    await db
+      .from('profiles')
+      .update({ training_load: summary.load.after })
+      .eq('user_id', userId);
   }
 
   await db.from('system_messages').insert({

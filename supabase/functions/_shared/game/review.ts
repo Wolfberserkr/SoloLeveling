@@ -77,7 +77,68 @@ export type ReviewSummary = {
   streakEnd: number;
   /** True when nothing measurable happened — lets the narrator change tone. */
   quiet: boolean;
+  /** Adaptive target tuning for the week ahead; set by the coach, not summarizeWeek. */
+  load?: LoadAdjustment;
 };
+
+// ── Adaptive targets (AI System Coach) ──────────────────────────────────────
+// The Daily Training Quest already scales with level and dungeon cycles. On top
+// of that, the coach nudges a persistent per-player load multiplier once a week:
+// a strong, well-recovered week earns progressive overload; a rough or
+// under-recovered one earns a deload. Bounded and gentle — it ratchets in small
+// steps and can never run away.
+export const ADAPT_LOAD_MAX = 1.5;
+export const ADAPT_LOAD_MIN = 0.7;
+export const ADAPT_PROGRESS_STEP = 0.05;
+export const ADAPT_DELOAD_STEP = 0.1;
+
+export type LoadReason = 'progress' | 'deload' | 'hold';
+export type LoadAdjustment = {
+  before: number;
+  after: number;
+  delta: number;
+  reason: LoadReason;
+};
+
+export function clampLoad(load: number): number {
+  const n = Number(load);
+  if (!Number.isFinite(n)) return 1;
+  return round2(Math.min(ADAPT_LOAD_MAX, Math.max(ADAPT_LOAD_MIN, n)));
+}
+
+/**
+ * Decide next week's load multiplier from the week just summarized and the
+ * current multiplier. Pure: the caller persists `after` and re-feeds it next
+ * week. The reason is derived from the *actual* change, so a move blocked by a
+ * cap reports 'hold'.
+ */
+export function adaptiveLoad(summary: ReviewSummary, currentLoad: number): LoadAdjustment {
+  const before = clampLoad(currentLoad);
+  const decide = (target: number): LoadAdjustment => {
+    const after = clampLoad(target);
+    const reason: LoadReason = after > before ? 'progress' : after < before ? 'deload' : 'hold';
+    return { before, after, delta: round2(after - before), reason };
+  };
+
+  const trainingDays = summary.daysCompleted + summary.daysFailed;
+  // Too little signal (a quiet/new/sparse week): hold steady, never punish.
+  if (summary.quiet || trainingDays < 3) return decide(before);
+
+  const underRecovered = summary.nightsLogged >= 3 && summary.avgSleepHours < 5.5;
+  const rough =
+    summary.daysFailed >= 3 ||
+    (summary.daysCompleted <= 2 && summary.daysFailed >= 1) ||
+    underRecovered;
+  if (rough) return decide(before - ADAPT_DELOAD_STEP);
+
+  // Strong only counts non-recovery days: a week of light recovery isn't overload.
+  const hardDaysCompleted = summary.daysCompleted - summary.recoveryDays;
+  const wellRecovered = summary.nightsLogged === 0 || summary.avgSleepHours >= 6.5;
+  const strong = hardDaysCompleted >= 6 && summary.daysFailed === 0 && wellRecovered;
+  if (strong) return decide(before + ADAPT_PROGRESS_STEP);
+
+  return decide(before);
+}
 
 const num = (v: number | string): number => {
   const n = Number(v);
