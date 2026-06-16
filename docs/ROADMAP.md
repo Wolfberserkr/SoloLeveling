@@ -19,8 +19,8 @@ Design principles carried over from Phases 1–8:
 
 | Phase | Theme | Leverage | Effort | Depends on |
 |---|---|---|---|---|
-| 9 | Shadow Army (extraction) | ★★★ thematic + retention | M | skills pattern |
-| 10 | AI System Coach | ★★★ retention | M | Gemini infra, cron |
+| 9 ✅ | Shadow Army (extraction) | ★★★ thematic + retention | M | skills pattern |
+| 10 🔄 | AI System Coach | ★★★ retention | M | Gemini infra, cron |
 | 11 | Seasons & live-ops | ★★★ renewable content | M | system_events, cron |
 | 12 | Health / wearable sync | ★★★ friction kill | L | OAuth infra |
 | 13 | Endgame: Reawakening + 2nd Job | ★★ longevity | M | ranks / classes |
@@ -63,7 +63,11 @@ metrics / retention; plateau & deload detection feeds `training.ts` target
 tuning; a "System Assessment" card on Status.
 
 **First slice:** read-only weekly narrative review (no adaptive targets yet) —
-purely additive, low risk.
+purely additive, low risk. ✅ *shipped* — `_shared/game/review.ts` (pure
+summary), `_shared/ai.ts#generateWeeklyReview`, the `weekly_reviews` table, and
+a "System Assessment" card on Status; the cron heartbeat auto-generates each
+Monday. **Next:** adaptive target tuning (plateau/deload detection feeding
+`training.ts`).
 
 ## Phase 11 — Seasons & live-ops
 

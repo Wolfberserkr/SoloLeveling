@@ -34,6 +34,27 @@ surpass on every core measure. Plus a split vendor bundle, an offline banner,
 and an install prompt. All mechanics live in `_shared/game/{progression,legacy}.ts`
 (pure, unit-tested) and are enforced server-side.
 
+## Post-launch — in progress
+
+The core 8-phase loop is complete; the [post-launch roadmap](docs/ROADMAP.md)
+extends it. Shipped so far:
+
+| Phase | System | Status |
+|---|---|---|
+| 9 | Shadow Army: conquests Arise as deployable allies (passive buffs) | ✅ |
+| 10 | AI System Coach: weekly assessment (read-only) | 🔄 |
+
+**Phase 9** turns every boss, gate, finished tome, cleared Legacy, and encounter
+into an extractable **shadow** (`_shared/game/shadows.ts`); arisen shadows deploy
+up to a rank-scaled army capacity and fold passive XP/stat/mana buffs into the
+same gates as skills.
+
+**Phase 10** adds the **AI System Coach**: each completed week is aggregated by
+pure math (`_shared/game/review.ts`) and narrated by Gemini in the System's voice
+(`_shared/ai.ts`), stored one-per-week in `weekly_reviews`. The cron heartbeat
+auto-generates the assessment each Monday; players can also request it on demand
+from their Status. No rewards or adaptive targets yet — that comes next.
+
 ## Architecture
 
 ```
