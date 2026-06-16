@@ -4,7 +4,8 @@
 //
 // Per player, in their own timezone:
 //   morning (08–11):  ensure today's System Event exists and announce it;
-//                     announce knowledge checks falling due
+//                     announce knowledge checks falling due;
+//                     on Mondays, generate the AI weekly assessment
 //   evening (18–21):  remind if the Daily Training Quest is still unresolved
 //
 // Every push is claimed in notification_log (PK user/kind/date) before
@@ -14,6 +15,7 @@ import webpush from 'npm:web-push@3.6.7';
 import { adminClient } from '../_shared/db.ts';
 import { localDateInTz, localHourInTz } from '../_shared/time.ts';
 import { ensureSystemEvent } from '../_shared/eventEnsure.ts';
+import { ensureWeeklyReview } from '../_shared/weeklyReview.ts';
 
 const MORNING_START = 8;
 const MORNING_END = 12; // exclusive
@@ -96,6 +98,23 @@ async function tickUser(db: Db, profile: CronProfile, canPush: boolean): Promise
         );
       }
     }
+
+    // Monday: the AI System Coach assesses the week that just ended. Generation
+    // is idempotent (one row per week) and tolerates a silent Archive, so a
+    // failed tick simply retries next hour until the morning window closes.
+    if (isMonday(today)) {
+      const review = await ensureWeeklyReview(db, profile.user_id, today);
+      if (review.status === 'created' && canPush) {
+        if (await claim(db, profile.user_id, 'weekly_review_push', today)) {
+          pushes += await sendPush(
+            db,
+            profile.user_id,
+            'System Assessment ready.',
+            'The week just past has been reviewed. Read the System’s verdict in your Status.',
+          );
+        }
+      }
+    }
   }
 
   const reminderHour = profile.reminder_hour ?? DEFAULT_REMINDER_HOUR;
@@ -121,6 +140,11 @@ async function tickUser(db: Db, profile: CronProfile, canPush: boolean): Promise
   }
 
   return pushes;
+}
+
+/** True when `localDate` (YYYY-MM-DD) is a Monday — the weekly-review trigger. */
+function isMonday(localDate: string): boolean {
+  return new Date(`${localDate}T12:00:00Z`).getUTCDay() === 1;
 }
 
 /** Claim a notification slot; false means another tick already sent it. */

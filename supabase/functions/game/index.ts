@@ -55,6 +55,7 @@ import {
 } from '../_shared/game/legacy.ts';
 import { answerMatches, RIDDLE_MAX_ATTEMPTS } from '../_shared/game/riddles.ts';
 import { aiAvailable, generateBookQuestions } from '../_shared/ai.ts';
+import { ensureWeeklyReview } from '../_shared/weeklyReview.ts';
 import {
   TRAINING_XP,
   PERFECT_CLEAR_XP,
@@ -143,6 +144,7 @@ type Profile = {
   mana_potions: number;
   fatigue: number;
   explores_today: number;
+  training_load: number;
   last_daily_reset: string | null;
 };
 
@@ -157,7 +159,7 @@ Deno.serve(async (req) => {
     const { data: profile, error } = await db
       .from('profiles')
       .select(
-        'user_id, timezone, level, xp_total, rank, class, essence_stones, mana, mana_max, mana_potions, fatigue, explores_today, last_daily_reset',
+        'user_id, timezone, level, xp_total, rank, class, essence_stones, mana, mana_max, mana_potions, fatigue, explores_today, training_load, last_daily_reset',
       )
       .eq('user_id', user.id)
       .single();
@@ -238,6 +240,8 @@ Deno.serve(async (req) => {
         return json(await answerRiddle(ctx, payload));
       case 'generate-questions':
         return json(await generateQuestions(ctx, payload));
+      case 'weekly-review':
+        return json(await requestWeeklyReview(ctx));
       case 'equip-title':
         return json(await equipTitle(ctx, payload));
       case 'choose-class':
@@ -308,6 +312,7 @@ async function resetProgress(ctx: Ctx, payload: { confirm?: string }) {
     'shadows',
     'skills',
     'titles',
+    'weekly_reviews',
     'system_messages',
     'notification_log',
     'stats',
@@ -341,6 +346,7 @@ async function resetProgress(ctx: Ctx, payload: { confirm?: string }) {
       essence_stones: 0,
       equipped_title: null,
       fatigue: 0,
+      training_load: 1.0,
       journey_started_at: today,
       last_daily_reset: null,
     })
@@ -679,9 +685,16 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
   const variant = recovery ? 'recovery' : rollTrainingVariant(userId, today);
 
   // Generate today's training quest (unique constraint makes this idempotent).
-  // Each cleared dungeon raises the baseline one notch.
+  // Each cleared dungeon raises the baseline one notch; the coach's adaptive
+  // load (tuned weekly) multiplies on top of the failure modifier.
   const dungeon = await getDungeonProgress(ctx);
-  const targets = trainingTargetsFor(profile.level, dungeon.cycles_cleared, loadModifier, variant);
+  const loadFactor = Number(profile.training_load ?? 1);
+  const targets = trainingTargetsFor(
+    profile.level,
+    dungeon.cycles_cleared,
+    loadModifier * loadFactor,
+    variant,
+  );
   await db.from('training_quests').upsert(
     {
       user_id: userId,
@@ -1065,7 +1078,7 @@ async function logSleep(ctx: Ctx, payload: { hours?: number }) {
     const targets = trainingTargetsFor(
       profile.level,
       0,
-      Number(training.load_modifier),
+      Number(training.load_modifier) * Number(profile.training_load ?? 1),
       'recovery',
     );
     const { data: retargeted } = await db
@@ -1791,6 +1804,24 @@ async function generateQuestions(ctx: Ctx, payload: { book_id?: string }) {
     mana,
     bank_remaining: remaining - questions.length,
   };
+}
+
+// ── weekly-review: the AI System Coach assesses the week just past (Phase 10) ─
+// Read-only and free: it reports, it does not reward or change targets. The
+// shared helper (also driven by the cron Monday tick) does the aggregation,
+// narration, and one-per-week idempotency; here we just map its outcome to HTTP.
+async function requestWeeklyReview(ctx: Ctx) {
+  const result = await ensureWeeklyReview(ctx.db, ctx.userId, ctx.today);
+  switch (result.status) {
+    case 'no_ai':
+      throw new HttpError(503, 'The System Coach is offline — no AI key is configured.');
+    case 'ai_silent':
+      throw new HttpError(502, 'The System Coach did not answer. Try again shortly.');
+    case 'exists':
+      return { ok: true, review: result.review, fresh: false };
+    case 'created':
+      return { ok: true, review: result.review, fresh: true };
+  }
 }
 
 // ── Perfect Clear: training + every side quest done in one day ──────────────

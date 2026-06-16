@@ -1,4 +1,5 @@
 import type { StatKey, TrainingVariant } from '@game/constants.ts';
+import type { ReviewSummary } from '@game/review.ts';
 
 export type Profile = {
   user_id: string;
@@ -15,6 +16,7 @@ export type Profile = {
   essence_stones: number;
   equipped_title: string | null;
   fatigue: number;
+  training_load: number;
   last_daily_reset: string | null;
   reminder_hour: number;
   explores_today: number;
@@ -252,6 +254,16 @@ export type Encounter = {
   } | null;
   created_at: string;
   resolved_at: string | null;
+};
+
+export type WeeklyReview = {
+  id: string;
+  user_id: string;
+  week_start: string;
+  week_end: string;
+  summary: ReviewSummary;
+  narrative: string;
+  generated_at: string;
 };
 
 export type InventoryItem = {
