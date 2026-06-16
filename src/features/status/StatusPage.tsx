@@ -9,6 +9,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { formatDistance } from '@/lib/units';
 import { ClassPanel } from './ClassPanel';
 import { InventoryPanel } from './InventoryPanel';
+import { SystemAssessmentPanel } from './SystemAssessmentPanel';
 import { levelProgress } from '@game/xpCurve.ts';
 import { STAT_GROUPS, STAT_LABELS, RANK_TITLES, type Rank } from '@game/constants.ts';
 import { classDef } from '@game/progression.ts';
@@ -103,6 +104,9 @@ export function StatusPage() {
           ))}
         </div>
       </SystemWindow>
+
+      {/* ── AI System Coach: weekly assessment ── */}
+      <SystemAssessmentPanel />
 
       {/* ── Class ── */}
       <ClassPanel />

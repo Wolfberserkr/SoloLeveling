@@ -8,6 +8,7 @@
 // Deno-only — never import this from the pure game/ directory.
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Riddle } from './game/riddles.ts';
+import type { ReviewSummary } from './game/review.ts';
 
 const DEFAULT_MODEL = 'gemini-2.5-flash-lite';
 const TIMEOUT_MS = 20_000;
@@ -113,4 +114,44 @@ export async function generateBookQuestions(args: {
     .filter((q) => q.prompt.length >= 10 && q.answer.length >= 2)
     .slice(0, args.count);
   return questions.length > 0 ? questions : null;
+}
+
+// ── Weekly review (AI System Coach, Phase 10) ───────────────────────────────
+// Turns a ReviewSummary into a short narrative in the System's voice. Read-only
+// reflection: it observes, names the standout and the gap, and points at the
+// week ahead — no targets are changed (that comes in a later slice).
+export async function generateWeeklyReview(summary: ReviewSummary): Promise<string | null> {
+  const facts = [
+    `Week reviewed: ${summary.weekStart} to ${summary.weekEnd}.`,
+    `Daily Training Quests completed: ${summary.daysCompleted} of 7 (failed: ${summary.daysFailed}, recovery: ${summary.recoveryDays}).`,
+    `Perfect Clears: ${summary.perfectClears}.`,
+    `Reps logged — push-ups ${summary.pushups}, sit-ups ${summary.situps}, squats ${summary.squats}; distance ${summary.runKm} km.`,
+    `Side quests completed: ${summary.sideQuestsCompleted}.`,
+    `Sleep: ${summary.nightsLogged} nights logged, averaging ${summary.avgSleepHours} h.`,
+    `XP earned: ${summary.xpEarned}. Current streak now: ${summary.streakEnd} days.`,
+    `Reading: ${summary.pagesRead} pages, ${summary.booksFinished} tome(s) finished.`,
+    `Lifting personal records broken: ${summary.liftPrs}. New shadows: ${summary.newShadows}.`,
+    summary.weightChangeKg === null
+      ? `Bodyweight change: not enough measurements.`
+      : `Bodyweight change: ${summary.weightChangeKg > 0 ? '+' : ''}${summary.weightChangeKg} kg.`,
+  ].join('\n');
+
+  const out = (await generateJson(
+    `You are "the System" from Solo Leveling, delivering a weekly assessment to a lone ` +
+      `player who trains in real life. Voice: terse, observational, slightly ominous, ` +
+      `never cheerful, never effusive. Address the player as "you".\n\n` +
+      `Here is the data for the week under review:\n${facts}\n\n` +
+      (summary.quiet
+        ? `The week was nearly silent — almost nothing was logged. Acknowledge the absence ` +
+          `plainly, without scolding, and call the player back to the Daily Training Quest. `
+        : `Write 3-5 sentences: name the single strongest result, name the clearest gap or ` +
+          `risk, and end with one concrete directive for the week ahead. Cite real numbers ` +
+          `from the data — do not invent any. `) +
+      `Do not use markdown, headings, or bullet points — plain prose only. ` +
+      `Respond with JSON only: {"review": string}.`,
+  )) as { review?: unknown } | null;
+  if (!out) return null;
+
+  const review = str(out.review, 1200);
+  return review.length >= 40 ? review : null;
 }

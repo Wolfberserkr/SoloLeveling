@@ -54,7 +54,8 @@ import {
   type LegacyMetrics,
 } from '../_shared/game/legacy.ts';
 import { answerMatches, RIDDLE_MAX_ATTEMPTS } from '../_shared/game/riddles.ts';
-import { aiAvailable, generateBookQuestions } from '../_shared/ai.ts';
+import { weekWindow, summarizeWeek } from '../_shared/game/review.ts';
+import { aiAvailable, generateBookQuestions, generateWeeklyReview } from '../_shared/ai.ts';
 import {
   TRAINING_XP,
   PERFECT_CLEAR_XP,
@@ -238,6 +239,8 @@ Deno.serve(async (req) => {
         return json(await answerRiddle(ctx, payload));
       case 'generate-questions':
         return json(await generateQuestions(ctx, payload));
+      case 'weekly-review':
+        return json(await requestWeeklyReview(ctx));
       case 'equip-title':
         return json(await equipTitle(ctx, payload));
       case 'choose-class':
@@ -308,6 +311,7 @@ async function resetProgress(ctx: Ctx, payload: { confirm?: string }) {
     'shadows',
     'skills',
     'titles',
+    'weekly_reviews',
     'system_messages',
     'notification_log',
     'stats',
@@ -1791,6 +1795,147 @@ async function generateQuestions(ctx: Ctx, payload: { book_id?: string }) {
     mana,
     bank_remaining: remaining - questions.length,
   };
+}
+
+// ── weekly-review: the AI System Coach assesses the week just past (Phase 10) ─
+// Read-only and free: it reports, it does not reward or change targets. The
+// unique (user_id, week_start) index caps it at one assessment per week and
+// makes a repeat request return the stored one instead of re-spending the AI key.
+async function requestWeeklyReview(ctx: Ctx) {
+  const { db, userId } = ctx;
+  const window = weekWindow(ctx.today);
+
+  const { data: existing } = await db
+    .from('weekly_reviews')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('week_start', window.start)
+    .maybeSingle();
+  if (existing) return { ok: true, review: existing, fresh: false };
+
+  if (!aiAvailable()) {
+    throw new HttpError(503, 'The System Coach is offline — no AI key is configured.');
+  }
+
+  // shadows / lift PRs are timestamped, not date-keyed — bound by the day edges.
+  const dayStart = `${window.start}T00:00:00Z`;
+  const dayEnd = `${window.end}T23:59:59.999Z`;
+
+  const [quests, sideQuests, sleep, ledger, reading, books, prs, newShadows, metrics, totals] =
+    await Promise.all([
+      db
+        .from('training_quests')
+        .select('status, variant, perfect_clear, pushups_done, situps_done, squats_done, run_km_done')
+        .eq('user_id', userId)
+        .gte('local_date', window.start)
+        .lte('local_date', window.end),
+      db
+        .from('daily_quests')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('status', 'completed')
+        .gte('local_date', window.start)
+        .lte('local_date', window.end),
+      db
+        .from('sleep_logs')
+        .select('hours')
+        .eq('user_id', userId)
+        .gte('local_date', window.start)
+        .lte('local_date', window.end),
+      db
+        .from('xp_ledger')
+        .select('credited')
+        .eq('user_id', userId)
+        .gte('local_date', window.start)
+        .lte('local_date', window.end),
+      db
+        .from('reading_sessions')
+        .select('pages')
+        .eq('user_id', userId)
+        .gte('local_date', window.start)
+        .lte('local_date', window.end),
+      db
+        .from('books')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('status', 'finished')
+        .gte('finished_date', window.start)
+        .lte('finished_date', window.end),
+      db
+        .from('system_messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('kind', 'lift_pr')
+        .gte('created_at', dayStart)
+        .lte('created_at', dayEnd),
+      db
+        .from('shadows')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .gte('created_at', dayStart)
+        .lte('created_at', dayEnd),
+      db
+        .from('body_metrics')
+        .select('local_date, weight_kg')
+        .eq('user_id', userId)
+        .gte('local_date', window.start)
+        .lte('local_date', window.end)
+        .order('local_date', { ascending: true }),
+      db.from('training_totals').select('current_streak').eq('user_id', userId).maybeSingle(),
+    ]);
+
+  const summary = summarizeWeek({
+    window,
+    trainingQuests: quests.data ?? [],
+    sideQuestsCompleted: sideQuests.count ?? 0,
+    sleepLogs: sleep.data ?? [],
+    ledger: ledger.data ?? [],
+    readingSessions: reading.data ?? [],
+    booksFinished: books.count ?? 0,
+    liftPrs: prs.count ?? 0,
+    newShadows: newShadows.count ?? 0,
+    bodyMetrics: metrics.data ?? [],
+    streakEnd: totals.data?.current_streak ?? 0,
+  });
+
+  const narrative = await generateWeeklyReview(summary);
+  if (!narrative) throw new HttpError(502, 'The System Coach did not answer. Try again shortly.');
+
+  const { data: review, error } = await db
+    .from('weekly_reviews')
+    .insert({
+      user_id: userId,
+      week_start: window.start,
+      week_end: window.end,
+      summary,
+      narrative,
+    })
+    .select('*')
+    .single();
+  if (error) {
+    // A racing request may have inserted first — return the winner, not an error.
+    if (error.code === '23505') {
+      const { data: dup } = await db
+        .from('weekly_reviews')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('week_start', window.start)
+        .maybeSingle();
+      if (dup) return { ok: true, review: dup, fresh: false };
+    }
+    console.error('weekly_reviews insert failed:', error);
+    throw new HttpError(500, 'Failed to record the assessment');
+  }
+
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'weekly_review',
+    title: 'SYSTEM ASSESSMENT — the week has been reviewed.',
+    body: 'The System has weighed the week that passed. Read its assessment in your Status.',
+    payload: { week_start: window.start },
+  });
+
+  return { ok: true, review, fresh: true };
 }
 
 // ── Perfect Clear: training + every side quest done in one day ──────────────

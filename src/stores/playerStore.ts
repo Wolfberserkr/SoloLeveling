@@ -23,6 +23,7 @@ import type {
   Encounter,
   InventoryItem,
   EquippedItem,
+  WeeklyReview,
 } from '@/lib/types';
 
 type PlayerState = {
@@ -52,6 +53,7 @@ type PlayerState = {
   equipment: EquippedItem[]; // active gear only
   encounter: Encounter | null; // the active encounter, if any
   exploresLeftToday: number;
+  weeklyReview: WeeklyReview | null; // most recent AI System Coach assessment
   /** Full refresh: lazy daily reset on the server, then re-read everything. */
   loadAll: () => Promise<void>;
   /** Re-read DB state without re-running the daily reset. */
@@ -89,6 +91,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   equipment: [],
   encounter: null,
   exploresLeftToday: EXPLORES_PER_DAY,
+  weeklyReview: null,
 
   loadAll: async () => {
     set({ loading: true, error: null });
@@ -157,6 +160,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       equipment: [],
       encounter: null,
       exploresLeftToday: EXPLORES_PER_DAY,
+      weeklyReview: null,
     }),
 }));
 
@@ -185,6 +189,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     inventoryRes,
     equipmentRes,
     encounterRes,
+    weeklyReviewRes,
   ] = await Promise.all([
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
@@ -260,6 +265,12 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
       supabase.from('inventory').select('*').gt('quantity', 0).order('item_key'),
       supabase.from('equipment').select('*').eq('active', true).order('expires_at'),
       supabase.from('encounters').select('*').eq('status', 'active').maybeSingle(),
+      supabase
+        .from('weekly_reviews')
+        .select('*')
+        .order('week_start', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
@@ -300,6 +311,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     inventory: (inventoryRes.data ?? []) as InventoryItem[],
     equipment: (equipmentRes.data ?? []) as EquippedItem[],
     encounter: (encounterRes.data ?? null) as Encounter | null,
+    weeklyReview: (weeklyReviewRes.data ?? null) as WeeklyReview | null,
     exploresLeftToday: Math.max(
       0,
       EXPLORES_PER_DAY - Number((profileRes.data as Profile).explores_today ?? 0),
