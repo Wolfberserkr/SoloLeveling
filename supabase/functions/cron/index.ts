@@ -13,9 +13,11 @@
 // ═════════════════════════════════════════════════════════════════════════
 import webpush from 'npm:web-push@3.6.7';
 import { adminClient } from '../_shared/db.ts';
-import { localDateInTz, localHourInTz } from '../_shared/time.ts';
+import { localDateInTz, localHourInTz, previousDate } from '../_shared/time.ts';
 import { ensureSystemEvent } from '../_shared/eventEnsure.ts';
 import { ensureWeeklyReview } from '../_shared/weeklyReview.ts';
+import { streakNudge } from '../_shared/game/streak.ts';
+import { hasStreakShield } from '../_shared/game/progression.ts';
 
 const MORNING_START = 8;
 const MORNING_END = 12; // exclusive
@@ -129,11 +131,15 @@ async function tickUser(db: Db, profile: CronProfile, canPush: boolean): Promise
       .maybeSingle();
     if (!quest || quest.status === 'pending') {
       if (await claim(db, profile.user_id, 'training_reminder', today)) {
+        // When a real streak hangs on tonight, the System names the number on
+        // the line; otherwise the plain reminder still fires.
+        const nudge = await streakRiskNudge(db, profile.user_id, today);
         pushes += await sendPush(
           db,
           profile.user_id,
-          'Daily Quest incomplete.',
-          'The day is closing. Complete your training before midnight — the streak is the spine of everything.',
+          nudge?.title ?? 'Daily Quest incomplete.',
+          nudge?.body ??
+            'The day is closing. Complete your training before midnight — the streak is the spine of everything.',
         );
       }
     }
@@ -145,6 +151,31 @@ async function tickUser(db: Db, profile: CronProfile, canPush: boolean): Promise
 /** True when `localDate` (YYYY-MM-DD) is a Monday — the weekly-review trigger. */
 function isMonday(localDate: string): boolean {
   return new Date(`${localDate}T12:00:00Z`).getUTCDay() === 1;
+}
+
+/**
+ * Streak-aware copy for the evening reminder, or null to use the generic one.
+ * Only reached when today's quest is still unresolved, so the decision turns on
+ * whether an alive streak is on the line tonight (and isn't shielded).
+ */
+async function streakRiskNudge(db: Db, userId: string, today: string) {
+  const [{ data: totals }, { data: skills }] = await Promise.all([
+    db
+      .from('training_totals')
+      .select('current_streak, last_completed_date')
+      .eq('user_id', userId)
+      .maybeSingle(),
+    db.from('skills').select('skill_key').eq('user_id', userId),
+  ]);
+  if (!totals) return null;
+
+  return streakNudge({
+    currentStreak: totals.current_streak ?? 0,
+    lastCompletedDate: totals.last_completed_date ?? null,
+    yesterday: previousDate(today),
+    completedToday: false, // the caller only nudges when today is unresolved
+    hasShield: hasStreakShield((skills ?? []).map((s) => s.skill_key)),
+  });
 }
 
 /** Claim a notification slot; false means another tick already sent it. */
