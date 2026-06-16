@@ -9,6 +9,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import type { Riddle } from './game/riddles.ts';
 import type { ReviewSummary } from './game/review.ts';
+import { EXERCISE_LABELS } from './game/review.ts';
 
 const DEFAULT_MODEL = 'gemini-2.5-flash-lite';
 const TIMEOUT_MS = 20_000;
@@ -144,6 +145,11 @@ export async function generateWeeklyReview(summary: ReviewSummary): Promise<stri
         ? `Decision: next week's training load drops ${Math.round(Math.abs(load.delta) * 100)}% — a deliberate deload. Frame it as recovery the System is imposing, not a punishment; tell them to honor the lighter week.`
         : `Decision: next week's training load holds steady. Do not mention any change to the load.`;
 
+  const focus = summary.focus;
+  const focusDirective = focus
+    ? `Focus: of ${focus.hardDays} hard training days, ${EXERCISE_LABELS[focus.exercise]} went unlogged on ${focus.missedDays}. Make ${EXERCISE_LABELS[focus.exercise]} the specific, concrete directive for the week ahead.`
+    : `Make the closing directive concrete but choose it from the data — no single movement was clearly neglected.`;
+
   const out = (await generateJson(
     `You are "the System" from Solo Leveling, delivering a weekly assessment to a lone ` +
       `player who trains in real life. Voice: terse, observational, slightly ominous, ` +
@@ -154,7 +160,8 @@ export async function generateWeeklyReview(summary: ReviewSummary): Promise<stri
           `plainly, without scolding, and call the player back to the Daily Training Quest. `
         : `Write 3-5 sentences: name the single strongest result, name the clearest gap or ` +
           `risk, then deliver the load decision below, and end with one concrete directive ` +
-          `for the week ahead. Cite real numbers from the data — do not invent any.\n${loadDirective}\n`) +
+          `for the week ahead. Cite real numbers from the data — do not invent any.\n` +
+          `${loadDirective}\n${focusDirective}\n`) +
       `Do not use markdown, headings, or bullet points — plain prose only. ` +
       `Respond with JSON only: {"review": string}.`,
   )) as { review?: unknown } | null;

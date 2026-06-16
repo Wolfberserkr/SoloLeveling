@@ -70,9 +70,12 @@ tuning; a "System Assessment" card on Status.
 - *Adaptive targets* — `adaptiveLoad` (pure, bounded plateau/deload detection)
   feeds a persistent `profiles.training_load` the coach tunes weekly; the Daily
   Training Quest multiplies its targets by it in `ensureDailyState`.
+- *Per-exercise focus* — `summarizeWeek` derives the single movement neglected
+  most across the week's hard (non-recovery) days (pure, in `review.ts`); the
+  coach names it as the closing directive (`ai.ts`) and the System Assessment
+  card surfaces it.
 
-**Next:** richer coaching (per-exercise focus, streak-risk nudges) and folding
-the review into a Sunday recap push.
+**Next:** streak-risk nudges and folding the review into a Sunday recap push.
 
 ## Phase 11 — Seasons & live-ops
 

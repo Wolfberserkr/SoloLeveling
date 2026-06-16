@@ -5,7 +5,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { gameAction } from '@/lib/gameApi';
 import { formatDistance } from '@/lib/units';
 import { SystemWindow } from '@/components/system/SystemWindow';
-import { weekWindow } from '@game/review.ts';
+import { weekWindow, EXERCISE_LABELS } from '@game/review.ts';
 import type { WeeklyReview } from '@/lib/types';
 
 /** Local YYYY-MM-DD in the player's own timezone (matches the server's clock). */
@@ -99,6 +99,14 @@ export function SystemAssessmentPanel() {
               load {weeklyReview.summary.load.delta > 0 ? '+' : '−'}
               {Math.round(Math.abs(weeklyReview.summary.load.delta) * 100)}% →{' '}
               {Math.round(weeklyReview.summary.load.after * 100)}% this week
+            </div>
+          )}
+
+          {weeklyReview.summary.focus && (
+            <div className="mt-3 border-l-2 border-accent-cyan/60 pl-3 font-sys text-[0.65rem] uppercase tracking-widest text-accent-cyan">
+              Focus — {EXERCISE_LABELS[weeklyReview.summary.focus.exercise]}: logged{' '}
+              {weeklyReview.summary.focus.hardDays - weeklyReview.summary.focus.missedDays}/
+              {weeklyReview.summary.focus.hardDays} hard days
             </div>
           )}
         </>
