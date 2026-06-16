@@ -52,10 +52,17 @@ XP curve: `totalXp(L) = round(425·(L^1.55 − 1))`, repeatables capped at
 
 1. **Database** — open the Supabase SQL editor for project
    `npqpzzarohlvexqpqurg` and run the files in `supabase/migrations/` in order.
-2. **Edge function** — with the Supabase CLI:
+2. **Edge functions** — auto-deployed by GitHub Actions
+   (`.github/workflows/deploy-functions.yml`) on every push that touches
+   `supabase/functions/**`, and on demand via Actions → **Deploy Edge
+   Functions** → Run workflow. This needs a one-time repository secret
+   **`SUPABASE_ACCESS_TOKEN`** (GitHub → Settings → Secrets and variables →
+   Actions; value from Supabase dashboard → Account → Access Tokens).
+   To deploy by hand instead:
    ```sh
    npx supabase login          # needs an access token
    npx supabase functions deploy game --project-ref npqpzzarohlvexqpqurg
+   npx supabase functions deploy cron --project-ref npqpzzarohlvexqpqurg --no-verify-jwt
    ```
 3. **Frontend env** — copy `.env.example` to `.env` and paste the project
    anon key (Supabase dashboard → Settings → API).
