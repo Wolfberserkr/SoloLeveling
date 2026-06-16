@@ -77,8 +77,39 @@ export type ReviewSummary = {
   streakEnd: number;
   /** True when nothing measurable happened — lets the narrator change tone. */
   quiet: boolean;
+  /** The movement the player neglected most, or null on a balanced/sparse week. */
+  focus: ExerciseFocus | null;
   /** Adaptive target tuning for the week ahead; set by the coach, not summarizeWeek. */
   load?: LoadAdjustment;
+};
+
+// ── Per-exercise focus (richer coaching) ────────────────────────────────────
+// Totals alone don't tell the player *what to fix*. The coach also names the
+// single movement they neglected most: across their hard (non-recovery) training
+// days, the one logged on the fewest. Recovery days are excluded — skipping a
+// movement on a deliberately light day isn't a gap. A balanced or too-sparse
+// week yields no focus, so the coach never invents a weakness.
+export type ExerciseKey = 'pushups' | 'situps' | 'squats' | 'run';
+
+/** Declaration order doubles as the deterministic tie-break for equal neglect. */
+export const FOCUS_EXERCISES: ExerciseKey[] = ['pushups', 'situps', 'squats', 'run'];
+
+export const EXERCISE_LABELS: Record<ExerciseKey, string> = {
+  pushups: 'push-ups',
+  situps: 'sit-ups',
+  squats: 'squats',
+  run: 'running',
+};
+
+/** Fewer hard days than this is too little signal to single a movement out. */
+export const FOCUS_MIN_HARD_DAYS = 2;
+
+export type ExerciseFocus = {
+  exercise: ExerciseKey;
+  /** Hard training days on which this movement went unlogged. */
+  missedDays: number;
+  /** Completed, non-recovery training days considered. */
+  hardDays: number;
 };
 
 // ── Adaptive targets (AI System Coach) ──────────────────────────────────────
@@ -154,20 +185,36 @@ export function summarizeWeek(input: ReviewInput): ReviewSummary {
   let situps = 0;
   let squats = 0;
   let runKm = 0;
+  let hardDays = 0;
+  const missed: Record<ExerciseKey, number> = { pushups: 0, situps: 0, squats: 0, run: 0 };
 
   for (const q of input.trainingQuests) {
     if (q.status === 'completed') {
       daysCompleted += 1;
-      if (q.variant === 'recovery') recoveryDays += 1;
+      const done = {
+        pushups: num(q.pushups_done),
+        situps: num(q.situps_done),
+        squats: num(q.squats_done),
+        run: num(q.run_km_done),
+      };
+      pushups += done.pushups;
+      situps += done.situps;
+      squats += done.squats;
+      runKm += done.run;
+      if (q.variant === 'recovery') {
+        recoveryDays += 1;
+      } else {
+        // Only hard days count toward neglect — a light day skipping a lift is fine.
+        hardDays += 1;
+        for (const ex of FOCUS_EXERCISES) if (done[ex] === 0) missed[ex] += 1;
+      }
       if (q.perfect_clear) perfectClears += 1;
-      pushups += num(q.pushups_done);
-      situps += num(q.situps_done);
-      squats += num(q.squats_done);
-      runKm += num(q.run_km_done);
     } else if (q.status === 'failed') {
       daysFailed += 1;
     }
   }
+
+  const focus = pickFocus(missed, hardDays);
 
   const nightsLogged = input.sleepLogs.length;
   const sleepTotal = input.sleepLogs.reduce((s, l) => s + num(l.hours), 0);
@@ -213,7 +260,22 @@ export function summarizeWeek(input: ReviewInput): ReviewSummary {
     weightChangeKg,
     streakEnd: input.streakEnd,
     quiet,
+    focus,
   };
+}
+
+/**
+ * The most-neglected movement across the week's hard days, or null when there's
+ * too little signal (under FOCUS_MIN_HARD_DAYS) or nothing was neglected at all.
+ * Ties resolve by FOCUS_EXERCISES order.
+ */
+function pickFocus(missed: Record<ExerciseKey, number>, hardDays: number): ExerciseFocus | null {
+  if (hardDays < FOCUS_MIN_HARD_DAYS) return null;
+  let worst: ExerciseKey | null = null;
+  for (const ex of FOCUS_EXERCISES) {
+    if (missed[ex] > 0 && (worst === null || missed[ex] > missed[worst])) worst = ex;
+  }
+  return worst === null ? null : { exercise: worst, missedDays: missed[worst], hardDays };
 }
 
 // ── pure date helpers (UTC-noon anchored, like the other game/ modules) ──────

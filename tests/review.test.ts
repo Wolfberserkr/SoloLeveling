@@ -127,6 +127,65 @@ describe('summarizeWeek', () => {
   });
 });
 
+describe('per-exercise focus', () => {
+  const hardDay = (over: Partial<ReviewInput['trainingQuests'][number]> = {}) => ({
+    status: 'completed',
+    pushups_done: 10,
+    situps_done: 10,
+    squats_done: 10,
+    run_km_done: 1,
+    ...over,
+  });
+
+  it('names the movement neglected on the most hard days', () => {
+    const s = summarizeWeek(
+      input({
+        trainingQuests: [
+          hardDay({ run_km_done: 0 }),
+          hardDay({ run_km_done: 0 }),
+          hardDay({ run_km_done: 0 }),
+        ],
+      }),
+    );
+    expect(s.focus).toEqual({ exercise: 'run', missedDays: 3, hardDays: 3 });
+  });
+
+  it('returns null on a balanced week where nothing was neglected', () => {
+    const s = summarizeWeek(input({ trainingQuests: [hardDay(), hardDay()] }));
+    expect(s.focus).toBeNull();
+  });
+
+  it('ignores recovery days — both as neglect and in the denominator', () => {
+    const s = summarizeWeek(
+      input({
+        trainingQuests: [
+          hardDay(),
+          hardDay(),
+          hardDay({ variant: 'recovery', run_km_done: 0, pushups_done: 0 }),
+        ],
+      }),
+    );
+    expect(s.focus).toBeNull(); // the only skips were on the recovery day
+  });
+
+  it('holds back when there are fewer than two hard days of signal', () => {
+    const s = summarizeWeek(input({ trainingQuests: [hardDay({ squats_done: 0 })] }));
+    expect(s.focus).toBeNull();
+  });
+
+  it('breaks ties by exercise order (push-ups before sit-ups)', () => {
+    const s = summarizeWeek(
+      input({
+        trainingQuests: [
+          hardDay({ pushups_done: 0, situps_done: 0 }),
+          hardDay({ pushups_done: 0, situps_done: 0 }),
+        ],
+      }),
+    );
+    expect(s.focus).toEqual({ exercise: 'pushups', missedDays: 2, hardDays: 2 });
+  });
+});
+
 function summary(overrides: Partial<ReviewSummary> = {}): ReviewSummary {
   return {
     weekStart: '2026-06-01',
@@ -150,6 +209,7 @@ function summary(overrides: Partial<ReviewSummary> = {}): ReviewSummary {
     weightChangeKg: null,
     streakEnd: 0,
     quiet: false,
+    focus: null,
     ...overrides,
   };
 }

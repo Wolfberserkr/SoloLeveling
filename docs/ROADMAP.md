@@ -70,9 +70,15 @@ tuning; a "System Assessment" card on Status.
 - *Adaptive targets* — `adaptiveLoad` (pure, bounded plateau/deload detection)
   feeds a persistent `profiles.training_load` the coach tunes weekly; the Daily
   Training Quest multiplies its targets by it in `ensureDailyState`.
+- *Per-exercise focus* — `summarizeWeek` derives the single movement neglected
+  most across the week's hard (non-recovery) days (pure, in `review.ts`); the
+  coach names it as the closing directive (`ai.ts`) and the System Assessment
+  card surfaces it.
+- *Streak-risk nudge* — pure `streak.ts#streakNudge` decides when an unbroken
+  streak hangs on *tonight* (alive, unshielded, today still empty); the evening
+  cron reminder then names the number on the line instead of the generic poke.
 
-**Next:** richer coaching (per-exercise focus, streak-risk nudges) and folding
-the review into a Sunday recap push.
+**Next:** fold the weekly review into a Sunday recap push.
 
 ## Phase 11 — Seasons & live-ops
 
