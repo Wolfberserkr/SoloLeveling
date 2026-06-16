@@ -1,0 +1,55 @@
+name: Deploy (Supabase)
+
+# Auto-deploys the backend when changes land on the default branch:
+#   • applies any new database migrations  (needs SUPABASE_DB_PASSWORD)
+#   • deploys the game + cron edge functions (needs SUPABASE_ACCESS_TOKEN)
+#
+# Both steps are GATED on their secret: if a secret is absent the step is
+# skipped and the job still succeeds, so the workflow is inert until you add
+# the secrets under Settings → Secrets and variables → Actions.
+#
+# Migration history was baselined (0001–0019 marked applied), so `db push`
+# only applies files added after that. Keep new migrations numbered in order
+# (e.g. 0020_*.sql) or use `supabase migration new`.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/functions/**'
+      - 'supabase/migrations/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+# Never let two deploys race; let an in-flight one finish first.
+concurrency:
+  group: deploy-supabase
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_PROJECT_REF: npqpzzarohlvexqpqurg
+      # Mapped here so steps can gate on presence via `env.* != ''`
+      # (the `secrets` context isn't allowed in `if:` conditions).
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Apply database migrations
+        if: ${{ env.SUPABASE_DB_PASSWORD != '' }}
+        run: |
+          supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          supabase db push
+
+      - name: Deploy edge functions
+        if: ${{ env.SUPABASE_ACCESS_TOKEN != '' }}
+        run: |
+          supabase functions deploy game --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy cron --project-ref "$SUPABASE_PROJECT_REF"

@@ -95,3 +95,28 @@ npm run dev        # dev server
 npm test           # game-math test suite (XP pacing, training scaling)
 npm run build      # typecheck + production build (PWA)
 ```
+
+## Deploy
+
+The backend deploys automatically. Pushing to `main` runs
+`.github/workflows/deploy.yml`, which applies any new database migrations and
+redeploys the `game` + `cron` edge functions. Each step is gated on its secret,
+so add these under **Settings → Secrets and variables → Actions**:
+
+| Secret | Enables | Where to get it |
+|---|---|---|
+| `SUPABASE_ACCESS_TOKEN` | edge-function deploys | supabase.com/dashboard/account/tokens |
+| `SUPABASE_DB_PASSWORD` | `supabase db push` migrations | project DB password (Settings → Database) |
+
+Migration history was baselined (`0001`–`0019` marked applied), so `db push`
+only applies files added afterward — keep new migrations numbered in order
+(`0020_*.sql`, …) or use `supabase migration new`. Function secrets the runtime
+needs (`GEMINI_API_KEY`, `VAPID_*`, `CRON_SECRET`) are set once with
+`npx supabase secrets set …`, not in CI.
+
+To deploy by hand instead:
+
+```sh
+npx supabase functions deploy game --project-ref npqpzzarohlvexqpqurg
+npx supabase functions deploy cron --project-ref npqpzzarohlvexqpqurg
+```
