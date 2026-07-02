@@ -119,7 +119,9 @@ import {
   SUPPLEMENT_STACK_XP,
   DEFAULT_PROTEIN_TARGET_G,
   MAX_PROTEIN_PER_LOG_G,
+  MAX_KCAL_PER_LOG,
   accumulateProtein,
+  accumulateCalories,
   proteinTargetMet,
   stackComplete,
 } from '../_shared/game/nutrition.ts';
@@ -1144,13 +1146,16 @@ async function logSleep(ctx: Ctx, payload: { hours?: number }) {
 // target is met refines the count without ever double-paying.
 async function logNutrition(
   ctx: Ctx,
-  payload: { protein_g?: number; creatine?: boolean; vitamins?: boolean },
+  payload: { protein_g?: number; calories_kcal?: number; creatine?: boolean; vitamins?: boolean },
 ) {
   const { db, userId, profile, today } = ctx;
   const inc = sanitize(payload.protein_g, MAX_PROTEIN_PER_LOG_G);
+  const kcalInc = sanitize(payload.calories_kcal, MAX_KCAL_PER_LOG);
   const creatine = payload.creatine === true;
   const vitamins = payload.vitamins === true;
-  if (inc <= 0 && !creatine && !vitamins) throw new HttpError(400, 'Nothing to log');
+  if (inc <= 0 && kcalInc <= 0 && !creatine && !vitamins) {
+    throw new HttpError(400, 'Nothing to log');
+  }
 
   const { data: existing } = await db
     .from('nutrition_logs')
@@ -1164,6 +1169,7 @@ async function logNutrition(
     user_id: userId,
     local_date: today,
     protein_g: accumulateProtein(Number(existing?.protein_g ?? 0), inc),
+    calories_kcal: accumulateCalories(Number(existing?.calories_kcal ?? 0), kcalInc),
     creatine: Boolean(existing?.creatine) || creatine,
     vitamins: Boolean(existing?.vitamins) || vitamins,
     target_g: target,
@@ -1425,7 +1431,7 @@ async function logMetrics(
 
 function metric(n: unknown, min: number, max: number): number | null {
   const v = Number(n);
-  if (!Number.isFinite(v) || v <= min || v >= max) return null;
+  if (!Number.isFinite(v) || v < min || v > max) return null;
   return v;
 }
 

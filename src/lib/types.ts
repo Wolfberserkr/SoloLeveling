@@ -18,6 +18,7 @@ export type Profile = {
   fatigue: number;
   training_load: number;
   protein_target_g: number;
+  calorie_target_kcal: number;
   last_daily_reset: string | null;
   reminder_hour: number;
   explores_today: number;
@@ -114,6 +115,7 @@ export type NutritionLog = {
   user_id: string;
   local_date: string;
   protein_g: number;
+  calories_kcal: number;
   creatine: boolean;
   vitamins: boolean;
   target_g: number;

@@ -61,7 +61,7 @@ export async function ensureWeeklyReview(
   const dayStart = `${window.start}T00:00:00Z`;
   const dayEnd = `${window.end}T23:59:59.999Z`;
 
-  const [quests, sideQuests, sleep, ledger, reading, books, prs, newShadows, metrics, totals, profile] =
+  const [quests, sideQuests, sleep, ledger, reading, books, prs, newShadows, metrics, fueled, totals, profile] =
     await Promise.all([
       db
         .from('training_quests')
@@ -121,6 +121,13 @@ export async function ensureWeeklyReview(
         .gte('local_date', window.start)
         .lte('local_date', window.end)
         .order('local_date', { ascending: true }),
+      db
+        .from('nutrition_logs')
+        .select('user_id', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('fueled', true)
+        .gte('local_date', window.start)
+        .lte('local_date', window.end),
       db.from('training_totals').select('current_streak').eq('user_id', userId).maybeSingle(),
       db.from('profiles').select('training_load').eq('user_id', userId).maybeSingle(),
     ]);
@@ -136,6 +143,7 @@ export async function ensureWeeklyReview(
     liftPrs: prs.count ?? 0,
     newShadows: newShadows.count ?? 0,
     bodyMetrics: metrics.data ?? [],
+    daysFueled: fueled.count ?? 0,
     streakEnd: totals.data?.current_streak ?? 0,
   });
 

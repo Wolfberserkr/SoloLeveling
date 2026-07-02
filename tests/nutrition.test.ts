@@ -7,9 +7,16 @@ import {
   PROTEIN_TARGET_MAX_G,
   MAX_PROTEIN_PER_LOG_G,
   MAX_PROTEIN_PER_DAY_G,
+  DEFAULT_CALORIE_TARGET_KCAL,
+  CALORIE_TARGET_MIN_KCAL,
+  CALORIE_TARGET_MAX_KCAL,
+  MAX_KCAL_PER_LOG,
+  MAX_KCAL_PER_DAY,
   suggestedProteinTarget,
   clampProteinTarget,
+  clampCalorieTarget,
   accumulateProtein,
+  accumulateCalories,
   proteinTargetMet,
   stackComplete,
 } from '@game/nutrition.ts';
@@ -60,6 +67,23 @@ describe('accumulateProtein', () => {
     expect(accumulateProtein(50, -20)).toBe(50);
     expect(accumulateProtein(50, NaN)).toBe(50);
     expect(accumulateProtein(NaN, 30)).toBe(30);
+  });
+});
+
+describe('calorie ceiling', () => {
+  it('clamps player-entered ceilings into the honest band', () => {
+    expect(clampCalorieTarget(2200)).toBe(2200);
+    expect(clampCalorieTarget(100)).toBe(CALORIE_TARGET_MIN_KCAL);
+    expect(clampCalorieTarget(99999)).toBe(CALORIE_TARGET_MAX_KCAL);
+    expect(clampCalorieTarget(NaN)).toBe(DEFAULT_CALORIE_TARGET_KCAL);
+  });
+
+  it('accumulates whole kcal with per-log and per-day caps', () => {
+    expect(accumulateCalories(0, 300)).toBe(300);
+    expect(accumulateCalories(1800, 650.4)).toBe(2450);
+    expect(accumulateCalories(0, 100000)).toBe(MAX_KCAL_PER_LOG);
+    expect(accumulateCalories(MAX_KCAL_PER_DAY, 500)).toBe(MAX_KCAL_PER_DAY);
+    expect(accumulateCalories(500, -100)).toBe(500);
   });
 });
 

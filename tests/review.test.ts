@@ -73,6 +73,11 @@ describe('summarizeWeek', () => {
     expect(s.runKm).toBe(6.5);
   });
 
+  it('passes fueled days through, defaulting to 0 for pre-Phase-11 callers', () => {
+    expect(summarizeWeek(input()).daysFueled).toBe(0);
+    expect(summarizeWeek(input({ daysFueled: 5 })).daysFueled).toBe(5);
+  });
+
   it('averages only the nights actually logged', () => {
     const s = summarizeWeek(input({ sleepLogs: [{ hours: 8 }, { hours: '7' }, { hours: 6 }] }));
     expect(s.nightsLogged).toBe(3);

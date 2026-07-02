@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayerStore } from '@/stores/playerStore';
 import { useUiStore } from '@/stores/uiStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { gameAction } from '@/lib/gameApi';
+import { fromKm, toKm } from '@/lib/units';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import { StatBar } from '@/components/system/StatBar';
 import { SideQuestsPanel } from '@/features/training/SideQuestsPanel';
@@ -23,7 +25,8 @@ const EXERCISES: Array<{
   { key: 'pushups', label: 'Push-ups', unit: 'reps', steps: [5, 10, 20] },
   { key: 'situps', label: 'Sit-ups', unit: 'reps', steps: [5, 10, 20] },
   { key: 'squats', label: 'Squats', unit: 'reps', steps: [5, 10, 20] },
-  { key: 'run_km', label: 'Run', unit: 'km', steps: [0.25, 0.5, 1] },
+  // Distance steps are in the player's display unit; storage stays km.
+  { key: 'run_km', label: 'Run', unit: 'distance', steps: [0.25, 0.5, 1] },
 ];
 
 function doneOf(q: TrainingQuest, key: ExerciseKey): number {
@@ -35,6 +38,7 @@ function targetOf(q: TrainingQuest, key: ExerciseKey): number {
 
 export function TrainingPage() {
   const { training, setTraining, refresh } = usePlayerStore();
+  const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
   const [busy, setBusy] = useState(false);
@@ -143,6 +147,8 @@ export function TrainingPage() {
             const done = doneOf(training, ex.key);
             const target = targetOf(training, ex.key);
             const met = done >= target;
+            const isDistance = ex.unit === 'distance';
+            const show = (v: number) => (isDistance ? fromKm(v, distanceUnit).toFixed(2) : v);
             return (
               <div key={ex.key}>
                 <div className="mb-1 flex items-baseline justify-between">
@@ -153,8 +159,7 @@ export function TrainingPage() {
                     {ex.label}
                   </span>
                   <span className="font-sys text-xs text-slate-400">
-                    {ex.unit === 'km' ? done.toFixed(2) : done} / {ex.unit === 'km' ? target.toFixed(2) : target}{' '}
-                    {ex.unit}
+                    {show(done)} / {show(target)} {isDistance ? distanceUnit : ex.unit}
                   </span>
                 </div>
                 <StatBar value={done} max={target} accent={met ? 'green' : 'cyan'} height={8} />
@@ -165,9 +170,10 @@ export function TrainingPage() {
                         key={step}
                         className="sys-btn sys-btn-ghost flex-1 !min-h-[34px] !py-1 !text-[0.65rem]"
                         disabled={busy}
-                        onClick={() => log(ex.key, step)}
+                        onClick={() => log(ex.key, isDistance ? toKm(step, distanceUnit) : step)}
                       >
                         +{step}
+                        {isDistance ? ` ${distanceUnit}` : ''}
                       </button>
                     ))}
                   </div>

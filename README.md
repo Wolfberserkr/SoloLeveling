@@ -64,7 +64,9 @@ nutrition quest on the Training page. Protein accumulates through the day
 toward a personal target (`profiles.protein_target_g`, player-editable);
 meeting it pays XP once per day, and checking off the supplement stack
 (creatine + micros) pays a small bonus — both server-gated by once-per-day
-flags in `nutrition_logs`. The 6-month personalized training campaign built on
+flags in `nutrition_logs`. Calories track alongside as an informational
+ceiling (no XP — eating less is not gamified), and the weekly System Coach
+now sees fueled days in its assessment. The 6-month personalized training campaign built on
 top of all this lives in [docs/SPARTAN_PROTOCOL.md](docs/SPARTAN_PROTOCOL.md).
 
 ## Architecture

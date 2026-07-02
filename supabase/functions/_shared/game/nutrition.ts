@@ -26,6 +26,14 @@ export const MAX_PROTEIN_PER_LOG_G = 300;
 /** Daily accumulation cap — beyond this the counter is meaningless. */
 export const MAX_PROTEIN_PER_DAY_G = 999;
 
+// Calories — the ceiling side of the cut. Informational only: no XP rides on
+// eating less, that is the wrong incentive to gamify.
+export const DEFAULT_CALORIE_TARGET_KCAL = 2200;
+export const CALORIE_TARGET_MIN_KCAL = 1200;
+export const CALORIE_TARGET_MAX_KCAL = 6000;
+export const MAX_KCAL_PER_LOG = 3000;
+export const MAX_KCAL_PER_DAY = 20000;
+
 /** The daily supplement stack shown in the Fuel panel. */
 export const SUPPLEMENT_STACK = [
   { key: 'creatine', name: 'Creatine Monohydrate', dose: '5 g, any time' },
@@ -61,6 +69,24 @@ export function accumulateProtein(currentG: number, incrementG: number): number 
     ? Math.max(0, Math.min(incrementG, MAX_PROTEIN_PER_LOG_G))
     : 0;
   return Math.min(MAX_PROTEIN_PER_DAY_G, Math.round((current + inc) * 10) / 10);
+}
+
+/** Clamp a player-entered calorie ceiling into the honest band. */
+export function clampCalorieTarget(target: number): number {
+  if (!Number.isFinite(target)) return DEFAULT_CALORIE_TARGET_KCAL;
+  return Math.max(
+    CALORIE_TARGET_MIN_KCAL,
+    Math.min(CALORIE_TARGET_MAX_KCAL, Math.round(target)),
+  );
+}
+
+/** Add a logged portion to the day's running calorie total. */
+export function accumulateCalories(currentKcal: number, incrementKcal: number): number {
+  const current = Number.isFinite(currentKcal) ? Math.max(0, currentKcal) : 0;
+  const inc = Number.isFinite(incrementKcal)
+    ? Math.max(0, Math.min(incrementKcal, MAX_KCAL_PER_LOG))
+    : 0;
+  return Math.min(MAX_KCAL_PER_DAY, Math.round(current + inc));
 }
 
 /** True once the day's protein total reaches the target. */

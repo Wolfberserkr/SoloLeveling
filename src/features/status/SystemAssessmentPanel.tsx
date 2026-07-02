@@ -70,7 +70,11 @@ export function SystemAssessmentPanel() {
           <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-200">
             {weeklyReview.narrative}
           </p>
-          <div className="mt-3 grid grid-cols-4 gap-2 font-sys text-center text-[0.6rem] uppercase tracking-widest">
+          <div
+            className={`mt-3 grid gap-2 font-sys text-center text-[0.6rem] uppercase tracking-widest ${
+              weeklyReview.summary.daysFueled != null ? 'grid-cols-5' : 'grid-cols-4'
+            }`}
+          >
             <Stat label="Days" value={`${weeklyReview.summary.daysCompleted}/7`} />
             <Stat label="XP" value={weeklyReview.summary.xpEarned.toLocaleString()} />
             <Stat
@@ -85,6 +89,9 @@ export function SystemAssessmentPanel() {
               label="Distance"
               value={formatDistance(weeklyReview.summary.runKm, distanceUnit)}
             />
+            {weeklyReview.summary.daysFueled != null && (
+              <Stat label="Fueled" value={`${weeklyReview.summary.daysFueled}/7`} />
+            )}
           </div>
 
           {weeklyReview.summary.load && weeklyReview.summary.load.reason !== 'hold' && (

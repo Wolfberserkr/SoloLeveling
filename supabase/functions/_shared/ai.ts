@@ -131,6 +131,7 @@ export async function generateWeeklyReview(summary: ReviewSummary): Promise<stri
     `XP earned: ${summary.xpEarned}. Current streak now: ${summary.streakEnd} days.`,
     `Reading: ${summary.pagesRead} pages, ${summary.booksFinished} tome(s) finished.`,
     `Lifting personal records broken: ${summary.liftPrs}. New shadows: ${summary.newShadows}.`,
+    `Fuel Protocol: daily protein target met on ${summary.daysFueled ?? 0} of 7 days.`,
     summary.weightChangeKg === null
       ? `Bodyweight change: not enough measurements.`
       : `Bodyweight change: ${summary.weightChangeKg > 0 ? '+' : ''}${summary.weightChangeKg} kg.`,
