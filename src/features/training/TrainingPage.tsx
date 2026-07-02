@@ -6,6 +6,7 @@ import { gameAction } from '@/lib/gameApi';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import { StatBar } from '@/components/system/StatBar';
 import { SideQuestsPanel } from '@/features/training/SideQuestsPanel';
+import { NutritionPanel } from '@/features/training/NutritionPanel';
 import { RecoveryPanel } from '@/features/training/RecoveryPanel';
 import { EventPanel } from '@/features/training/EventPanel';
 import { EncounterPanel } from '@/features/training/EncounterPanel';
@@ -203,6 +204,7 @@ export function TrainingPage() {
       </SystemWindow>
 
       <SideQuestsPanel />
+      <NutritionPanel />
       <RecoveryPanel />
 
       <SystemWindow title="Directive" accent="purple" delay={0.1}>

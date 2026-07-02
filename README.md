@@ -43,6 +43,7 @@ extends it. Shipped so far:
 |---|---|---|
 | 9 | Shadow Army: conquests Arise as deployable allies (passive buffs) | ✅ |
 | 10 | AI System Coach: weekly assessment (read-only) | 🔄 |
+| 11 | Fuel Protocol: daily protein target + supplement stack → XP | ✅ |
 
 **Phase 9** turns every boss, gate, finished tome, cleared Legacy, and encounter
 into an extractable **shadow** (`_shared/game/shadows.ts`); arisen shadows deploy
@@ -57,6 +58,14 @@ from their Status. The same review tunes **adaptive targets** — a bounded
 plateau/deload detector nudges a persistent `training_load` that the Daily
 Training Quest scales by, so a strong, recovered week earns progressive overload
 and a rough one earns a deload.
+
+**Phase 11** adds the **Fuel Protocol** (`_shared/game/nutrition.ts`): a daily
+nutrition quest on the Training page. Protein accumulates through the day
+toward a personal target (`profiles.protein_target_g`, player-editable);
+meeting it pays XP once per day, and checking off the supplement stack
+(creatine + micros) pays a small bonus — both server-gated by once-per-day
+flags in `nutrition_logs`. The 6-month personalized training campaign built on
+top of all this lives in [docs/SPARTAN_PROTOCOL.md](docs/SPARTAN_PROTOCOL.md).
 
 ## Architecture
 

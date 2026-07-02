@@ -13,6 +13,7 @@ import type {
   TrainingTotals,
   DailyQuest,
   SleepLog,
+  NutritionLog,
   DungeonProgress,
   BodyMetrics,
   Book,
@@ -37,6 +38,7 @@ type PlayerState = {
   training: TrainingQuest | null;
   quests: DailyQuest[];
   sleep: SleepLog | null; // today's log, if any
+  nutrition: NutritionLog | null; // today's Fuel Protocol log, if any
   dungeon: DungeonProgress | null;
   gymDoneToday: boolean;
   legacy: LegacySnapshot | null; // the armed Legacy Boss, if any
@@ -60,6 +62,7 @@ type PlayerState = {
   refresh: () => Promise<void>;
   setTraining: (q: TrainingQuest) => void;
   setQuest: (q: DailyQuest) => void;
+  setNutrition: (n: NutritionLog) => void;
   setDungeon: (d: DungeonProgress, gymDoneToday?: boolean) => void;
   reset: () => void;
 };
@@ -75,6 +78,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   training: null,
   quests: [],
   sleep: null,
+  nutrition: null,
   dungeon: null,
   gymDoneToday: false,
   legacy: null,
@@ -129,6 +133,8 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   setQuest: (q) =>
     set((s) => ({ quests: s.quests.map((existing) => (existing.id === q.id ? q : existing)) })),
 
+  setNutrition: (n) => set({ nutrition: n }),
+
   setDungeon: (d, gymDoneToday) =>
     set((s) => ({ dungeon: d, gymDoneToday: gymDoneToday ?? s.gymDoneToday })),
 
@@ -144,6 +150,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       training: null,
       quests: [],
       sleep: null,
+      nutrition: null,
       dungeon: null,
       gymDoneToday: false,
       legacy: null,
@@ -175,6 +182,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     trainingRes,
     questsRes,
     sleepRes,
+    nutritionRes,
     dungeonRes,
     gymRes,
     metricsRes,
@@ -214,6 +222,11 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
         .limit(10),
       supabase
         .from('sleep_logs')
+        .select('*')
+        .order('local_date', { ascending: false })
+        .limit(1),
+      supabase
+        .from('nutrition_logs')
         .select('*')
         .order('local_date', { ascending: false })
         .limit(1),
@@ -279,6 +292,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
   const today = training?.local_date;
   const quests = ((questsRes.data ?? []) as DailyQuest[]).filter((q) => q.local_date === today);
   const sleepRow = ((sleepRes.data ?? [])[0] ?? null) as SleepLog | null;
+  const nutritionRow = ((nutritionRes.data ?? [])[0] ?? null) as NutritionLog | null;
   const gymRow = (gymRes.data ?? [])[0] ?? null;
   const eventRow = ((eventRes.data ?? [])[0] ?? null) as SystemEvent | null;
   const dueQuestions = ((questionsRes.data ?? []) as RetentionQuestion[]).filter(
@@ -297,6 +311,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     training,
     quests,
     sleep: sleepRow && sleepRow.local_date === today ? sleepRow : null,
+    nutrition: nutritionRow && nutritionRow.local_date === today ? nutritionRow : null,
     dungeon: (dungeonRes.data ?? null) as DungeonProgress | null,
     gymDoneToday: Boolean(gymRow && gymRow.local_date === today),
     metrics: ((metricsRes.data ?? [])[0] ?? null) as BodyMetrics | null,

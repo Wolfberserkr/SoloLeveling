@@ -17,6 +17,7 @@ export type Profile = {
   equipped_title: string | null;
   fatigue: number;
   training_load: number;
+  protein_target_g: number;
   last_daily_reset: string | null;
   reminder_hour: number;
   explores_today: number;
@@ -107,6 +108,17 @@ export type DailyQuest = {
   xp_reward: number;
   status: 'pending' | 'completed' | 'expired';
   completed_at: string | null;
+};
+
+export type NutritionLog = {
+  user_id: string;
+  local_date: string;
+  protein_g: number;
+  creatine: boolean;
+  vitamins: boolean;
+  target_g: number;
+  fueled: boolean;
+  stacked: boolean;
 };
 
 export type SleepLog = {
