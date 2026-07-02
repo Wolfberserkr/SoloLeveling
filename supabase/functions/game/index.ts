@@ -168,11 +168,15 @@ Deno.serve(async (req) => {
     const { action, payload = {} } = await req.json();
     const db = adminClient();
 
+    // Select * on purpose: the deploy workflow gates migrations and function
+    // deploys on separate secrets, so the function may briefly run against a
+    // schema missing its newest columns. Naming columns here would turn that
+    // window into a full boot failure ("Profile not found" for everyone);
+    // with *, missing columns are simply absent and handlers fall back to
+    // their defaults.
     const { data: profile, error } = await db
       .from('profiles')
-      .select(
-        'user_id, timezone, level, xp_total, rank, class, essence_stones, mana, mana_max, mana_potions, fatigue, explores_today, training_load, protein_target_g, last_daily_reset',
-      )
+      .select('*')
       .eq('user_id', user.id)
       .single();
     if (error || !profile) throw new HttpError(404, 'Profile not found');
@@ -340,6 +344,8 @@ async function resetProgress(ctx: Ctx, payload: { confirm?: string }) {
   for (const table of tables) {
     const { error } = await db.from(table).delete().eq('user_id', userId);
     if (error) {
+      // undefined_table: migrations lag the function deploy — nothing to clear.
+      if (error.code === '42P01') continue;
       console.error(`reset-progress: failed clearing ${table}:`, error);
       throw new HttpError(500, `Failed to clear ${table}`);
     }
@@ -1188,6 +1194,10 @@ async function logNutrition(
     .upsert(row, { onConflict: 'user_id,local_date' })
     .select('*')
     .single();
+  if (error?.code === '42P01') {
+    // undefined_table: functions deployed ahead of migrations (gated CI step)
+    throw new HttpError(503, 'The Fuel Protocol is not provisioned yet — run the 0020/0021 database migrations.');
+  }
   if (error || !saved) throw new HttpError(500, 'Failed to log intake');
 
   // XP — through the one true gate, after the flags are safely persisted.
