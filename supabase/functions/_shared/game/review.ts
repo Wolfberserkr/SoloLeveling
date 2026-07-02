@@ -51,6 +51,8 @@ export type ReviewInput = {
   /** Sorted ascending by local_date; weight may be null on a given reading. */
   bodyMetrics: ReviewBodyMetric[];
   streakEnd: number;
+  /** Days the Fuel Protocol's protein target was met (optional: pre-Phase-11 callers). */
+  daysFueled?: number;
 };
 
 export type ReviewSummary = {
@@ -74,6 +76,8 @@ export type ReviewSummary = {
   newShadows: number;
   /** last − first logged weight within the window, or null if < 2 readings. */
   weightChangeKg: number | null;
+  /** Days the protein target was met (absent on reviews stored before Phase 11). */
+  daysFueled?: number;
   streakEnd: number;
   /** True when nothing measurable happened — lets the narrator change tone. */
   quiet: boolean;
@@ -211,6 +215,7 @@ export function summarizeWeek(input: ReviewInput): ReviewSummary {
     liftPrs: input.liftPrs,
     newShadows: input.newShadows,
     weightChangeKg,
+    daysFueled: input.daysFueled ?? 0,
     streakEnd: input.streakEnd,
     quiet,
   };

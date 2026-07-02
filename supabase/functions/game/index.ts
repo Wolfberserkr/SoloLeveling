@@ -114,6 +114,17 @@ import {
   rankIndexOf,
 } from '../_shared/game/encounters.ts';
 import { itemStatMultiplier, applyConsumable, itemDef } from '../_shared/game/items.ts';
+import {
+  NUTRITION_XP,
+  SUPPLEMENT_STACK_XP,
+  DEFAULT_PROTEIN_TARGET_G,
+  MAX_PROTEIN_PER_LOG_G,
+  MAX_KCAL_PER_LOG,
+  accumulateProtein,
+  accumulateCalories,
+  proteinTargetMet,
+  stackComplete,
+} from '../_shared/game/nutrition.ts';
 import { mulberry32 } from '../_shared/game/rng.ts';
 import { type StatKey } from '../_shared/game/constants.ts';
 
@@ -145,6 +156,7 @@ type Profile = {
   fatigue: number;
   explores_today: number;
   training_load: number;
+  protein_target_g: number;
   last_daily_reset: string | null;
 };
 
@@ -159,7 +171,7 @@ Deno.serve(async (req) => {
     const { data: profile, error } = await db
       .from('profiles')
       .select(
-        'user_id, timezone, level, xp_total, rank, class, essence_stones, mana, mana_max, mana_potions, fatigue, explores_today, training_load, last_daily_reset',
+        'user_id, timezone, level, xp_total, rank, class, essence_stones, mana, mana_max, mana_potions, fatigue, explores_today, training_load, protein_target_g, last_daily_reset',
       )
       .eq('user_id', user.id)
       .single();
@@ -214,6 +226,8 @@ Deno.serve(async (req) => {
         return json(await completeSideQuest(ctx, payload));
       case 'log-sleep':
         return json(await logSleep(ctx, payload));
+      case 'log-nutrition':
+        return json(await logNutrition(ctx, payload));
       case 'use-potion':
         return json(await usePotion(ctx));
       case 'complete-gym':
@@ -307,6 +321,7 @@ async function resetProgress(ctx: Ctx, payload: { confirm?: string }) {
     'sleep_logs',
     'daily_quests',
     'training_quests',
+    'nutrition_logs',
     'xp_ledger',
     'legacy_snapshots',
     'shadows',
@@ -315,6 +330,9 @@ async function resetProgress(ctx: Ctx, payload: { confirm?: string }) {
     'weekly_reviews',
     'system_messages',
     'notification_log',
+    'encounters',
+    'inventory',
+    'equipment',
     'stats',
     'training_totals',
     'dungeon_progress',
@@ -346,6 +364,7 @@ async function resetProgress(ctx: Ctx, payload: { confirm?: string }) {
       essence_stones: 0,
       equipped_title: null,
       fatigue: 0,
+      explores_today: 0,
       training_load: 1.0,
       journey_started_at: today,
       last_daily_reset: null,
@@ -629,10 +648,18 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
     .eq('local_date', yesterday)
     .maybeSingle();
 
+  // Every stale pending quest fails, not just yesterday's — a multi-day
+  // absence must not leave 'pending' rows that distort the weekly review.
+  await db
+    .from('training_quests')
+    .update({ status: 'failed' })
+    .eq('user_id', userId)
+    .eq('status', 'pending')
+    .lt('local_date', today);
+
   let loadModifier = 1.0;
   let fatigue = profile.fatigue;
   if (prev && prev.status === 'pending') {
-    await db.from('training_quests').update({ status: 'failed' }).eq('id', prev.id);
     loadModifier = FAILURE_LOAD_MODIFIER;
     fatigue += 1;
     await db.from('system_messages').insert({
@@ -1075,9 +1102,10 @@ async function logSleep(ctx: Ctx, payload: { hours?: number }) {
     training.squats_done === 0 &&
     Number(training.run_km_done) === 0
   ) {
+    const dungeon = await getDungeonProgress(ctx);
     const targets = trainingTargetsFor(
       profile.level,
-      0,
+      dungeon.cycles_cleared,
       Number(training.load_modifier) * Number(profile.training_load ?? 1),
       'recovery',
     );
@@ -1109,6 +1137,80 @@ async function logSleep(ctx: Ctx, payload: { hours?: number }) {
     potion: bonus.potion,
     potions: profile.mana_potions,
     training,
+  };
+}
+
+// ── log-nutrition: the Fuel Protocol — protein + supplement stack ───────────
+// Accumulates through the day like log-training. The `fueled` / `stacked`
+// flags are set exactly once per day and gate the XP, so re-logging after the
+// target is met refines the count without ever double-paying.
+async function logNutrition(
+  ctx: Ctx,
+  payload: { protein_g?: number; calories_kcal?: number; creatine?: boolean; vitamins?: boolean },
+) {
+  const { db, userId, profile, today } = ctx;
+  const inc = sanitize(payload.protein_g, MAX_PROTEIN_PER_LOG_G);
+  const kcalInc = sanitize(payload.calories_kcal, MAX_KCAL_PER_LOG);
+  const creatine = payload.creatine === true;
+  const vitamins = payload.vitamins === true;
+  if (inc <= 0 && kcalInc <= 0 && !creatine && !vitamins) {
+    throw new HttpError(400, 'Nothing to log');
+  }
+
+  const { data: existing } = await db
+    .from('nutrition_logs')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('local_date', today)
+    .maybeSingle();
+
+  const target = Number(existing?.target_g ?? profile.protein_target_g ?? DEFAULT_PROTEIN_TARGET_G);
+  const row = {
+    user_id: userId,
+    local_date: today,
+    protein_g: accumulateProtein(Number(existing?.protein_g ?? 0), inc),
+    calories_kcal: accumulateCalories(Number(existing?.calories_kcal ?? 0), kcalInc),
+    creatine: Boolean(existing?.creatine) || creatine,
+    vitamins: Boolean(existing?.vitamins) || vitamins,
+    target_g: target,
+    fueled: Boolean(existing?.fueled),
+    stacked: Boolean(existing?.stacked),
+    updated_at: new Date().toISOString(),
+  };
+
+  const newlyFueled = !row.fueled && proteinTargetMet(row.protein_g, target);
+  const newlyStacked = !row.stacked && stackComplete(row.creatine, row.vitamins);
+  if (newlyFueled) row.fueled = true;
+  if (newlyStacked) row.stacked = true;
+
+  const { data: saved, error } = await db
+    .from('nutrition_logs')
+    .upsert(row, { onConflict: 'user_id,local_date' })
+    .select('*')
+    .single();
+  if (error || !saved) throw new HttpError(500, 'Failed to log intake');
+
+  // XP — through the one true gate, after the flags are safely persisted.
+  const fuelAward = newlyFueled ? await awardXp(ctx, NUTRITION_XP, 'nutrition', null) : null;
+  const stackAward = newlyStacked
+    ? await awardXp(ctx, SUPPLEMENT_STACK_XP, 'nutrition', null)
+    : null;
+
+  if (newlyFueled) {
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'fuel_complete',
+      title: 'FUEL PROTOCOL COMPLETE.',
+      body: `${Math.round(saved.protein_g)} g of protein — today's target of ${target} g is met. Muscle is kept in the kitchen; the System takes note.`,
+    });
+  }
+
+  return {
+    ok: true,
+    nutrition: saved,
+    fuel_award: fuelAward,
+    stack_award: stackAward,
+    target_g: target,
   };
 }
 
@@ -1329,7 +1431,7 @@ async function logMetrics(
 
 function metric(n: unknown, min: number, max: number): number | null {
   const v = Number(n);
-  if (!Number.isFinite(v) || v <= min || v >= max) return null;
+  if (!Number.isFinite(v) || v < min || v > max) return null;
   return v;
 }
 

@@ -59,7 +59,8 @@ export type XpSource =
   | 'gate_clear'
   | 'riddle_solved'
   | 'encounter'
-  | 'item';
+  | 'item'
+  | 'nutrition';
 
 type StatGain = Partial<Record<StatKey, number>>;
 
@@ -83,6 +84,8 @@ const STAT_GAINS: Record<XpSource, StatGain> = {
   // Encounters reward quick wits and resolve; item XP trains nothing on its own.
   encounter: { AGI: 0.2, WIL: 0.2 },
   item: {},
+  // Fuel — hitting the daily protein target is recovery discipline, every day.
+  nutrition: { END: 0.2, DIS: 0.2 },
 };
 
 /**
