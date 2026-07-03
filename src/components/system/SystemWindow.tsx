@@ -65,7 +65,15 @@ export function SystemWindow({
   return (
     <motion.section
       initial={{ opacity: 0, clipPath: 'inset(45% 0% 45% 0%)', filter: 'brightness(2.4)' }}
-      animate={{ opacity: 1, clipPath: 'inset(0% 0% 0% 0%)', filter: 'brightness(1)' }}
+      animate={{
+        opacity: 1,
+        clipPath: 'inset(0% 0% 0% 0%)',
+        filter: 'brightness(1)',
+        // A lingering inline clip-path clips everything the element paints —
+        // including outer box-shadows, which silently killed the attention
+        // strobe. Release it once the materialize wipe is done.
+        transitionEnd: { clipPath: 'none', filter: 'none' },
+      }}
       transition={{ duration: 0.42, delay, ease: [0.22, 1, 0.36, 1] }}
       className={`sys-window sys-window-${accent} ${scan ? 'scan-overlay' : ''} ${strobing ? 'attn-strobe' : ''} ${className}`}
     >
