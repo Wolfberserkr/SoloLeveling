@@ -344,8 +344,9 @@ async function resetProgress(ctx: Ctx, payload: { confirm?: string }) {
   for (const table of tables) {
     const { error } = await db.from(table).delete().eq('user_id', userId);
     if (error) {
-      // undefined_table: migrations lag the function deploy — nothing to clear.
-      if (error.code === '42P01') continue;
+      // Missing table (42P01) or not in PostgREST's schema cache (PGRST205):
+      // migrations lag the function deploy — nothing to clear.
+      if (error.code === '42P01' || error.code === 'PGRST205') continue;
       console.error(`reset-progress: failed clearing ${table}:`, error);
       throw new HttpError(500, `Failed to clear ${table}`);
     }
@@ -715,36 +716,16 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
 
   // Recovery triggers on state; otherwise the System rolls today's flavor.
   const recovery = mana < LOW_MANA_THRESHOLD || fatigue >= FATIGUE_THRESHOLD;
-  const variant = recovery ? 'recovery' : rollTrainingVariant(userId, today);
 
-  // Generate today's training quest (unique constraint makes this idempotent).
-  // Each cleared dungeon raises the baseline one notch; the coach's adaptive
-  // load (tuned weekly) multiplies on top of the failure modifier.
-  const dungeon = await getDungeonProgress(ctx);
-  const loadFactor = Number(profile.training_load ?? 1);
-  const targets = trainingTargetsFor(
-    profile.level,
-    dungeon.cycles_cleared,
-    loadModifier * loadFactor,
-    variant,
-  );
-  await db.from('training_quests').upsert(
-    {
-      user_id: userId,
-      local_date: today,
-      variant,
-      pushups_target: targets.pushups,
-      situps_target: targets.situps,
-      squats_target: targets.squats,
-      run_km_target: targets.runKm,
-      load_modifier: loadModifier,
-    },
-    { onConflict: 'user_id,local_date', ignoreDuplicates: true },
-  );
+  // Generate today's training quest. This throws on failure, which matters:
+  // the last_daily_reset stamp below must never be written past a day whose
+  // quest was not created, or every later call would skip generation and the
+  // whole day would report "Daily quest missing".
+  await generateTrainingQuest(ctx, loadModifier, recovery);
 
   // Roll today's side quests (deterministic per user+date → idempotent too).
   const sideQuests = rollSideQuests(userId, today);
-  await db.from('daily_quests').upsert(
+  const { error: sideErr } = await db.from('daily_quests').upsert(
     sideQuests.map((q) => ({
       user_id: userId,
       local_date: today,
@@ -756,6 +737,7 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
     })),
     { onConflict: 'user_id,local_date,quest_key', ignoreDuplicates: true },
   );
+  if (sideErr) console.error('side quest generation failed:', sideErr);
 
   if (recovery) {
     await db.from('system_messages').insert({
@@ -807,14 +789,62 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
   profile.last_daily_reset = today;
 }
 
+// ── Training quest generation — the one place today's row is written ────────
+// Idempotent (unique user_id+local_date, ON CONFLICT DO NOTHING) and loud:
+// callers must see a failure, because silently missing today's quest bricks
+// every action that reads it.
+async function generateTrainingQuest(ctx: Ctx, loadModifier: number, recovery: boolean) {
+  const { db, userId, profile, today } = ctx;
+  const variant = recovery ? 'recovery' : rollTrainingVariant(userId, today);
+
+  // Each cleared dungeon raises the baseline one notch; the coach's adaptive
+  // load (tuned weekly) multiplies on top of the failure modifier.
+  const dungeon = await getDungeonProgress(ctx);
+  const loadFactor = Number(profile.training_load ?? 1);
+  const targets = trainingTargetsFor(
+    profile.level,
+    dungeon.cycles_cleared,
+    loadModifier * loadFactor,
+    variant,
+  );
+  const { error } = await db.from('training_quests').upsert(
+    {
+      user_id: userId,
+      local_date: today,
+      variant,
+      pushups_target: targets.pushups,
+      situps_target: targets.situps,
+      squats_target: targets.squats,
+      run_km_target: targets.runKm,
+      load_modifier: loadModifier,
+    },
+    { onConflict: 'user_id,local_date', ignoreDuplicates: true },
+  );
+  if (error) {
+    console.error('training quest generation failed:', error);
+    throw new HttpError(500, `Daily quest generation failed: ${error.message}`);
+  }
+}
+
 async function getTodayQuest(ctx: Ctx) {
-  const { data, error } = await ctx.db
-    .from('training_quests')
-    .select('*')
-    .eq('user_id', ctx.userId)
-    .eq('local_date', ctx.today)
-    .single();
-  if (error || !data) throw new HttpError(500, 'Daily quest missing');
+  const fetchToday = () =>
+    ctx.db
+      .from('training_quests')
+      .select('*')
+      .eq('user_id', ctx.userId)
+      .eq('local_date', ctx.today)
+      .maybeSingle();
+
+  let { data } = await fetchToday();
+  if (!data) {
+    // Self-heal: a past bug stamped last_daily_reset without creating the
+    // quest, bricking the day. Regenerate on the spot instead of failing.
+    const recovery =
+      ctx.profile.mana < LOW_MANA_THRESHOLD || ctx.profile.fatigue >= FATIGUE_THRESHOLD;
+    await generateTrainingQuest(ctx, 1.0, recovery);
+    ({ data } = await fetchToday());
+  }
+  if (!data) throw new HttpError(500, 'Daily quest missing');
   return data;
 }
 
@@ -1194,8 +1224,8 @@ async function logNutrition(
     .upsert(row, { onConflict: 'user_id,local_date' })
     .select('*')
     .single();
-  if (error?.code === '42P01') {
-    // undefined_table: functions deployed ahead of migrations (gated CI step)
+  if (error?.code === '42P01' || error?.code === 'PGRST205') {
+    // Missing table / stale schema cache: functions deployed ahead of migrations
     throw new HttpError(503, 'The Fuel Protocol is not provisioned yet — run the 0020/0021 database migrations.');
   }
   if (error || !saved) throw new HttpError(500, 'Failed to log intake');
