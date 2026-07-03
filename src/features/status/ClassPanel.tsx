@@ -41,7 +41,14 @@ export function ClassPanel() {
   // Already chosen — show the class and its passive.
   if (current) {
     return (
-      <SystemWindow title="Class" accent="purple" delay={0.12} collapsible defaultCollapsed>
+      <SystemWindow
+        title="Class"
+        storageKey="class"
+        accent="purple"
+        delay={0.12}
+        collapsible
+        defaultCollapsed
+      >
         <div className="font-display text-xl font-bold uppercase tracking-wider text-accent-purple glow-text">
           {current.name}
         </div>
@@ -56,7 +63,14 @@ export function ClassPanel() {
   // Locked until the job-change rank.
   if (!unlocked) {
     return (
-      <SystemWindow title="Class" accent="purple" delay={0.12} collapsible defaultCollapsed>
+      <SystemWindow
+        title="Class"
+        storageKey="class"
+        accent="purple"
+        delay={0.12}
+        collapsible
+        defaultCollapsed
+      >
         <p className="font-sys text-xs uppercase tracking-widest text-slate-500">
           The job change unlocks at {JOB_CHANGE_RANK}-Rank. Keep leveling — the System will offer a
           path drawn from your strongest attributes.
@@ -71,6 +85,7 @@ export function ClassPanel() {
   return (
     <SystemWindow
       title="Job Change Available"
+      storageKey="class"
       accent="purple"
       scan
       delay={0.12}
