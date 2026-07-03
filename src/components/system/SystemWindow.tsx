@@ -1,5 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useState, type ReactNode } from 'react';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 type Accent = 'cyan' | 'purple' | 'gold' | 'red' | 'green';
 
@@ -11,8 +12,12 @@ type Props = {
   className?: string;
   /** Render a chevron in the header that collapses the body. Requires a title. */
   collapsible?: boolean;
-  /** When collapsible, start collapsed. */
+  /** When collapsible, start collapsed (until the player toggles it once —
+   * their choice is remembered across visits, keyed by storageKey/title). */
   defaultCollapsed?: boolean;
+  /** Stable identity for remembering the collapse state. Defaults to the
+   * title; pass explicitly when the title varies (counts, names). */
+  storageKey?: string;
   /** Something inside needs the player: dot in the header, and while the
    * panel is collapsed, the whole window strobes in its accent color. */
   attention?: boolean;
@@ -34,19 +39,27 @@ export function SystemWindow({
   className = '',
   collapsible = false,
   defaultCollapsed = false,
+  storageKey,
   attention = false,
   onExpand,
   children,
 }: Props) {
-  const [collapsed, setCollapsed] = useState(collapsible && defaultCollapsed);
   const canCollapse = collapsible && Boolean(title);
+  const storeKey = canCollapse ? (storageKey ?? title ?? '') : '';
+  // Remembered choice wins; the default only applies until the first toggle.
+  const remembered = useSettingsStore((s) =>
+    storeKey ? s.panelCollapsed[storeKey] : undefined,
+  );
+  const setPanelCollapsed = useSettingsStore((s) => s.setPanelCollapsed);
+  const [localCollapsed, setLocalCollapsed] = useState(collapsible && defaultCollapsed);
+  const collapsed = canCollapse ? (remembered ?? localCollapsed) : false;
   const strobing = attention && collapsed;
 
   function toggle() {
-    setCollapsed((c) => {
-      if (c) onExpand?.();
-      return !c;
-    });
+    const next = !collapsed;
+    if (!next) onExpand?.();
+    setLocalCollapsed(next);
+    if (storeKey) setPanelCollapsed(storeKey, next);
   }
 
   return (

@@ -128,6 +128,7 @@ export function ShadowArmyPage() {
 
       <SystemWindow
         title={`Army — ${arisen.length}`}
+        storageKey="army"
         accent="purple"
         delay={0.12}
         collapsible
