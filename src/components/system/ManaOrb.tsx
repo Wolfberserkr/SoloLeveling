@@ -43,18 +43,9 @@ export function ManaOrb({ mana, manaMax, size = 72 }: Props) {
           style={{ filter: `drop-shadow(0 0 6px ${color})` }}
         />
       </svg>
-      {/* Slow specular sweep — energy, not a static gauge. */}
-      <motion.div
-        aria-hidden
-        className="pointer-events-none absolute rounded-full"
-        style={{
-          inset: 4,
-          background:
-            'conic-gradient(from 0deg, transparent 0deg, rgba(255,255,255,0.12) 34deg, transparent 72deg)',
-        }}
-        animate={{ rotate: 360 }}
-        transition={{ duration: 7, repeat: Infinity, ease: 'linear' }}
-      />
+      {/* Slow specular sweep — energy, not a static gauge. Pure CSS: phones
+          throttle JS animation frames under power saving, GPU keyframes run. */}
+      <div aria-hidden className="orb-shine pointer-events-none absolute rounded-full" />
       <div className="absolute inset-0 flex flex-col items-center justify-center font-sys">
         <span className="text-sm font-bold" style={{ color }}>
           {mana}

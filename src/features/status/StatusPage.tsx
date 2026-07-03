@@ -61,15 +61,13 @@ export function StatusPage() {
         <div className="mt-3 grid grid-cols-3 gap-2 font-sys text-center text-[0.65rem] uppercase tracking-widest">
           <div className="border border-accent-cyan/20 bg-bg-base/40 p-2">
             {/* A live streak breathes — it is the spine of everything. */}
-            <motion.div
-              className="text-base text-accent-gold glow-text"
-              animate={
-                (totals?.current_streak ?? 0) > 0 ? { scale: [1, 1.08, 1] } : { scale: 1 }
-              }
-              transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
+            <div
+              className={`text-base text-accent-gold glow-text ${
+                (totals?.current_streak ?? 0) > 0 ? 'breathe' : ''
+              }`}
             >
               <TickingNumber value={totals?.current_streak ?? 0} />
-            </motion.div>
+            </div>
             <div className="text-slate-500">Streak</div>
           </div>
           <div className="border border-accent-cyan/20 bg-bg-base/40 p-2">

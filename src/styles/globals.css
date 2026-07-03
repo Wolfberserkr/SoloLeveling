@@ -234,6 +234,25 @@ body {
   100% { transform: translate3d(var(--dx, 0px), -55vh, 0); opacity: 0; }
 }
 
+/* Mana orb specular sweep — CSS so power-saving rAF throttling can't still it. */
+.orb-shine {
+  inset: 4px;
+  background: conic-gradient(from 0deg, transparent 0deg, rgba(255, 255, 255, 0.14) 34deg, transparent 72deg);
+  animation: orb-spin 7s linear infinite;
+}
+@keyframes orb-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* A live streak breathes. */
+.breathe {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
 /* Gate events strobe — an emergency the UI refuses to let you ignore. */
 .gate-strobe {
   animation: gate-strobe 1.6s ease-in-out infinite;
