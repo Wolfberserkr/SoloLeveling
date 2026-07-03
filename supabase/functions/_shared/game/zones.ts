@@ -5,8 +5,9 @@
 // landmark. Arriving inside a zone's radius (while the app is open — a web
 // PWA cannot geofence in the background) rolls once per zone per day,
 // deterministically per user+zone+date:
-//   gym       25% a field monster blocks the door — a physical challenge
-//             (cardio, sets) self-reported like a Gate, paying XP
+//   gym       40% a field monster blocks the door — a physical challenge
+//             (cardio, sets) self-reported like a Gate, paying XP; the gym
+//             rolls hottest — showing up should feel like entering a dungeon
 //   store     25% a supply cache — a consumable, or a Hunter's Brand that
 //             boosts all XP for 4 hours
 //   landmark  25% a treasure — equipable gear or a consumable
@@ -27,8 +28,13 @@ export const ZONE_KIND_META: Record<ZoneKind, { name: string; hint: string }> = 
   landmark: { name: 'Landmark', hint: 'treasures may lie buried' },
 };
 
-/** Chance a visit triggers anything, per zone per day. */
-export const ZONE_TRIGGER_CHANCE = 0.25;
+/** Chance a visit triggers anything, per zone per day. The gym rolls
+ * hottest — it is the place the Player most needs a reason to reach. */
+export const ZONE_TRIGGER_CHANCES: Record<ZoneKind, number> = {
+  gym: 0.4,
+  store: 0.25,
+  landmark: 0.25,
+};
 
 /** Zone radius bounds (meters). Small enough to mean "you are there". */
 export const ZONE_RADIUS_MIN_M = 30;
@@ -101,7 +107,7 @@ export function rollZoneTrigger(
   kind: ZoneKind,
 ): ZoneTriggerRoll | null {
   const rand = dailyRng(`${userId}|${zoneId}`, localDate, 'zone-trigger');
-  if (rand() >= ZONE_TRIGGER_CHANCE) return null;
+  if (rand() >= ZONE_TRIGGER_CHANCES[kind]) return null;
 
   switch (kind) {
     case 'gym': {

@@ -5,7 +5,7 @@ import {
   clampZoneRadius,
   rollZoneTrigger,
   zoneTriggerCopy,
-  ZONE_TRIGGER_CHANCE,
+  ZONE_TRIGGER_CHANCES,
   ZONE_RADIUS_MIN_M,
   ZONE_RADIUS_MAX_M,
   ZONE_RADIUS_DEFAULT_M,
@@ -78,16 +78,19 @@ describe('zone trigger roll', () => {
     }
   });
 
-  it('fires on roughly ZONE_TRIGGER_CHANCE of days', () => {
-    let hits = 0;
-    const days = 2000;
-    for (let i = 0; i < days; i++) {
-      const date = `2026-${String(1 + (i % 12)).padStart(2, '0')}-${String(1 + (i % 28)).padStart(2, '0')}`;
-      if (rollZoneTrigger(`user-${i}`, 'zone-a', date, 'gym')) hits += 1;
+  it('fires at each kind’s own rate — the gym rolls hottest', () => {
+    expect(ZONE_TRIGGER_CHANCES.gym).toBeGreaterThan(ZONE_TRIGGER_CHANCES.store);
+    for (const kind of ZONE_KINDS) {
+      let hits = 0;
+      const days = 2000;
+      for (let i = 0; i < days; i++) {
+        const date = `2026-${String(1 + (i % 12)).padStart(2, '0')}-${String(1 + (i % 28)).padStart(2, '0')}`;
+        if (rollZoneTrigger(`user-${i}`, `zone-${kind}`, date, kind)) hits += 1;
+      }
+      const rate = hits / days;
+      expect(rate).toBeGreaterThan(ZONE_TRIGGER_CHANCES[kind] - 0.04);
+      expect(rate).toBeLessThan(ZONE_TRIGGER_CHANCES[kind] + 0.04);
     }
-    const rate = hits / days;
-    expect(rate).toBeGreaterThan(ZONE_TRIGGER_CHANCE - 0.04);
-    expect(rate).toBeLessThan(ZONE_TRIGGER_CHANCE + 0.04);
   });
 
   it('gym zones spawn fights from the bank with the fight XP', () => {

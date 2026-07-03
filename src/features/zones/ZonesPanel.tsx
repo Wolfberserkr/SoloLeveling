@@ -9,7 +9,7 @@ import {
   ZONE_KIND_META,
   ZONE_LIMIT,
   ZONE_RADIUS_DEFAULT_M,
-  ZONE_TRIGGER_CHANCE,
+  ZONE_TRIGGER_CHANCES,
   type ZoneKind,
 } from '@game/zones.ts';
 
@@ -116,9 +116,10 @@ export function ZonesPanel() {
     <SystemWindow title="Field Zones" accent="cyan" delay={0.105}>
       <p className="text-xs leading-relaxed text-slate-400">
         Mark real places — your gym, the supply store, a landmark. Arriving there with the app
-        open rolls once per zone per day ({Math.round(ZONE_TRIGGER_CHANCE * 100)}%): field
-        monsters at Training Grounds, supply caches at Supply Posts, buried treasure at
-        Landmarks.
+        open rolls once per zone per day: field monsters at Training Grounds (
+        {Math.round(ZONE_TRIGGER_CHANCES.gym * 100)}%), supply caches at Supply Posts (
+        {Math.round(ZONE_TRIGGER_CHANCES.store * 100)}%), buried treasure at Landmarks (
+        {Math.round(ZONE_TRIGGER_CHANCES.landmark * 100)}%).
       </p>
 
       {/* Arm the watch */}
