@@ -3,8 +3,10 @@
 // authenticates with a shared secret, not a user JWT (verify_jwt = false).
 //
 // Per player, in their own timezone:
-//   morning (08–11):  ensure today's System Event exists and announce it;
-//                     announce knowledge checks falling due;
+//   daytime (08–24):  ensure today's System Events exist and announce each
+//                     once (slot 1 in the morning; slot 2 materializes in
+//                     the afternoon even if the app stays closed)
+//   morning (08–11):  announce knowledge checks falling due;
 //                     on Mondays, generate the AI weekly assessment
 //   evening (18–21):  remind if the Daily Training Quest is still unresolved
 //
@@ -14,7 +16,7 @@
 import webpush from 'npm:web-push@3.6.7';
 import { adminClient } from '../_shared/db.ts';
 import { localDateInTz, localHourInTz } from '../_shared/time.ts';
-import { ensureSystemEvent } from '../_shared/eventEnsure.ts';
+import { ensureSystemEvents } from '../_shared/eventEnsure.ts';
 import { ensureWeeklyReview } from '../_shared/weeklyReview.ts';
 
 const MORNING_START = 8;
@@ -73,15 +75,20 @@ async function tickUser(db: Db, profile: CronProfile, canPush: boolean): Promise
   const hour = localHourInTz(profile.timezone);
   let pushes = 0;
 
-  if (hour >= MORNING_START && hour < MORNING_END) {
-    // The event must exist even if the app stays closed all day.
-    const event = await ensureSystemEvent(db, profile.user_id, today, profile.level);
-    if (event && event.status === 'active' && canPush) {
-      if (await claim(db, profile.user_id, 'event_push', today)) {
+  if (hour >= MORNING_START) {
+    // Events must exist even if the app stays closed all day. Idempotent —
+    // this tick runs hourly, and each slot is announced exactly once.
+    const events = await ensureSystemEvents(db, profile.user_id, today, profile.level, hour);
+    for (const event of events) {
+      if (event.status !== 'active' || !canPush) continue;
+      const claimKind = event.slot > 1 ? `event_push_${event.slot}` : 'event_push';
+      if (await claim(db, profile.user_id, claimKind, today)) {
         pushes += await sendPush(db, profile.user_id, event.title, event.body);
       }
     }
+  }
 
+  if (hour >= MORNING_START && hour < MORNING_END) {
     const { count: due } = await db
       .from('retention_questions')
       .select('id', { count: 'exact', head: true })

@@ -5,7 +5,7 @@
 // ═════════════════════════════════════════════════════════════════════════
 import { adminClient } from '../_shared/db.ts';
 import { requireUser, HttpError, json, CORS_HEADERS } from '../_shared/auth.ts';
-import { localDateInTz, previousDate, startOfIsoWeek } from '../_shared/time.ts';
+import { localDateInTz, localHourInTz, previousDate, startOfIsoWeek } from '../_shared/time.ts';
 import { trainingTargetsFor, isTrainingComplete } from '../_shared/game/training.ts';
 import { rollTrainingVariant, rollSideQuests } from '../_shared/game/daily.ts';
 import {
@@ -28,7 +28,7 @@ import {
   POTION_RESTORE_MIN,
   POTION_RESTORE_MAX,
 } from '../_shared/game/mana.ts';
-import { ensureSystemEvent, type SystemEventRow } from '../_shared/eventEnsure.ts';
+import { ensureSystemEvents, type SystemEventRow } from '../_shared/eventEnsure.ts';
 import { trainingXpWithEvent, sideQuestCostWithEvent, type SystemEventKind } from '../_shared/game/events.ts';
 import {
   MAX_ACTIVE_BOOKS,
@@ -748,8 +748,8 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
     });
   }
 
-  // Roll today's System Event (deterministic; cron may have beaten us to it).
-  await ensureSystemEvent(db, userId, today, profile.level);
+  // Roll today's System Events (deterministic; cron may have beaten us to it).
+  await ensureSystemEvents(db, userId, today, profile.level, localHourInTz(profile.timezone));
 
   // The Legacy Boss: seed the first snapshot, and announce when one comes due.
   await ensureLegacy(ctx);
@@ -876,27 +876,27 @@ async function getDungeonProgress(ctx: Ctx) {
   return created;
 }
 
-async function getTodayEvent(ctx: Ctx): Promise<SystemEventRow | null> {
+async function getTodayEvents(ctx: Ctx): Promise<SystemEventRow[]> {
   const { data } = await ctx.db
     .from('system_events')
     .select('*')
     .eq('user_id', ctx.userId)
     .eq('local_date', ctx.today)
-    .maybeSingle();
-  return (data as SystemEventRow) ?? null;
+    .order('slot');
+  return (data ?? []) as SystemEventRow[];
 }
 
-/** Kind of today's still-active event, for passive effects (surges). */
-function activeKind(event: SystemEventRow | null): SystemEventKind | null {
-  return event && event.status === 'active' ? (event.kind as SystemEventKind) : null;
+/** Kinds of today's still-active events, for passive effects (surges). */
+function activeKinds(events: SystemEventRow[]): SystemEventKind[] {
+  return events.filter((e) => e.status === 'active').map((e) => e.kind as SystemEventKind);
 }
 
 async function getDailySnapshot(ctx: Ctx) {
-  const [quest, sideQuests, dungeon, event, gymToday, legacy] = await Promise.all([
+  const [quest, sideQuests, dungeon, events, gymToday, legacy] = await Promise.all([
     getTodayQuest(ctx),
     getTodaySideQuests(ctx),
     getDungeonProgress(ctx),
-    getTodayEvent(ctx),
+    getTodayEvents(ctx),
     ctx.db
       .from('gym_sessions')
       .select('id')
@@ -912,7 +912,7 @@ async function getDailySnapshot(ctx: Ctx) {
     training: quest,
     quests: sideQuests,
     dungeon,
-    event,
+    events,
     gym_done_today: Boolean(gymToday),
     legacy,
     legacy_due: Boolean(legacy && legacy.due_date <= ctx.today),
@@ -1031,10 +1031,10 @@ async function completeTraining(ctx: Ctx) {
   if (profileUpdate.mana_potions !== undefined) profile.mana_potions = profileUpdate.mana_potions;
 
   // XP — through the one true gate. An XP Surge amplifies today's training.
-  const event = await getTodayEvent(ctx);
+  const events = await getTodayEvents(ctx);
   const award = await awardXp(
     ctx,
-    trainingXpWithEvent(TRAINING_XP, activeKind(event)),
+    trainingXpWithEvent(TRAINING_XP, activeKinds(events)),
     'training_quest',
     quest.id,
   );
@@ -1060,8 +1060,8 @@ async function completeSideQuest(ctx: Ctx, payload: { key?: string }) {
   if (quest.status !== 'pending') throw new HttpError(409, 'Quest already resolved');
 
   // A Mana Surge waives side-quest costs for the day.
-  const event = await getTodayEvent(ctx);
-  const manaCost = sideQuestCostWithEvent(quest.mana_cost, activeKind(event));
+  const events = await getTodayEvents(ctx);
+  const manaCost = sideQuestCostWithEvent(quest.mana_cost, activeKinds(events));
   if (profile.mana < manaCost) {
     throw new HttpError(409, 'Insufficient mana. Recover before taking this on.');
   }
@@ -1779,10 +1779,12 @@ async function reviewQuestion(ctx: Ctx, payload: { question_id?: string; recalle
 }
 
 // ── complete-event: report a cleared Gate (self-reported, like a boss) ──────
+// At most one gate spawns per day (slot 2 never repeats slot 1's kind), so
+// "today's gate" is unambiguous.
 async function completeEvent(ctx: Ctx) {
-  const event = await getTodayEvent(ctx);
-  if (!event) throw new HttpError(404, 'No event today');
-  if (event.kind !== 'gate') throw new HttpError(409, 'This event resolves on its own');
+  const events = await getTodayEvents(ctx);
+  const event = events.find((e) => e.kind === 'gate');
+  if (!event) throw new HttpError(404, 'No gate today');
   if (event.status === 'completed') throw new HttpError(409, 'Gate already cleared');
   if (event.status !== 'active') throw new HttpError(409, 'The gate has closed');
 
@@ -1813,8 +1815,9 @@ async function completeEvent(ctx: Ctx) {
 // (clients can do neither).
 async function answerRiddle(ctx: Ctx, payload: { guess?: string }) {
   const { db, userId } = ctx;
-  const event = await getTodayEvent(ctx);
-  if (!event || event.kind !== 'riddle') throw new HttpError(404, 'No riddle today');
+  const events = await getTodayEvents(ctx);
+  const event = events.find((e) => e.kind === 'riddle');
+  if (!event) throw new HttpError(404, 'No riddle today');
   if (event.status === 'completed') throw new HttpError(409, 'Riddle already solved');
   if (event.status !== 'active') throw new HttpError(409, 'The riddle has expired');
 

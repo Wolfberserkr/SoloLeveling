@@ -1,9 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // SYSTEM EVENTS — Phase 5. The System is not a calendar; it interrupts.
 //
-// Each day has a chance of one random event, rolled deterministically per
-// user+date (idempotent — the lazy daily reset and the cron tick can both
-// ensure it without double-spawning):
+// Each day spawns one or two random events, rolled deterministically per
+// user+date+slot (idempotent — the lazy daily reset and the cron tick can
+// both ensure them without double-spawning). Slot 1 is guaranteed and lands
+// in the morning; slot 2 fires half of all days and materializes in the
+// afternoon, always a different kind than the first:
 //   gate         a 24h bonus challenge scaled to level; clearing pays XP
 //   mana_surge   side quests cost no mana until midnight
 //   xp_surge     Daily Training Quest XP +50% today
@@ -18,18 +20,14 @@ import { fallbackRiddle, riddleTheme, RIDDLE_MAX_ATTEMPTS, type Riddle } from '.
 export const SYSTEM_EVENT_KINDS = ['gate', 'mana_surge', 'xp_surge', 'potion_gift', 'riddle'] as const;
 export type SystemEventKind = (typeof SYSTEM_EVENT_KINDS)[number];
 
-/** Chance that any given day spawns an event. */
-export const EVENT_CHANCE = 0.25;
+/** Spawn chance per daily slot: the first event is certain, the second a coin
+ * flip — once or twice a day, never zero, never a flood. */
+export const EVENT_SLOT_CHANCES = [1, 0.5] as const;
+export const EVENT_SLOTS = EVENT_SLOT_CHANCES.length;
 
-/** A quiet streak this long guarantees an event — the System never goes dark. */
-export const PITY_QUIET_DAYS = 5;
-
-/** Spawn chance given how many days the System has been silent. */
-export function eventChance(quietDays: number): number {
-  if (quietDays >= PITY_QUIET_DAYS) return 1;
-  if (quietDays >= PITY_QUIET_DAYS - 2) return 0.5;
-  return EVENT_CHANCE;
-}
+/** Local hour from which the second slot may materialize — a separate
+ * interruption in the afternoon, not two announcements at breakfast. */
+export const SECOND_EVENT_HOUR = 14;
 
 /** Training XP multiplier while an xp_surge is active. */
 export const XP_SURGE_MULT = 1.5;
@@ -107,17 +105,24 @@ export function riddleBody(prompt: string): string {
   return `${prompt}\n\nSpeak the answer for +${RIDDLE_SOLVE_XP} XP — ${RIDDLE_MAX_ATTEMPTS} attempts, gone at midnight.`;
 }
 
-/** Today's event for a user, or null. Same inputs, same roll. */
+/** Today's event for a user and slot, or null. Same inputs, same roll.
+ * `exclude` keeps the second event a different kind than the first — and,
+ * as a side effect, at most one gate and one riddle per day, so the
+ * complete-event / answer-riddle handlers stay unambiguous. */
 export function rollSystemEvent(
   userId: string,
   localDate: string,
   level: number,
-  quietDays = 0,
+  slot = 1,
+  exclude: readonly SystemEventKind[] = [],
 ): SystemEventRoll | null {
-  const rand = dailyRng(userId, localDate, 'system-event');
-  if (rand() >= eventChance(quietDays)) return null;
+  // Slot 1 keeps the original salt so already-spawned days stay consistent.
+  const rand = dailyRng(userId, localDate, slot === 1 ? 'system-event' : `system-event-s${slot}`);
+  if (rand() >= (EVENT_SLOT_CHANCES[slot - 1] ?? 0)) return null;
 
-  const kind = pickWeighted(rand, KIND_WEIGHTS, (k) => k.weight).kind;
+  const pool = KIND_WEIGHTS.filter((k) => !exclude.includes(k.kind));
+  if (pool.length === 0) return null;
+  const kind = pickWeighted(rand, pool, (k) => k.weight).kind;
   switch (kind) {
     case 'gate': {
       const gate = gateChallenge(rand, level);
@@ -167,12 +172,12 @@ export function rollSystemEvent(
   }
 }
 
-/** Training XP after the day's event (xp_surge amplifies). */
-export function trainingXpWithEvent(base: number, eventKind: SystemEventKind | null): number {
-  return eventKind === 'xp_surge' ? Math.round(base * XP_SURGE_MULT) : base;
+/** Training XP after the day's events (an active xp_surge amplifies). */
+export function trainingXpWithEvent(base: number, eventKinds: readonly (SystemEventKind | null)[]): number {
+  return eventKinds.includes('xp_surge') ? Math.round(base * XP_SURGE_MULT) : base;
 }
 
-/** Side-quest mana cost after the day's event (mana_surge waives). */
-export function sideQuestCostWithEvent(cost: number, eventKind: SystemEventKind | null): number {
-  return eventKind === 'mana_surge' ? 0 : cost;
+/** Side-quest mana cost after the day's events (an active mana_surge waives). */
+export function sideQuestCostWithEvent(cost: number, eventKinds: readonly (SystemEventKind | null)[]): number {
+  return eventKinds.includes('mana_surge') ? 0 : cost;
 }

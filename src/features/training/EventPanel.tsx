@@ -16,20 +16,32 @@ const EVENT_ACCENTS: Record<SystemEvent['kind'], 'red' | 'cyan' | 'gold' | 'purp
   riddle: 'purple',
 };
 
-/** Today's random System Event, if one spawned. Gates and riddles resolve by hand. */
+/** Today's random System Events (one or two). Gates and riddles resolve by hand. */
 export function EventPanel() {
-  const { event, refresh } = usePlayerStore();
+  const events = usePlayerStore((s) => s.events);
+  const live = events.filter((e) => e.status !== 'expired');
+  if (live.length === 0) return null;
+  return (
+    <>
+      {live.map((event) => (
+        <EventCard key={event.id} event={event} />
+      ))}
+    </>
+  );
+}
+
+function EventCard({ event }: { event: SystemEvent }) {
+  const refresh = usePlayerStore((s) => s.refresh);
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
   const burstXp = useUiStore((s) => s.burstXp);
   const [busy, setBusy] = useState(false);
   const [guess, setGuess] = useState('');
 
-  if (!event || event.status === 'expired') return null;
   const cleared = event.status === 'completed';
 
   async function clearGate(at?: { x: number; y: number }) {
-    if (busy || !event || event.kind !== 'gate' || cleared) return;
+    if (busy || event.kind !== 'gate' || cleared) return;
     setBusy(true);
     try {
       const res = await gameAction<{ award: XpAward }>('complete-event');
@@ -53,7 +65,7 @@ export function EventPanel() {
   }
 
   async function answerRiddle() {
-    if (busy || !event || event.kind !== 'riddle' || cleared || !guess.trim()) return;
+    if (busy || event.kind !== 'riddle' || cleared || !guess.trim()) return;
     setBusy(true);
     try {
       const res = await gameAction<{

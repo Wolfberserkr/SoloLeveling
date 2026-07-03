@@ -4,9 +4,8 @@ import {
   gateChallenge,
   trainingXpWithEvent,
   sideQuestCostWithEvent,
-  eventChance,
-  EVENT_CHANCE,
-  PITY_QUIET_DAYS,
+  EVENT_SLOT_CHANCES,
+  EVENT_SLOTS,
   XP_SURGE_MULT,
   SYSTEM_EVENT_KINDS,
 } from '@game/events.ts';
@@ -15,24 +14,59 @@ import { GATE_CLEAR_XP, RIDDLE_SOLVE_XP, TRAINING_XP } from '@game/constants.ts'
 import { RIDDLE_MAX_ATTEMPTS } from '@game/riddles.ts';
 
 describe('system event roll', () => {
-  it('is deterministic for the same user and date', () => {
+  it('is deterministic for the same user, date, and slot', () => {
     for (let i = 0; i < 20; i++) {
-      const a = rollSystemEvent(`user-${i}`, '2026-06-12', 10);
-      const b = rollSystemEvent(`user-${i}`, '2026-06-12', 10);
-      expect(a).toEqual(b);
+      for (let slot = 1; slot <= EVENT_SLOTS; slot++) {
+        const a = rollSystemEvent(`user-${i}`, '2026-06-12', 10, slot);
+        const b = rollSystemEvent(`user-${i}`, '2026-06-12', 10, slot);
+        expect(a).toEqual(b);
+      }
     }
   });
 
-  it('spawns on roughly EVENT_CHANCE of days', () => {
+  it('slot 1 spawns every day — the System never goes dark', () => {
+    for (let i = 0; i < 200; i++) {
+      const date = `2026-${String(1 + (i % 12)).padStart(2, '0')}-${String(1 + (i % 28)).padStart(2, '0')}`;
+      expect(rollSystemEvent(`user-${i}`, date, 10, 1)).not.toBeNull();
+    }
+  });
+
+  it('slot 2 spawns on roughly half of days', () => {
     let events = 0;
     const days = 2000;
     for (let i = 0; i < days; i++) {
       const date = `2026-${String(1 + (i % 12)).padStart(2, '0')}-${String(1 + (i % 28)).padStart(2, '0')}`;
-      if (rollSystemEvent(`user-${i}`, date, 10)) events += 1;
+      if (rollSystemEvent(`user-${i}`, date, 10, 2)) events += 1;
     }
     const rate = events / days;
-    expect(rate).toBeGreaterThan(EVENT_CHANCE - 0.05);
-    expect(rate).toBeLessThan(EVENT_CHANCE + 0.05);
+    expect(rate).toBeGreaterThan(EVENT_SLOT_CHANCES[1] - 0.05);
+    expect(rate).toBeLessThan(EVENT_SLOT_CHANCES[1] + 0.05);
+  });
+
+  it('slots roll independently — the second is not a copy of the first', () => {
+    let differed = false;
+    for (let i = 0; i < 50 && !differed; i++) {
+      const first = rollSystemEvent(`user-${i}`, '2026-06-12', 10, 1);
+      const second = rollSystemEvent(`user-${i}`, '2026-06-12', 10, 2);
+      if (second && second.kind !== first?.kind) differed = true;
+    }
+    expect(differed).toBe(true);
+  });
+
+  it('never rolls an excluded kind', () => {
+    for (let i = 0; i < 300; i++) {
+      const first = rollSystemEvent(`user-${i}`, '2026-06-12', 10, 1);
+      expect(first).not.toBeNull();
+      const second = rollSystemEvent(`user-${i}`, '2026-06-12', 10, 2, [first!.kind]);
+      if (second) expect(second.kind).not.toBe(first!.kind);
+    }
+  });
+
+  it('returns null when every kind is excluded', () => {
+    // Slot 1 always passes the chance roll, so this exercises the empty pool.
+    expect(
+      rollSystemEvent('user-1', '2026-06-12', 10, 1, [...SYSTEM_EVENT_KINDS]),
+    ).toBeNull();
   });
 
   it('every kind in the pool actually spawns, with valid content', () => {
@@ -60,22 +94,6 @@ describe('system event roll', () => {
   });
 });
 
-describe('pity timer', () => {
-  it('ramps the spawn chance as quiet days accumulate', () => {
-    expect(eventChance(0)).toBe(EVENT_CHANCE);
-    expect(eventChance(PITY_QUIET_DAYS - 3)).toBe(EVENT_CHANCE);
-    expect(eventChance(PITY_QUIET_DAYS - 2)).toBe(0.5);
-    expect(eventChance(PITY_QUIET_DAYS - 1)).toBe(0.5);
-    expect(eventChance(PITY_QUIET_DAYS)).toBe(1);
-  });
-
-  it('guarantees an event after a full quiet streak, for any user', () => {
-    for (let i = 0; i < 100; i++) {
-      expect(rollSystemEvent(`user-${i}`, '2026-06-13', 5, PITY_QUIET_DAYS)).not.toBeNull();
-    }
-  });
-});
-
 describe('gate challenges', () => {
   it('scale with level and respect caps', () => {
     const rand = () => 0; // always the first gate type (push-ups)
@@ -96,16 +114,20 @@ describe('gate challenges', () => {
 
 describe('passive event effects', () => {
   it('xp_surge amplifies training XP by the multiplier', () => {
-    expect(trainingXpWithEvent(TRAINING_XP, 'xp_surge')).toBe(
+    expect(trainingXpWithEvent(TRAINING_XP, ['xp_surge'])).toBe(
       Math.round(TRAINING_XP * XP_SURGE_MULT),
     );
-    expect(trainingXpWithEvent(TRAINING_XP, 'gate')).toBe(TRAINING_XP);
-    expect(trainingXpWithEvent(TRAINING_XP, null)).toBe(TRAINING_XP);
+    expect(trainingXpWithEvent(TRAINING_XP, ['gate', 'xp_surge'])).toBe(
+      Math.round(TRAINING_XP * XP_SURGE_MULT),
+    );
+    expect(trainingXpWithEvent(TRAINING_XP, ['gate'])).toBe(TRAINING_XP);
+    expect(trainingXpWithEvent(TRAINING_XP, [])).toBe(TRAINING_XP);
   });
 
   it('mana_surge waives side-quest costs; nothing else does', () => {
-    expect(sideQuestCostWithEvent(20, 'mana_surge')).toBe(0);
-    expect(sideQuestCostWithEvent(20, 'xp_surge')).toBe(20);
-    expect(sideQuestCostWithEvent(20, null)).toBe(20);
+    expect(sideQuestCostWithEvent(20, ['mana_surge'])).toBe(0);
+    expect(sideQuestCostWithEvent(20, ['riddle', 'mana_surge'])).toBe(0);
+    expect(sideQuestCostWithEvent(20, ['xp_surge'])).toBe(20);
+    expect(sideQuestCostWithEvent(20, [])).toBe(20);
   });
 });

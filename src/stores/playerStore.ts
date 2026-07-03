@@ -47,7 +47,7 @@ type PlayerState = {
   dueQuestions: RetentionQuestion[]; // unmastered checks due today or earlier
   readTodayBookIds: string[]; // tomes with a reading session logged today
   appliedTodayBookIds: string[]; // tomes with an applied insight logged today
-  event: SystemEvent | null; // today's System Event, if one spawned
+  events: SystemEvent[]; // today's System Events (one or two), if any spawned
   liftLogs: LiftLog[]; // recent top-set logs, newest first
   totals: TrainingTotals | null;
   messages: SystemMessage[];
@@ -87,7 +87,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   dueQuestions: [],
   readTodayBookIds: [],
   appliedTodayBookIds: [],
-  event: null,
+  events: [],
   liftLogs: [],
   totals: null,
   messages: [],
@@ -159,7 +159,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       dueQuestions: [],
       readTodayBookIds: [],
       appliedTodayBookIds: [],
-      event: null,
+      events: [],
       liftLogs: [],
       totals: null,
       messages: [],
@@ -262,7 +262,8 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
         .from('system_events')
         .select('*')
         .order('local_date', { ascending: false })
-        .limit(1),
+        .order('slot')
+        .limit(4),
       supabase
         .from('lift_logs')
         .select('*')
@@ -294,7 +295,9 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
   const sleepRow = ((sleepRes.data ?? [])[0] ?? null) as SleepLog | null;
   const nutritionRow = ((nutritionRes.data ?? [])[0] ?? null) as NutritionLog | null;
   const gymRow = (gymRes.data ?? [])[0] ?? null;
-  const eventRow = ((eventRes.data ?? [])[0] ?? null) as SystemEvent | null;
+  const eventRows = ((eventRes.data ?? []) as SystemEvent[]).filter(
+    (e) => e.local_date === today,
+  );
   const dueQuestions = ((questionsRes.data ?? []) as RetentionQuestion[]).filter(
     (q) => q.due_date != null && today != null && q.due_date <= today,
   );
@@ -319,7 +322,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     dueQuestions,
     readTodayBookIds: todaysBookIds(readingRes.data),
     appliedTodayBookIds: todaysBookIds(applicationsRes.data),
-    event: eventRow && eventRow.local_date === today ? eventRow : null,
+    events: eventRows,
     liftLogs: (liftsRes.data ?? []) as LiftLog[],
     legacy: ((legacyRes.data ?? [])[0] ?? null) as LegacySnapshot | null,
     shadows: (shadowsRes.data ?? []) as Shadow[],

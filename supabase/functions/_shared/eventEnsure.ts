@@ -1,15 +1,24 @@
-// Ensure today's System Event exists for a user — shared by the `game`
+// Ensure today's System Events exist for a user — shared by the `game`
 // function's lazy daily reset and the `cron` tick, whichever touches the
-// day first. The roll is deterministic per user+date and the table has a
-// unique (user_id, local_date), so double invocation cannot double-spawn.
+// day first. Rolls are deterministic per user+date+slot and the table has a
+// unique (user_id, local_date, slot), so double invocation cannot
+// double-spawn. Slot 1 spawns with the day's first contact; slot 2 (when its
+// coin flip says so) materializes once the local afternoon arrives.
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import { rollSystemEvent, riddleBody, PITY_QUIET_DAYS } from './game/events.ts';
+import {
+  rollSystemEvent,
+  riddleBody,
+  EVENT_SLOTS,
+  SECOND_EVENT_HOUR,
+  type SystemEventKind,
+} from './game/events.ts';
 import { generateRiddle } from './ai.ts';
 
 export type SystemEventRow = {
   id: string;
   user_id: string;
   local_date: string;
+  slot: number;
   kind: string;
   title: string;
   body: string;
@@ -18,28 +27,16 @@ export type SystemEventRow = {
   xp_reward: number;
 };
 
-/** Days since the System last spawned anything (pity-capped for new users). */
-async function quietDays(db: SupabaseClient, userId: string, today: string): Promise<number> {
-  const { data: last } = await db
-    .from('system_events')
-    .select('local_date')
-    .eq('user_id', userId)
-    .order('local_date', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (!last) return PITY_QUIET_DAYS;
-  const ms =
-    new Date(`${today}T12:00:00Z`).getTime() - new Date(`${last.local_date}T12:00:00Z`).getTime();
-  return Math.max(0, Math.round(ms / 86_400_000));
-}
-
-/** Expire stale events, roll today's, apply instant effects. Idempotent. */
-export async function ensureSystemEvent(
+/** Expire stale events, roll today's due slots, apply instant effects.
+ * Idempotent. `hour` is the user's local hour — it gates when the second
+ * slot becomes visible. Returns today's events, first slot first. */
+export async function ensureSystemEvents(
   db: SupabaseClient,
   userId: string,
   today: string,
   level: number,
-): Promise<SystemEventRow | null> {
+  hour: number,
+): Promise<SystemEventRow[]> {
   // Yesterday's gate that was never cleared closes for good.
   await db
     .from('system_events')
@@ -48,15 +45,35 @@ export async function ensureSystemEvent(
     .eq('status', 'active')
     .lt('local_date', today);
 
-  const { data: existing } = await db
+  const { data } = await db
     .from('system_events')
     .select('*')
     .eq('user_id', userId)
     .eq('local_date', today)
-    .maybeSingle();
-  if (existing) return existing as SystemEventRow;
+    .order('slot');
+  const events = (data ?? []) as SystemEventRow[];
 
-  const roll = rollSystemEvent(userId, today, level, await quietDays(db, userId, today));
+  for (let slot = 1; slot <= EVENT_SLOTS; slot++) {
+    if (events.some((e) => e.slot === slot)) continue;
+    if (slot > 1 && hour < SECOND_EVENT_HOUR) continue;
+    const exclude = events.map((e) => e.kind as SystemEventKind);
+    const created = await spawnEvent(db, userId, today, level, slot, exclude);
+    if (created) events.push(created);
+  }
+
+  return events.sort((a, b) => a.slot - b.slot);
+}
+
+/** Roll and insert one slot's event; null when the roll says "quiet". */
+async function spawnEvent(
+  db: SupabaseClient,
+  userId: string,
+  today: string,
+  level: number,
+  slot: number,
+  exclude: SystemEventKind[],
+): Promise<SystemEventRow | null> {
+  const roll = rollSystemEvent(userId, today, level, slot, exclude);
   if (!roll) return null;
 
   // Riddles (Phase 6): try the AI for a fresh one; the deterministic fallback
@@ -75,6 +92,7 @@ export async function ensureSystemEvent(
     .insert({
       user_id: userId,
       local_date: today,
+      slot,
       kind: roll.kind,
       title: roll.title,
       body: roll.body,
@@ -91,6 +109,7 @@ export async function ensureSystemEvent(
         .select('*')
         .eq('user_id', userId)
         .eq('local_date', today)
+        .eq('slot', slot)
         .maybeSingle();
       return (data as SystemEventRow) ?? null;
     }

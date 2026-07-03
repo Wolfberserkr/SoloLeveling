@@ -190,6 +190,7 @@ export type SystemEvent = {
   id: string;
   user_id: string;
   local_date: string;
+  slot: number;
   kind: 'gate' | 'mana_surge' | 'xp_surge' | 'potion_gift' | 'riddle';
   title: string;
   body: string;
