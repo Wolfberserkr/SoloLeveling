@@ -263,13 +263,26 @@ body {
 }
 
 /* Attention strobe — a collapsed panel with something new inside pulses in
-   its own accent color until the player opens it. */
+   its own accent color until the player opens it. Pulses the border and an
+   inner glow too, so it reads even where outer shadows get clipped. */
 .attn-strobe {
   animation: attn-strobe 1.6s ease-in-out infinite;
 }
 @keyframes attn-strobe {
-  0%, 100% { box-shadow: 0 0 0 1px rgba(var(--color-accent-rgb), 0.15), 0 0 22px rgba(var(--color-accent-rgb), 0.25); }
-  50% { box-shadow: 0 0 0 1px rgba(var(--color-accent-rgb), 0.55), 0 0 42px rgba(var(--color-accent-rgb), 0.6); }
+  0%, 100% {
+    border-color: rgba(var(--color-accent-rgb), 0.35);
+    box-shadow:
+      0 0 0 1px rgba(var(--color-accent-rgb), 0.15),
+      0 0 22px rgba(var(--color-accent-rgb), 0.25),
+      inset 0 0 18px rgba(var(--color-accent-rgb), 0.08);
+  }
+  50% {
+    border-color: rgba(var(--color-accent-rgb), 0.9);
+    box-shadow:
+      0 0 0 1px rgba(var(--color-accent-rgb), 0.55),
+      0 0 42px rgba(var(--color-accent-rgb), 0.6),
+      inset 0 0 30px rgba(var(--color-accent-rgb), 0.22);
+  }
 }
 .attn-dot {
   width: 7px;
