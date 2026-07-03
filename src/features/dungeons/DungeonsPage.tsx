@@ -521,8 +521,22 @@ function MetricsPanel() {
     }
   }
 
+  // The trend line wants one entry per ISO week — glow until this week's is in.
+  const now = new Date();
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+  const weekStart = monday.toLocaleDateString('en-CA');
+  const entryDue = !metrics || metrics.local_date < weekStart;
+
   return (
-    <SystemWindow title="Body Metrics" accent="gold" delay={0.12}>
+    <SystemWindow
+      title="Body Metrics"
+      accent="gold"
+      delay={0.12}
+      collapsible
+      defaultCollapsed
+      attention={entryDue}
+    >
       {metrics && (
         <p className="mb-3 font-sys text-[0.65rem] uppercase tracking-widest text-slate-400">
           Last entry {metrics.local_date}

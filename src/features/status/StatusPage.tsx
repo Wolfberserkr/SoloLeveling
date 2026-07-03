@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { supabase } from '@/lib/supabase';
 import { usePlayerStore } from '@/stores/playerStore';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import { StatBar } from '@/components/system/StatBar';
@@ -16,12 +17,21 @@ import { STAT_GROUPS, STAT_LABELS, RANK_TITLES, type Rank } from '@game/constant
 import { classDef } from '@game/progression.ts';
 
 export function StatusPage() {
-  const { profile, stats, totals, messages } = usePlayerStore();
+  const { profile, stats, totals, messages, refresh } = usePlayerStore();
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   if (!profile) return null;
 
   const progress = levelProgress(profile.xp_total);
   const statMap = Object.fromEntries(stats.map((s) => [s.stat, Number(s.value)]));
+  const unreadLog = messages.some((m) => !m.read);
+
+  // Opening the log acknowledges it — flip the read flags (the one
+  // client-writable system_messages column) so the glow stands down.
+  async function markLogRead() {
+    if (!unreadLog) return;
+    await supabase.from('system_messages').update({ read: true }).eq('read', false);
+    await refresh();
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -127,7 +137,7 @@ export function StatusPage() {
       <InventoryPanel />
 
       {/* ── Lifetime record ── */}
-      <SystemWindow title="Record" accent="purple" delay={0.16}>
+      <SystemWindow title="Record" accent="purple" delay={0.16} collapsible defaultCollapsed>
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 font-sys text-xs uppercase tracking-wider">
           <Record label="Push-ups" value={totals?.total_pushups ?? 0} />
           <Record label="Sit-ups" value={totals?.total_situps ?? 0} />
@@ -139,7 +149,15 @@ export function StatusPage() {
       </SystemWindow>
 
       {/* ── System log ── */}
-      <SystemWindow title="System Log" accent="gold" delay={0.24}>
+      <SystemWindow
+        title="System Log"
+        accent="gold"
+        delay={0.24}
+        collapsible
+        defaultCollapsed
+        attention={unreadLog}
+        onExpand={() => void markLogRead()}
+      >
         {messages.length === 0 ? (
           <p className="font-sys text-xs text-slate-500">No messages.</p>
         ) : (

@@ -122,7 +122,14 @@ export function LegacyPanel() {
   }
 
   return (
-    <SystemWindow title="Legacy Boss — Your Past Self" accent={due ? 'red' : 'purple'} scan>
+    <SystemWindow
+      title="Legacy Boss — Your Past Self"
+      accent={due ? 'red' : 'purple'}
+      scan
+      collapsible
+      defaultCollapsed
+      attention={due}
+    >
       {due ? (
         <>
           <p className="text-xs leading-relaxed text-slate-400">

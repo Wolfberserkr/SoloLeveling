@@ -46,6 +46,15 @@ export function SkillsPage() {
   const passives = SKILLS.filter((s) => s.type === 'passive');
   const actives = SKILLS.filter((s) => s.type === 'active');
 
+  // A section glows when Essence could buy something in it right now.
+  const learnable = (defs: SkillDef[]) =>
+    defs.some(
+      (def) =>
+        !owned.has(def.key) &&
+        !skillPrereqError(def, { level: profile.level, rankIndex }) &&
+        profile.essence_stones >= def.essenceCost,
+    );
+
   return (
     <div className="flex flex-col gap-4">
       <SystemWindow title="Skills" scan>
@@ -59,7 +68,14 @@ export function SkillsPage() {
         </div>
       </SystemWindow>
 
-      <SystemWindow title="Passives" accent="purple" delay={0.08}>
+      <SystemWindow
+        title="Passives"
+        accent="purple"
+        delay={0.08}
+        collapsible
+        defaultCollapsed
+        attention={learnable(passives)}
+      >
         <ul className="flex flex-col gap-2">
           {passives.map((def) => (
             <SkillRow
@@ -75,7 +91,14 @@ export function SkillsPage() {
         </ul>
       </SystemWindow>
 
-      <SystemWindow title="Active Abilities" accent="gold" delay={0.16}>
+      <SystemWindow
+        title="Active Abilities"
+        accent="gold"
+        delay={0.16}
+        collapsible
+        defaultCollapsed
+        attention={learnable(actives)}
+      >
         <ul className="flex flex-col gap-2">
           {actives.map((def) => {
             const row = owned.get(def.key);

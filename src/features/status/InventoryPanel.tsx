@@ -15,14 +15,17 @@ function timeLeft(expiresAt: string): string {
 }
 
 export function InventoryPanel() {
-  const { inventory, equipment, refresh } = usePlayerStore();
+  const { inventory, equipment, messages, refresh } = usePlayerStore();
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
   const [busy, setBusy] = useState<string | null>(null);
 
+  // Loot lands via won encounters; an unread victory means unseen spoils.
+  const newLoot = messages.some((m) => !m.read && m.kind === 'encounter_won');
+
   if (inventory.length === 0 && equipment.length === 0) {
     return (
-      <SystemWindow title="Inventory" accent="purple" delay={0.18}>
+      <SystemWindow title="Inventory" accent="purple" delay={0.18} collapsible defaultCollapsed>
         <p className="font-sys text-xs text-slate-500">
           Empty. Explore from the Training tab to win consumables and gear.
         </p>
@@ -72,7 +75,14 @@ export function InventoryPanel() {
   }
 
   return (
-    <SystemWindow title="Inventory" accent="purple" delay={0.18}>
+    <SystemWindow
+      title="Inventory"
+      accent="purple"
+      delay={0.18}
+      collapsible
+      defaultCollapsed
+      attention={newLoot}
+    >
       {equipment.length > 0 && (
         <div className="mb-3">
           <div className="mb-1 font-sys text-[0.6rem] uppercase tracking-[0.25em] text-slate-500">

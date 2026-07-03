@@ -164,7 +164,14 @@ export function NutritionPanel() {
   }
 
   return (
-    <SystemWindow title="Fuel — Supplement Intake" accent="gold" delay={0.06}>
+    <SystemWindow
+      title="Fuel — Supplement Intake"
+      accent="gold"
+      delay={0.06}
+      collapsible
+      defaultCollapsed
+      attention={!fueled}
+    >
       {/* Protein — the floor. Meet it, earn XP. */}
       <div className="mb-1 flex items-baseline justify-between">
         <span

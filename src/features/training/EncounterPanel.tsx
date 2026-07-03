@@ -83,7 +83,7 @@ export function EncounterPanel() {
   // ── No active encounter: the Explore prompt ──
   if (!encounter) {
     return (
-      <SystemWindow title="Encounter" accent="red" delay={0.04}>
+      <SystemWindow title="Encounter" accent="red" delay={0.04} collapsible defaultCollapsed>
         <p className="text-xs leading-relaxed text-slate-400">
           Venture off the path to face what the System throws at you. A stat check decides the
           outcome — essence, experience, and loot for the victor.
@@ -105,7 +105,15 @@ export function EncounterPanel() {
   // ── Active encounter: pick an action ──
   const choices = encounter.payload.choices ?? [];
   return (
-    <SystemWindow title="Encounter" accent="red" scan delay={0.04}>
+    <SystemWindow
+      title="Encounter"
+      accent="red"
+      scan
+      delay={0.04}
+      collapsible
+      defaultCollapsed
+      attention
+    >
       <div className="font-display text-lg font-bold uppercase tracking-[0.2em] text-white glow-text">
         <GlitchText text={encounter.payload.title} />
       </div>

@@ -262,6 +262,25 @@ body {
   50% { box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.5), 0 0 42px rgba(239, 68, 68, 0.55); }
 }
 
+/* Attention strobe — a collapsed panel with something new inside pulses in
+   its own accent color until the player opens it. */
+.attn-strobe {
+  animation: attn-strobe 1.6s ease-in-out infinite;
+}
+@keyframes attn-strobe {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(var(--color-accent-rgb), 0.15), 0 0 22px rgba(var(--color-accent-rgb), 0.25); }
+  50% { box-shadow: 0 0 0 1px rgba(var(--color-accent-rgb), 0.55), 0 0 42px rgba(var(--color-accent-rgb), 0.6); }
+}
+.attn-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: rgb(var(--color-accent-rgb));
+  box-shadow: 0 0 8px rgb(var(--color-accent-rgb));
+  animation: breathe 1.6s ease-in-out infinite;
+}
+
 /* ── Mobile / PWA tuning ───────────────────────────────────────────────── */
 @media (max-width: 640px) {
   .sys-btn { min-height: 44px; padding: 0.5rem 0.9rem; }
