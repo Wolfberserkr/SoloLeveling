@@ -220,8 +220,8 @@ body {
 .mote {
   position: absolute;
   border-radius: 9999px;
-  background: rgba(78, 203, 255, 0.4);
-  box-shadow: 0 0 6px rgba(78, 203, 255, 0.55);
+  background: rgba(78, 203, 255, 0.6);
+  box-shadow: 0 0 10px rgba(78, 203, 255, 0.85), 0 0 3px rgba(255, 255, 255, 0.6);
   opacity: 0;
   animation-name: mote-drift;
   animation-timing-function: linear;
