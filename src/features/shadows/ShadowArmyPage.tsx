@@ -24,6 +24,7 @@ function passiveText(shadow: Shadow): string {
 export function ShadowArmyPage() {
   const { profile, shadows, refresh } = usePlayerStore();
   const pushAlert = useUiStore((s) => s.pushAlert);
+  const showTakeover = useUiStore((s) => s.showTakeover);
   const [busy, setBusy] = useState<string | null>(null);
   if (!profile) return null;
 
@@ -39,11 +40,19 @@ export function ShadowArmyPage() {
       const res = await gameAction<{ success?: boolean }>(action, { shadow_id: shadow.id });
       await refresh();
       if (action === 'extract-shadow') {
-        pushAlert(
-          res.success
-            ? { kind: 'success', title: `ARISE — ${shadow.name}`, body: 'The shadow joins your army.' }
-            : { kind: 'warning', title: `${shadow.name} resists`, body: `${SHADOW_EXTRACT_MANA} mana spent. Try again.` },
-        );
+        if (res.success) {
+          showTakeover({
+            kind: 'arise',
+            title: 'Arise',
+            subtitle: `${shadow.name} · ${shadow.grade} shadow joins your army`,
+          });
+        } else {
+          pushAlert({
+            kind: 'warning',
+            title: `${shadow.name} resists`,
+            body: `${SHADOW_EXTRACT_MANA} mana spent. Try again.`,
+          });
+        }
       } else {
         pushAlert({
           kind: 'success',

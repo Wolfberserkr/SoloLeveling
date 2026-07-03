@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { gameAction } from '@/lib/gameApi';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import { StatBar } from '@/components/system/StatBar';
+import { TickingNumber } from '@/components/system/TickingNumber';
 import {
   NUTRITION_XP,
   SUPPLEMENT_STACK_XP,
@@ -28,6 +29,7 @@ export function NutritionPanel() {
   const { profile, nutrition, setNutrition, refresh } = usePlayerStore();
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
+  const burstXp = useUiStore((s) => s.burstXp);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<TargetKind | null>(null);
   const [targetText, setTargetText] = useState('');
@@ -47,12 +49,15 @@ export function NutritionPanel() {
     vitamins: Boolean(nutrition?.vitamins),
   };
 
-  async function log(payload: {
-    protein_g?: number;
-    calories_kcal?: number;
-    creatine?: boolean;
-    vitamins?: boolean;
-  }) {
+  async function log(
+    payload: {
+      protein_g?: number;
+      calories_kcal?: number;
+      creatine?: boolean;
+      vitamins?: boolean;
+    },
+    at?: { x: number; y: number },
+  ) {
     if (busy) return;
     setBusy(true);
     try {
@@ -62,6 +67,8 @@ export function NutritionPanel() {
         stack_award: XpAward | null;
       }>('log-nutrition', payload);
       setNutrition(res.nutrition);
+      if (res.fuel_award) burstXp(res.fuel_award.credited, at);
+      if (res.stack_award) burstXp(res.stack_award.credited, at);
       if (res.fuel_award) {
         pushAlert({
           kind: 'success',
@@ -166,7 +173,7 @@ export function NutritionPanel() {
           {fueled ? '✓ ' : ''}Protein
         </span>
         <span className="font-sys text-xs text-slate-400">
-          {Math.round(proteinDone)} /{' '}
+          <TickingNumber value={Math.round(proteinDone)} /> /{' '}
           <TargetValue kind="protein" value={target} min={PROTEIN_TARGET_MIN_G} max={PROTEIN_TARGET_MAX_G} /> g
         </span>
       </div>
@@ -177,7 +184,7 @@ export function NutritionPanel() {
             key={step}
             className="sys-btn sys-btn-ghost flex-1 !min-h-[34px] !py-1 !text-[0.65rem]"
             disabled={busy}
-            onClick={() => log({ protein_g: step })}
+            onClick={(e) => log({ protein_g: step }, { x: e.clientX, y: e.clientY })}
           >
             +{step} g
           </button>
@@ -192,7 +199,7 @@ export function NutritionPanel() {
           Calories
         </span>
         <span className="font-sys text-xs text-slate-400">
-          {Math.round(kcalDone)} /{' '}
+          <TickingNumber value={Math.round(kcalDone)} /> /{' '}
           <TargetValue
             kind="calories"
             value={calorieTarget}
@@ -223,7 +230,7 @@ export function NutritionPanel() {
             key={s.key}
             type="button"
             disabled={busy || taken[s.key]}
-            onClick={() => log({ [s.key]: true })}
+            onClick={(e) => log({ [s.key]: true }, { x: e.clientX, y: e.clientY })}
             className={`flex items-center justify-between border px-3 py-2 text-left transition-colors ${
               taken[s.key]
                 ? 'border-accent-green/40 bg-accent-green/5'

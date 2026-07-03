@@ -9,12 +9,14 @@ export function SideQuestsPanel() {
   const { profile, quests, setQuest, refresh } = usePlayerStore();
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
+  const burstXp = useUiStore((s) => s.burstXp);
+  const showTakeover = useUiStore((s) => s.showTakeover);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   if (!profile || quests.length === 0) return null;
   const mana = profile.mana;
 
-  async function complete(quest: DailyQuest) {
+  async function complete(quest: DailyQuest, at?: { x: number; y: number }) {
     if (busyKey) return;
     setBusyKey(quest.quest_key);
     try {
@@ -25,16 +27,17 @@ export function SideQuestsPanel() {
         quest: DailyQuest;
       }>('complete-quest', { key: quest.quest_key });
       setQuest(res.quest);
+      burstXp(res.award.credited, at);
       pushAlert({
         kind: 'success',
         title: `${quest.title} complete`,
         body: `+${res.award.credited} XP · −${quest.mana_cost} mana${res.award.capped ? ' · DAILY XP SATURATED' : ''}`,
       });
       if (res.perfect) {
-        pushAlert({
-          kind: 'success',
-          title: 'PERFECT CLEAR',
-          body: `Every quest today completed. +${res.perfect.credited} XP`,
+        showTakeover({
+          kind: 'perfect',
+          title: 'Perfect Clear',
+          subtitle: `Every quest today completed · +${res.perfect.credited} XP`,
         });
       }
       if (res.award.leveled_up || res.perfect?.leveled_up) {
@@ -79,7 +82,7 @@ export function SideQuestsPanel() {
                 <button
                   className="sys-btn sys-btn-ghost mt-2 w-full !min-h-[34px] !py-1 !text-[0.65rem]"
                   disabled={busyKey !== null || !affordable}
-                  onClick={() => complete(q)}
+                  onClick={(e) => complete(q, { x: e.clientX, y: e.clientY })}
                 >
                   {affordable ? 'Report Completion' : 'Insufficient Mana'}
                 </button>

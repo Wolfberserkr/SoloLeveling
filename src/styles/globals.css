@@ -51,8 +51,16 @@ body {
   border-style: solid;
   pointer-events: none;
 }
-.sys-window::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
-.sys-window::after  { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+.sys-window::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; animation: bracket-flicker 9s infinite; }
+.sys-window::after  { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; animation: bracket-flicker 9s infinite 4.6s; }
+
+/* Holograms are never perfectly stable — a rare, brief bracket stutter. */
+@keyframes bracket-flicker {
+  0%, 92%, 100% { opacity: 1; }
+  93% { opacity: 0.35; }
+  95% { opacity: 0.9; }
+  97% { opacity: 0.5; }
+}
 
 .sys-window-cyan   { --color-accent-rgb: 78, 203, 255; }
 .sys-window-purple { --color-accent-rgb: 168, 85, 247; }
@@ -136,7 +144,8 @@ body {
   box-shadow: 0 0 18px rgba(var(--color-accent-rgb), 0.45);
 }
 .sys-btn:active {
-  transform: translateY(1px);
+  transform: translateY(1px) scale(0.97);
+  box-shadow: 0 0 26px rgba(var(--color-accent-rgb), 0.6);
 }
 .sys-btn:disabled {
   opacity: 0.4;
@@ -156,9 +165,20 @@ body {
   overflow: hidden;
 }
 .xp-fill {
+  position: relative;
   height: 100%;
   background: linear-gradient(90deg, rgb(var(--color-accent-rgb)), #a855f7);
   box-shadow: 0 0 10px rgb(var(--color-accent-rgb));
+}
+/* Leading-edge comet: the fill's tip burns brighter than its tail. */
+.xp-fill::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 7px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75));
 }
 
 .rank-badge {
@@ -194,6 +214,33 @@ body {
     1px 0 rgba(255, 0, 80, 0.55),
     -1px 0 rgba(0, 209, 255, 0.55),
     0 0 12px rgba(var(--color-accent-rgb), 0.6);
+}
+
+/* ── Ambient motes — dust drifting through the gate ────────────────────── */
+.mote {
+  position: absolute;
+  border-radius: 9999px;
+  background: rgba(78, 203, 255, 0.4);
+  box-shadow: 0 0 6px rgba(78, 203, 255, 0.55);
+  opacity: 0;
+  animation-name: mote-drift;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+@keyframes mote-drift {
+  0% { transform: translate3d(0, 0, 0); opacity: 0; }
+  12% { opacity: var(--peak, 0.35); }
+  88% { opacity: var(--peak, 0.35); }
+  100% { transform: translate3d(var(--dx, 0px), -55vh, 0); opacity: 0; }
+}
+
+/* Gate events strobe — an emergency the UI refuses to let you ignore. */
+.gate-strobe {
+  animation: gate-strobe 1.6s ease-in-out infinite;
+}
+@keyframes gate-strobe {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.15), 0 0 22px rgba(239, 68, 68, 0.25); }
+  50% { box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.5), 0 0 42px rgba(239, 68, 68, 0.55); }
 }
 
 /* ── Mobile / PWA tuning ───────────────────────────────────────────────── */

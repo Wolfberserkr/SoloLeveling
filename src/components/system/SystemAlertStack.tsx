@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect } from 'react';
 import { useUiStore, type SystemAlert } from '@/stores/uiStore';
 import { chime, haptic } from '@/lib/feedback';
+import { GlitchText } from './GlitchText';
 
 const ACCENT: Record<SystemAlert['kind'], string> = {
   info: 'sys-window-cyan',
@@ -36,7 +37,7 @@ function AlertCard({ alert }: { alert: SystemAlert }) {
     >
       <div className="sys-title glitch-rgb text-[0.65rem]">[ SYSTEM ]</div>
       <div className="mt-1 font-display text-sm font-semibold uppercase tracking-wide">
-        {alert.title}
+        <GlitchText text={alert.title} />
       </div>
       {alert.body && <div className="mt-0.5 text-xs opacity-75">{alert.body}</div>}
     </motion.div>
