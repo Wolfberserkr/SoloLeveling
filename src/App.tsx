@@ -8,6 +8,9 @@ import { BottomNav } from '@/components/system/BottomNav';
 import { SystemAlertStack } from '@/components/system/SystemAlertStack';
 import { OfflineBanner } from '@/components/system/OfflineBanner';
 import { LevelUpSequence } from '@/components/system/LevelUpSequence';
+import { SystemTakeover } from '@/components/system/SystemTakeover';
+import { XpBurstLayer } from '@/components/system/XpBurstLayer';
+import { AmbientMotes } from '@/components/system/AmbientMotes';
 import { GlitchText } from '@/components/system/GlitchText';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { StatusPage } from '@/features/status/StatusPage';
@@ -38,6 +41,36 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
+const BOOT_LINES = [
+  '> locating player signature……… found',
+  '> synchronizing daily quests…',
+  '> restoring mana channels…',
+  '> link established',
+].join('\n');
+
+/** Terminal-style typewriter under the boot title — the System dialing in. */
+function BootTicker() {
+  const [chars, setChars] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setChars((c) => {
+        if (c >= BOOT_LINES.length) {
+          clearInterval(id);
+          return c;
+        }
+        return c + 1;
+      });
+    }, 26);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <pre className="min-h-[5.5rem] w-64 whitespace-pre-wrap font-sys text-[0.65rem] leading-relaxed text-accent-cyan/70">
+      {BOOT_LINES.slice(0, chars)}
+      <span className="animate-flicker">▮</span>
+    </pre>
+  );
+}
+
 function BootScreen({ error }: { error?: string | null }) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-6">
@@ -45,7 +78,11 @@ function BootScreen({ error }: { error?: string | null }) {
       <div className="font-display text-lg uppercase tracking-[0.3em] text-accent-cyan glow-text">
         <GlitchText text={error ? 'Link Error' : 'Establishing Link'} />
       </div>
-      {error && <p className="max-w-xs text-center font-sys text-xs text-accent-red">{error}</p>}
+      {error ? (
+        <p className="max-w-xs text-center font-sys text-xs text-accent-red">{error}</p>
+      ) : (
+        <BootTicker />
+      )}
     </div>
   );
 }
@@ -92,9 +129,12 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <AmbientMotes />
       <OfflineBanner />
       <SystemAlertStack />
       <LevelUpSequence />
+      <SystemTakeover />
+      <XpBurstLayer />
       <Routes>
         <Route path="/login" element={session ? <Navigate to="/" replace /> : <LoginPage />} />
         <Route path="/*" element={session ? <AuthedApp /> : <Navigate to="/login" replace />} />

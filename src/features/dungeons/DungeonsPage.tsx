@@ -75,6 +75,7 @@ function DungeonRunPanel() {
   const { profile, dungeon, gymDoneToday, liftLogs, setDungeon, refresh } = usePlayerStore();
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
+  const burstXp = useUiStore((s) => s.burstXp);
   const [busy, setBusy] = useState(false);
   const [ticked, setTicked] = useState<Record<number, boolean>>({});
   const [selected, setSelected] = useState<SessionKind | null>(null);
@@ -86,7 +87,7 @@ function DungeonRunPanel() {
   const suggested = sessionKindFor(dungeon.sessions_completed);
   const kind = selected ?? suggested;
 
-  async function clearRun() {
+  async function clearRun(at?: { x: number; y: number }) {
     if (busy || gymDoneToday || !affordable) return;
     setBusy(true);
     try {
@@ -98,6 +99,7 @@ function DungeonRunPanel() {
       setDungeon(res.dungeon, true);
       setTicked({});
       setSelected(null);
+      burstXp(res.award.credited, at);
       pushAlert({
         kind: 'success',
         title: 'Dungeon run cleared',
@@ -238,7 +240,11 @@ function DungeonRunPanel() {
           Cleared Today
         </motion.div>
       ) : (
-        <button className="sys-btn mt-5 w-full" disabled={busy || !affordable} onClick={clearRun}>
+        <button
+          className="sys-btn mt-5 w-full"
+          disabled={busy || !affordable}
+          onClick={(e) => clearRun({ x: e.clientX, y: e.clientY })}
+        >
           {affordable ? `⬡ Clear Dungeon Run (−${MANA_COSTS.gym} ◈)` : 'Insufficient Mana'}
         </button>
       )}
@@ -393,6 +399,7 @@ function ExerciseBlock({ label, exercises }: { label: string; exercises: Dungeon
 }
 
 function BossPanel() {
+  const showTakeover = useUiStore((s) => s.showTakeover);
   const { dungeon, setDungeon, refresh } = usePlayerStore();
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
@@ -419,10 +426,10 @@ function BossPanel() {
       }>('attempt-boss', { confirmed });
       if (res.victory && res.dungeon) {
         setDungeon(res.dungeon);
-        pushAlert({
-          kind: 'success',
-          title: `DUNGEON CLEARED — ${res.boss} has fallen`,
-          body: res.award ? `+${res.award.credited} XP · Daily targets rise.` : undefined,
+        showTakeover({
+          kind: 'boss',
+          title: 'Dungeon Cleared',
+          subtitle: `${res.boss} has fallen${res.award ? ` · +${res.award.credited} XP` : ''}`,
         });
         if (res.award?.leveled_up) showLevelUp(res.award.new_level);
       } else {

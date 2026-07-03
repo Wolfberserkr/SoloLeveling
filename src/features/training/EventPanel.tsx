@@ -21,17 +21,19 @@ export function EventPanel() {
   const { event, refresh } = usePlayerStore();
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
+  const burstXp = useUiStore((s) => s.burstXp);
   const [busy, setBusy] = useState(false);
   const [guess, setGuess] = useState('');
 
   if (!event || event.status === 'expired') return null;
   const cleared = event.status === 'completed';
 
-  async function clearGate() {
+  async function clearGate(at?: { x: number; y: number }) {
     if (busy || !event || event.kind !== 'gate' || cleared) return;
     setBusy(true);
     try {
       const res = await gameAction<{ award: XpAward }>('complete-event');
+      burstXp(res.award.credited, at);
       pushAlert({
         kind: 'success',
         title: 'GATE CLEARED',
@@ -61,6 +63,7 @@ export function EventPanel() {
         award?: XpAward;
       }>('answer-riddle', { guess });
       if (res.correct) {
+        burstXp(res.award?.credited ?? event.xp_reward);
         pushAlert({
           kind: 'success',
           title: 'RIDDLE SOLVED',
@@ -97,7 +100,12 @@ export function EventPanel() {
     (event.payload.max_attempts ?? RIDDLE_MAX_ATTEMPTS) - (event.payload.attempts_used ?? 0);
 
   return (
-    <SystemWindow title="System Event" accent={EVENT_ACCENTS[event.kind]} scan>
+    <SystemWindow
+      title="System Event"
+      accent={EVENT_ACCENTS[event.kind]}
+      scan
+      className={event.kind === 'gate' && !cleared ? 'gate-strobe' : ''}
+    >
       <div className="font-display text-lg font-bold uppercase tracking-[0.2em] text-white glow-text">
         <GlitchText text={event.title} />
       </div>
@@ -118,7 +126,11 @@ export function EventPanel() {
       )}
 
       {event.kind === 'gate' && !cleared && (
-        <button className="sys-btn mt-4 w-full" disabled={busy} onClick={clearGate}>
+        <button
+          className="sys-btn mt-4 w-full"
+          disabled={busy}
+          onClick={(e) => clearGate({ x: e.clientX, y: e.clientY })}
+        >
           ⚔ Report Gate Cleared (+{event.xp_reward} XP)
         </button>
       )}

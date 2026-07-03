@@ -41,6 +41,8 @@ export function TrainingPage() {
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
+  const burstXp = useUiStore((s) => s.burstXp);
+  const showTakeover = useUiStore((s) => s.showTakeover);
   const [busy, setBusy] = useState(false);
 
   if (!training) {
@@ -75,7 +77,7 @@ export function TrainingPage() {
     }
   }
 
-  async function complete() {
+  async function complete(at?: { x: number; y: number }) {
     if (busy || resolved || !allMet) return;
     setBusy(true);
     try {
@@ -85,16 +87,17 @@ export function TrainingPage() {
         perfect: XpAward | null;
         training: TrainingQuest;
       }>('complete-training');
+      burstXp(res.award.credited, at);
       pushAlert({
         kind: 'success',
         title: 'Daily Quest Complete',
         body: `+${res.award.credited} XP · Streak ${res.streak}${res.award.capped ? ' · DAILY XP SATURATED' : ''}`,
       });
       if (res.perfect) {
-        pushAlert({
-          kind: 'success',
-          title: 'PERFECT CLEAR',
-          body: `Every quest today completed. +${res.perfect.credited} XP`,
+        showTakeover({
+          kind: 'perfect',
+          title: 'Perfect Clear',
+          subtitle: `Every quest today completed · +${res.perfect.credited} XP`,
         });
       }
       if (res.award.leveled_up || res.perfect?.leveled_up) {
@@ -155,7 +158,16 @@ export function TrainingPage() {
                   <span
                     className={`font-display text-sm font-semibold uppercase tracking-wider ${met ? 'text-accent-green' : ''}`}
                   >
-                    {met ? '✓ ' : ''}
+                    {met && (
+                      <motion.span
+                        className="inline-block"
+                        initial={{ scale: 0, rotate: -45 }}
+                        animate={{ scale: 1, rotate: 0 }}
+                        transition={{ type: 'spring', stiffness: 420, damping: 14 }}
+                      >
+                        ✓{' '}
+                      </motion.span>
+                    )}
                     {ex.label}
                   </span>
                   <span className="font-sys text-xs text-slate-400">
@@ -188,7 +200,7 @@ export function TrainingPage() {
             <motion.button
               className={`sys-btn mt-5 w-full ${allMet ? 'animate-pulse-glow' : ''}`}
               disabled={!allMet || busy}
-              onClick={complete}
+              onClick={(e) => complete({ x: e.clientX, y: e.clientY })}
               exit={{ opacity: 0 }}
             >
               {allMet ? '⚔ Report Completion' : 'Targets Incomplete'}
