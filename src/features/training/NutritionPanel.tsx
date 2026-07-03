@@ -14,6 +14,8 @@ import {
   PROTEIN_TARGET_MAX_G,
   CALORIE_TARGET_MIN_KCAL,
   CALORIE_TARGET_MAX_KCAL,
+  MAX_PROTEIN_PER_LOG_G,
+  MAX_KCAL_PER_LOG,
   clampProteinTarget,
   clampCalorieTarget,
   type SupplementKey,
@@ -33,6 +35,10 @@ export function NutritionPanel() {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<TargetKind | null>(null);
   const [targetText, setTargetText] = useState('');
+  const [customText, setCustomText] = useState<Record<TargetKind, string>>({
+    protein: '',
+    calories: '',
+  });
 
   if (!profile) return null;
 
@@ -57,8 +63,8 @@ export function NutritionPanel() {
       vitamins?: boolean;
     },
     at?: { x: number; y: number },
-  ) {
-    if (busy) return;
+  ): Promise<boolean> {
+    if (busy) return false;
     setBusy(true);
     try {
       const res = await gameAction<{
@@ -87,15 +93,63 @@ export function NutritionPanel() {
         showLevelUp(res.stack_award?.leveled_up ? res.stack_award.new_level : res.fuel_award!.new_level);
       }
       if (res.fuel_award || res.stack_award) await refresh();
+      return true;
     } catch (err) {
       pushAlert({
         kind: 'danger',
         title: 'Intake rejected',
         body: err instanceof Error ? err.message : undefined,
       });
+      return false;
     } finally {
       setBusy(false);
     }
+  }
+
+  function parseCustom(kind: TargetKind): number | null {
+    const max = kind === 'protein' ? MAX_PROTEIN_PER_LOG_G : MAX_KCAL_PER_LOG;
+    const value = Math.round(Number(customText[kind]));
+    if (!Number.isFinite(value) || value <= 0) return null;
+    return Math.min(value, max);
+  }
+
+  async function logCustom(kind: TargetKind, at?: { x: number; y: number }) {
+    const value = parseCustom(kind);
+    if (value === null) return;
+    const ok = await log(
+      kind === 'protein' ? { protein_g: value } : { calories_kcal: value },
+      at,
+    );
+    if (ok) setCustomText((t) => ({ ...t, [kind]: '' }));
+  }
+
+  // Plain function (not a nested component) so the input keeps focus across renders.
+  function customRow(kind: TargetKind) {
+    const max = kind === 'protein' ? MAX_PROTEIN_PER_LOG_G : MAX_KCAL_PER_LOG;
+    return (
+      <div className="mt-2 flex gap-2">
+        <input
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={max}
+          placeholder={kind === 'protein' ? 'exact grams' : 'exact kcal'}
+          value={customText[kind]}
+          onChange={(e) => setCustomText((t) => ({ ...t, [kind]: e.target.value }))}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void logCustom(kind);
+          }}
+          className="min-w-0 flex-[2] border border-white/10 bg-bg-base/60 px-2 py-1 text-center font-sys text-xs text-white outline-none placeholder:text-slate-600 focus:border-accent-gold"
+        />
+        <button
+          className="sys-btn sys-btn-ghost flex-1 !min-h-[34px] !py-1 !text-[0.65rem]"
+          disabled={busy || parseCustom(kind) === null}
+          onClick={(e) => logCustom(kind, { x: e.clientX, y: e.clientY })}
+        >
+          Log
+        </button>
+      </div>
+    );
   }
 
   async function saveTarget(kind: TargetKind) {
@@ -197,6 +251,7 @@ export function NutritionPanel() {
           </button>
         ))}
       </div>
+      {customRow('protein')}
 
       {/* Calories — the ceiling. Informational: no XP rides on eating less. */}
       <div className="mb-1 mt-4 flex items-baseline justify-between">
@@ -229,6 +284,7 @@ export function NutritionPanel() {
           </button>
         ))}
       </div>
+      {customRow('calories')}
 
       {/* Supplement stack */}
       <div className="mt-4 flex flex-col gap-2">
