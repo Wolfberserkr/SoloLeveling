@@ -55,8 +55,16 @@ export function SideQuestsPanel() {
     }
   }
 
+  const pendingLeft = quests.some((q) => q.status === 'pending');
   return (
-    <SystemWindow title="Side Quests" accent="cyan" delay={0.05}>
+    <SystemWindow
+      title="Side Quests"
+      accent="cyan"
+      delay={0.05}
+      collapsible
+      defaultCollapsed
+      attention={pendingLeft}
+    >
       <div className="flex flex-col gap-3">
         {quests.map((q) => {
           const done = q.status === 'completed';

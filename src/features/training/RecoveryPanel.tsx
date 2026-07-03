@@ -66,7 +66,14 @@ export function RecoveryPanel() {
   }
 
   return (
-    <SystemWindow title="Mana — Recovery" accent="purple" delay={0.08}>
+    <SystemWindow
+      title="Mana — Recovery"
+      accent="purple"
+      delay={0.08}
+      collapsible
+      defaultCollapsed
+      attention={!sleep}
+    >
       <div className="flex items-center gap-4">
         <ManaOrb mana={profile.mana} manaMax={profile.mana_max} size={64} />
         <div className="min-w-0 flex-1">

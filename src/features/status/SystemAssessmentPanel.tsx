@@ -61,7 +61,14 @@ export function SystemAssessmentPanel() {
   }
 
   return (
-    <SystemWindow title="System Assessment" accent="cyan" delay={0.2}>
+    <SystemWindow
+      title="System Assessment"
+      accent="cyan"
+      delay={0.2}
+      collapsible
+      defaultCollapsed
+      attention={canRequest}
+    >
       {weeklyReview ? (
         <>
           <div className="font-sys text-[0.6rem] uppercase tracking-[0.25em] text-slate-500">

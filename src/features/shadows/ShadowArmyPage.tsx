@@ -89,7 +89,14 @@ export function ShadowArmyPage() {
       </SystemWindow>
 
       {available.length > 0 && (
-        <SystemWindow title="Fallen — Awaiting Arise" accent="red" delay={0.06}>
+        <SystemWindow
+          title="Fallen — Awaiting Arise"
+          accent="red"
+          delay={0.06}
+          collapsible
+          defaultCollapsed
+          attention
+        >
           <ul className="flex flex-col gap-2">
             {available.map((shadow) => {
               const chance = Math.round(extractChance(shadow.grade as ShadowGrade, profile.rank) * 100);
@@ -119,7 +126,14 @@ export function ShadowArmyPage() {
         </SystemWindow>
       )}
 
-      <SystemWindow title={`Army — ${arisen.length}`} accent="purple" delay={0.12}>
+      <SystemWindow
+        title={`Army — ${arisen.length}`}
+        accent="purple"
+        delay={0.12}
+        collapsible
+        defaultCollapsed
+        attention={deployedCount < capacity && arisen.some((s) => !s.deployed)}
+      >
         {arisen.length === 0 ? (
           <p className="font-sys text-xs text-slate-500">No shadows raised yet.</p>
         ) : (
