@@ -1219,16 +1219,29 @@ async function logNutrition(
   if (newlyFueled) row.fueled = true;
   if (newlyStacked) row.stacked = true;
 
-  const { data: saved, error } = await db
+  let { data: saved, error } = await db
     .from('nutrition_logs')
     .upsert(row, { onConflict: 'user_id,local_date' })
     .select('*')
     .single();
+  if (error?.code === 'PGRST204') {
+    // Missing column (0021 not applied yet): keep protein logging alive by
+    // writing without the calories field until the migration lands.
+    const { calories_kcal: _pending, ...withoutCalories } = row;
+    ({ data: saved, error } = await db
+      .from('nutrition_logs')
+      .upsert(withoutCalories, { onConflict: 'user_id,local_date' })
+      .select('*')
+      .single());
+  }
   if (error?.code === '42P01' || error?.code === 'PGRST205') {
     // Missing table / stale schema cache: functions deployed ahead of migrations
     throw new HttpError(503, 'The Fuel Protocol is not provisioned yet — run the 0020/0021 database migrations.');
   }
-  if (error || !saved) throw new HttpError(500, 'Failed to log intake');
+  if (error || !saved) {
+    console.error('log-nutrition upsert failed:', error);
+    throw new HttpError(500, `Failed to log intake: ${error?.message ?? 'unknown error'}`);
+  }
 
   // XP — through the one true gate, after the flags are safely persisted.
   const fuelAward = newlyFueled ? await awardXp(ctx, NUTRITION_XP, 'nutrition', null) : null;
