@@ -16,12 +16,18 @@ describe('item catalog integrity', () => {
     for (const [key, def] of Object.entries(ITEMS)) expect(def.key).toBe(key);
   });
 
-  it('every gear has an affinity stat, multiplier > 1, and a positive duration', () => {
+  it('every gear buffs something — stat gains or XP — and has a positive duration', () => {
     for (const key of GEAR_KEYS) {
       const def = ITEMS[key];
       expect(def.category).toBe('gear');
-      expect(STATS).toContain(def.affinity);
-      expect(def.statMult).toBeGreaterThan(1);
+      if (def.xpMult) {
+        // XP boosters (Hunter's Brand) amplify XP instead of one attribute.
+        expect(def.xpMult).toBeGreaterThan(1);
+        expect(def.affinity).toBeUndefined();
+      } else {
+        expect(STATS).toContain(def.affinity);
+        expect(def.statMult).toBeGreaterThan(1);
+      }
       expect(def.durationHours).toBeGreaterThan(0);
     }
   });

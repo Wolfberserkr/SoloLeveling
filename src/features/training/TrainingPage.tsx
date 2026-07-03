@@ -12,6 +12,7 @@ import { NutritionPanel } from '@/features/training/NutritionPanel';
 import { RecoveryPanel } from '@/features/training/RecoveryPanel';
 import { EventPanel } from '@/features/training/EventPanel';
 import { EncounterPanel } from '@/features/training/EncounterPanel';
+import { ZoneFightPanel } from '@/features/zones/ZoneFightPanel';
 import type { TrainingQuest, XpAward } from '@/lib/types';
 
 type ExerciseKey = 'pushups' | 'situps' | 'squats' | 'run_km';
@@ -118,6 +119,7 @@ export function TrainingPage() {
   return (
     <div className="flex flex-col gap-4">
       <EventPanel />
+      <ZoneFightPanel />
       <EncounterPanel />
       <SystemWindow title="Daily Quest — Train to Become Strong" scan>
         <div className="mb-3 flex items-center justify-between font-sys text-[0.65rem] uppercase tracking-widest text-slate-400">

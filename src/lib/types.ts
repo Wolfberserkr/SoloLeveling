@@ -206,6 +206,35 @@ export type SystemEvent = {
   completed_at: string | null;
 };
 
+export type Zone = {
+  id: string;
+  user_id: string;
+  name: string;
+  kind: 'gym' | 'store' | 'landmark';
+  lat: number;
+  lng: number;
+  radius_m: number;
+  created_at: string;
+};
+
+export type ZoneTrigger = {
+  id: string;
+  user_id: string;
+  zone_id: string;
+  local_date: string;
+  kind: 'fight' | 'cache' | 'treasure' | 'quiet';
+  title: string;
+  body: string;
+  payload: {
+    monster?: string;
+    challenge?: string;
+    items?: Array<{ key: string; qty: number }>;
+  };
+  status: 'active' | 'completed' | 'expired' | 'none';
+  xp_reward: number;
+  completed_at: string | null;
+};
+
 export type SystemMessage = {
   id: string;
   kind: string;

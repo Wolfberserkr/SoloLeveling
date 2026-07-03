@@ -25,6 +25,8 @@ import type {
   InventoryItem,
   EquippedItem,
   WeeklyReview,
+  Zone,
+  ZoneTrigger,
 } from '@/lib/types';
 
 type PlayerState = {
@@ -56,6 +58,8 @@ type PlayerState = {
   encounter: Encounter | null; // the active encounter, if any
   exploresLeftToday: number;
   weeklyReview: WeeklyReview | null; // most recent AI System Coach assessment
+  zones: Zone[]; // the Player's marked Field Zones
+  zoneTriggers: ZoneTrigger[]; // today's zone rolls (fights, caches, quiet visits)
   /** Full refresh: lazy daily reset on the server, then re-read everything. */
   loadAll: () => Promise<void>;
   /** Re-read DB state without re-running the daily reset. */
@@ -96,6 +100,8 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   encounter: null,
   exploresLeftToday: EXPLORES_PER_DAY,
   weeklyReview: null,
+  zones: [],
+  zoneTriggers: [],
 
   loadAll: async () => {
     set({ loading: true, error: null });
@@ -168,6 +174,8 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       encounter: null,
       exploresLeftToday: EXPLORES_PER_DAY,
       weeklyReview: null,
+      zones: [],
+      zoneTriggers: [],
     }),
 }));
 
@@ -198,6 +206,8 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     equipmentRes,
     encounterRes,
     weeklyReviewRes,
+    zonesRes,
+    zoneTriggersRes,
   ] = await Promise.all([
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
@@ -285,6 +295,12 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
         .order('week_start', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabase.from('zones').select('*').order('created_at'),
+      supabase
+        .from('zone_triggers')
+        .select('*')
+        .order('local_date', { ascending: false })
+        .limit(16),
     ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
@@ -330,6 +346,10 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     equipment: (equipmentRes.data ?? []) as EquippedItem[],
     encounter: (encounterRes.data ?? null) as Encounter | null,
     weeklyReview: (weeklyReviewRes.data ?? null) as WeeklyReview | null,
+    zones: (zonesRes.data ?? []) as Zone[],
+    zoneTriggers: ((zoneTriggersRes.data ?? []) as ZoneTrigger[]).filter(
+      (t) => t.local_date === today,
+    ),
     exploresLeftToday: Math.max(
       0,
       EXPLORES_PER_DAY - Number((profileRes.data as Profile).explores_today ?? 0),

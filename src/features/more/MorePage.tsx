@@ -7,6 +7,7 @@ import { useSettingsStore, type DistanceUnit } from '@/stores/settingsStore';
 import { gameAction } from '@/lib/gameApi';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import { TitlesPanel } from '@/features/status/TitlesPanel';
+import { ZonesPanel } from '@/features/zones/ZonesPanel';
 import { pushSupported, currentSubscription, enablePush, disablePush } from '@/lib/push';
 import { installAvailable, subscribeInstall, promptInstall } from '@/lib/install';
 
@@ -88,6 +89,7 @@ export function MorePage() {
 
       <NotificationsPanel />
       <ReminderPanel />
+      <ZonesPanel />
       <PreferencesPanel />
       <InstallPanel />
       <DataPanel />

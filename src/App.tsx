@@ -12,6 +12,7 @@ import { SystemTakeover } from '@/components/system/SystemTakeover';
 import { XpBurstLayer } from '@/components/system/XpBurstLayer';
 import { AmbientMotes } from '@/components/system/AmbientMotes';
 import { GlitchText } from '@/components/system/GlitchText';
+import { useZoneWatch } from '@/features/zones/useZoneWatch';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { StatusPage } from '@/features/status/StatusPage';
 import { TrainingPage } from '@/features/training/TrainingPage';
@@ -89,6 +90,7 @@ function BootScreen({ error }: { error?: string | null }) {
 
 function AuthedApp() {
   const { loading, error, profile, loadAll } = usePlayerStore();
+  useZoneWatch();
 
   useEffect(() => {
     void loadAll();

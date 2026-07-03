@@ -42,6 +42,8 @@ export type ItemDef = {
   // gear only:
   affinity?: StatKey;
   statMult?: number;
+  /** Multiplies ALL XP earned while equipped (Hunter's Brand). */
+  xpMult?: number;
   durationHours?: number;
 };
 
@@ -171,7 +173,19 @@ export const ITEMS: Record<string, ItemDef> = {
     statMult: 1.5,
     durationHours: 24,
   },
+  hunters_brand: {
+    key: 'hunters_brand',
+    name: "Hunter's Brand",
+    description: '×1.5 XP from every source for 4h (found in supply caches).',
+    rarity: 'rare',
+    category: 'gear',
+    xpMult: 1.5,
+    durationHours: 4,
+  },
 };
+
+/** The XP booster that surfaces in Field Zone supply caches. */
+export const XP_BOOSTER_KEY = 'hunters_brand';
 
 export const CONSUMABLE_KEYS = Object.values(ITEMS)
   .filter((i) => i.category === 'consumable')
@@ -205,6 +219,17 @@ export function itemStatMultiplier(activeGearKeys: string[]): Partial<Record<Sta
     out[def.affinity] = (out[def.affinity] ?? 1) * def.statMult;
   }
   return out;
+}
+
+/** Combined XP multiplier from active gear (Hunter's Brand stacks by design —
+ * finding two is rare enough to be a jackpot, not an exploit). */
+export function itemXpMultiplier(activeGearKeys: string[]): number {
+  let mult = 1;
+  for (const key of activeGearKeys) {
+    const def = ITEMS[key];
+    if (def?.category === 'gear' && def.xpMult) mult *= def.xpMult;
+  }
+  return mult;
 }
 
 /** The effect of a consumable. Throws for unknown keys or non-consumables. */

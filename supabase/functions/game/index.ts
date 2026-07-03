@@ -113,7 +113,14 @@ import {
   resolveSeed,
   rankIndexOf,
 } from '../_shared/game/encounters.ts';
-import { itemStatMultiplier, applyConsumable, itemDef } from '../_shared/game/items.ts';
+import { itemStatMultiplier, itemXpMultiplier, applyConsumable, itemDef } from '../_shared/game/items.ts';
+import {
+  insideZone,
+  rollZoneTrigger,
+  zoneTriggerCopy,
+  haversineMeters,
+  ZONE_GPS_SLACK_M,
+} from '../_shared/game/zones.ts';
 import {
   NUTRITION_XP,
   SUPPLEMENT_STACK_XP,
@@ -140,6 +147,8 @@ type Ctx = {
   deployedShadows: DeployedShadow[];
   /** Per-attribute gain multipliers from active, non-expired equipped gear. */
   gearMults: Partial<Record<StatKey, number>>;
+  /** Keys of active, non-expired equipped gear (for XP boosters). */
+  gearKeys: string[];
 };
 
 type Profile = {
@@ -203,7 +212,8 @@ Deno.serve(async (req) => {
       .eq('user_id', user.id)
       .eq('active', true)
       .gt('expires_at', new Date().toISOString());
-    const gearMults = itemStatMultiplier((gearRows ?? []).map((g) => g.item_key as string));
+    const gearKeys = (gearRows ?? []).map((g) => g.item_key as string);
+    const gearMults = itemStatMultiplier(gearKeys);
 
     const ctx: Ctx = {
       db,
@@ -214,6 +224,7 @@ Deno.serve(async (req) => {
       skillKeys: skills.map((s) => s.skill_key),
       deployedShadows,
       gearMults,
+      gearKeys,
     };
 
     // Lazy daily reset: the System catches up before any action.
@@ -286,6 +297,10 @@ Deno.serve(async (req) => {
         return json(await equipItem(ctx, payload));
       case 'unequip-item':
         return json(await unequipItem(ctx, payload));
+      case 'enter-zone':
+        return json(await enterZone(ctx, payload));
+      case 'complete-zone-fight':
+        return json(await completeZoneFight(ctx, payload));
       case 'reset-progress':
         return json(await resetProgress(ctx, payload));
       default:
@@ -1888,6 +1903,182 @@ async function answerRiddle(ctx: Ctx, payload: { guess?: string }) {
   };
 }
 
+// ── enter-zone: the Player arrives at a marked place (Field Zones) ──────────
+// The client watches GPS while the app is open and reports presence; the
+// server verifies the coordinates against the zone, then rolls once per zone
+// per day — deterministically, so re-reporting from the parking lot cannot
+// reroll. Caches and treasures pay out instantly; fights stay active until
+// self-reported like a Gate, or expire at midnight.
+type ZoneRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  kind: string;
+  lat: number;
+  lng: number;
+  radius_m: number;
+};
+
+type ZoneTriggerRow = {
+  id: string;
+  user_id: string;
+  zone_id: string;
+  local_date: string;
+  kind: 'fight' | 'cache' | 'treasure' | 'quiet';
+  title: string;
+  body: string;
+  payload: Record<string, unknown>;
+  status: 'active' | 'completed' | 'expired' | 'none';
+  xp_reward: number;
+};
+
+async function enterZone(ctx: Ctx, payload: { zone_id?: string; lat?: number; lng?: number }) {
+  const { db, userId, today } = ctx;
+  const zoneId = typeof payload.zone_id === 'string' ? payload.zone_id : '';
+  const lat = Number(payload.lat);
+  const lng = Number(payload.lng);
+  if (!zoneId || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new HttpError(400, 'zone_id, lat, lng required');
+  }
+
+  const { data: zone } = await db
+    .from('zones')
+    .select('*')
+    .eq('id', zoneId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (!zone) throw new HttpError(404, 'No such zone');
+  const z = zone as ZoneRow;
+
+  if (!insideZone(lat, lng, z.lat, z.lng, z.radius_m)) {
+    const meters = Math.round(haversineMeters(lat, lng, z.lat, z.lng));
+    throw new HttpError(
+      409,
+      `You are not at ${z.name} — ${meters} m out (zone reaches ${z.radius_m + ZONE_GPS_SLACK_M} m).`,
+    );
+  }
+
+  // A fight left standing from a previous day slips away.
+  await db
+    .from('zone_triggers')
+    .update({ status: 'expired' })
+    .eq('user_id', userId)
+    .eq('status', 'active')
+    .lt('local_date', today);
+
+  const { data: existing } = await db
+    .from('zone_triggers')
+    .select('*')
+    .eq('zone_id', z.id)
+    .eq('local_date', today)
+    .maybeSingle();
+  if (existing) return { ok: true, trigger: existing as ZoneTriggerRow, already: true };
+
+  const roll = rollZoneTrigger(userId, z.id, today, z.kind as 'gym' | 'store' | 'landmark');
+
+  const row = {
+    user_id: userId,
+    zone_id: z.id,
+    local_date: today,
+    kind: (roll?.kind ?? 'quiet') as string,
+    title: '',
+    body: '',
+    payload: {} as Record<string, unknown>,
+    status: 'none',
+    xp_reward: 0,
+  };
+  if (roll) {
+    const copy = zoneTriggerCopy(roll, z.name);
+    row.title = copy.title;
+    row.body = copy.body;
+    if (roll.kind === 'fight') {
+      row.payload = { monster: roll.fight.monster, challenge: roll.fight.challenge };
+      row.status = 'active';
+      row.xp_reward = roll.xpReward;
+    } else {
+      row.payload = { items: roll.items };
+      row.status = 'completed';
+    }
+  }
+
+  const { data: created, error } = await db
+    .from('zone_triggers')
+    .insert(roll?.kind === 'fight' ? row : { ...row, completed_at: roll ? new Date().toISOString() : null })
+    .select('*')
+    .single();
+  if (error) {
+    // Unique violation: a concurrent report won the race — theirs stands.
+    if (error.code === '23505') {
+      const { data } = await db
+        .from('zone_triggers')
+        .select('*')
+        .eq('zone_id', z.id)
+        .eq('local_date', today)
+        .maybeSingle();
+      return { ok: true, trigger: data as ZoneTriggerRow, already: true };
+    }
+    if (error.code === '42P01' || error.code === 'PGRST205') {
+      throw new HttpError(503, 'Field Zones are not provisioned yet — run the 0023 database migration.');
+    }
+    console.error('zone_triggers insert failed:', error);
+    throw new HttpError(500, 'Failed to record the visit');
+  }
+
+  // Instant rewards land with the insert, exactly once.
+  if (roll && roll.kind !== 'fight') {
+    for (const it of roll.items) {
+      await db.rpc('grant_item', { p_user: userId, p_item_key: it.key, p_qty: it.qty });
+    }
+  }
+  if (roll) {
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: `zone_${roll.kind}`,
+      title: row.title,
+      body: row.body,
+      payload: { trigger_id: created.id, zone_id: z.id },
+    });
+  }
+
+  return { ok: true, trigger: created as ZoneTriggerRow, quiet: !roll };
+}
+
+// ── complete-zone-fight: report the field monster defeated ──────────────────
+async function completeZoneFight(ctx: Ctx, payload: { trigger_id?: string }) {
+  const { db, userId, today } = ctx;
+  const id = typeof payload.trigger_id === 'string' ? payload.trigger_id : '';
+  if (!id) throw new HttpError(400, 'trigger_id required');
+
+  const { data } = await db
+    .from('zone_triggers')
+    .select('*')
+    .eq('id', id)
+    .eq('user_id', userId)
+    .maybeSingle();
+  const trigger = data as ZoneTriggerRow | null;
+  if (!trigger || trigger.kind !== 'fight') throw new HttpError(404, 'No such fight');
+  if (trigger.status === 'completed') throw new HttpError(409, 'Already slain');
+  if (trigger.status !== 'active' || trigger.local_date !== today) {
+    throw new HttpError(409, 'The monster has slipped away');
+  }
+
+  await db
+    .from('zone_triggers')
+    .update({ status: 'completed', completed_at: new Date().toISOString() })
+    .eq('id', trigger.id);
+
+  const award = await awardXp(ctx, trigger.xp_reward, 'zone_fight', trigger.id);
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'zone_fight_won',
+    title: 'FIELD MONSTER SLAIN.',
+    body: `${String(trigger.payload?.monster ?? 'The monster')} falls. +${trigger.xp_reward} XP. The way is clear.`,
+    payload: { trigger_id: trigger.id },
+  });
+
+  return { ok: true, award, trigger: { ...trigger, status: 'completed' as const } };
+}
+
 // ── generate-questions: Archive Scan — AI questions for a tome (Phase 6) ────
 // Costs mana like a study session; pays nothing by itself. The questions land
 // in the same retention ladder as the Player's own, marked source='system'.
@@ -2011,11 +2202,13 @@ async function awardXp(
   sourceRef: string | null,
   capEligible = true,
 ) {
-  // Class discipline and passive skills amplify XP for matching sources before the cap.
+  // Class discipline, passive skills, and equipped XP boosters (Hunter's
+  // Brand) amplify XP for matching sources before the cap.
   const xpMult =
     classXpMultiplier(ctx.profile.class, source) *
     skillXpMultiplier(ctx.skillKeys, source) *
-    shadowXpMultiplier(ctx.deployedShadows, source);
+    shadowXpMultiplier(ctx.deployedShadows, source) *
+    itemXpMultiplier(ctx.gearKeys);
   const effectiveAmount = Math.round(amount * xpMult);
   const { data: award, error } = await ctx.db.rpc('award_xp', {
     p_user: ctx.userId,
