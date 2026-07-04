@@ -9,6 +9,7 @@ import { SystemAlertStack } from '@/components/system/SystemAlertStack';
 import { OfflineBanner } from '@/components/system/OfflineBanner';
 import { LevelUpSequence } from '@/components/system/LevelUpSequence';
 import { SystemTakeover } from '@/components/system/SystemTakeover';
+import { SystemPopup } from '@/components/system/SystemPopup';
 import { XpBurstLayer } from '@/components/system/XpBurstLayer';
 import { AmbientMotes } from '@/components/system/AmbientMotes';
 import { GlitchText } from '@/components/system/GlitchText';
@@ -97,18 +98,23 @@ function AuthedApp() {
   if (loading || !profile) return <BootScreen error={error} />;
 
   return (
-    <Shell>
-      <Routes>
-        <Route path="/" element={<StatusPage />} />
-        <Route path="/training" element={<TrainingPage />} />
-        <Route path="/dungeons" element={<DungeonsPage />} />
-        <Route path="/books" element={<LibraryPage />} />
-        <Route path="/skills" element={<SkillsPage />} />
-        <Route path="/army" element={<ShadowArmyPage />} />
-        <Route path="/more" element={<MorePage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Shell>
+    <>
+      {/* The interrupting [!] popup — active events and due reminders seize
+          the screen wherever the player is, starting with Status on open. */}
+      <SystemPopup />
+      <Shell>
+        <Routes>
+          <Route path="/" element={<StatusPage />} />
+          <Route path="/training" element={<TrainingPage />} />
+          <Route path="/dungeons" element={<DungeonsPage />} />
+          <Route path="/books" element={<LibraryPage />} />
+          <Route path="/skills" element={<SkillsPage />} />
+          <Route path="/army" element={<ShadowArmyPage />} />
+          <Route path="/more" element={<MorePage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Shell>
+    </>
   );
 }
 
