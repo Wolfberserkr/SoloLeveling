@@ -6,11 +6,13 @@ import { useUiStore } from '@/stores/uiStore';
 import { chime, haptic } from '@/lib/feedback';
 import { pushSupported, currentSubscription, enablePush } from '@/lib/push';
 import { GlitchText } from './GlitchText';
+import { stackComplete, SUPPLEMENT_REMINDER_HOUR } from '@game/nutrition.ts';
 import type { SystemEvent } from '@/lib/types';
 
 // The interrupting System window from the anime: a full-screen [!] popup
 // that seizes the screen when something demands the player — an active
-// System Event (gates above all) or the evening Daily Quest reminder.
+// System Event (gates above all), the evening Daily Quest reminder, or the
+// 10:00 supplement-stack check.
 // Each popup fires once per device (acknowledgements persist locally);
 // the matching phone push is sent server-side by the cron heartbeat.
 
@@ -40,10 +42,22 @@ const REMINDER_TITLE = 'DAILY QUEST INCOMPLETE.';
 const REMINDER_BODY =
   'The day is closing. Complete your training before midnight — the streak is the spine of everything.';
 
+const SUPPLEMENT_THEME: Theme = {
+  rgb: '16,185,129',
+  header: 'Supplement Reminder',
+  chime: 'info',
+  haptic: [40, 30, 40],
+};
+
+const SUPPLEMENT_TITLE = 'SUPPLEMENT STACK PENDING.';
+const SUPPLEMENT_BODY =
+  'Creatine and micros are still unlogged today. Take the stack and mark it in Fuel — the vessel is built on consistency.';
+
 // One key per popup family, overwritten on each acknowledgement, so
 // localStorage never accumulates.
 const ACK_EVENT = 'system-popup-acked-event';
 const ACK_REMINDER = 'system-popup-acked-reminder';
+const ACK_SUPPLEMENTS = 'system-popup-acked-supplements';
 
 function readAck(key: string): string | null {
   try {
@@ -73,7 +87,7 @@ type Popup = {
 };
 
 export function SystemPopup() {
-  const { event, training, profile } = usePlayerStore();
+  const { event, training, nutrition, profile } = usePlayerStore();
   const pushAlert = useUiStore((s) => s.pushAlert);
   const navigate = useNavigate();
   const [ackVersion, setAckVersion] = useState(0);
@@ -102,10 +116,11 @@ export function SystemPopup() {
         ack: () => writeAck(ACK_EVENT, event.id),
       };
     }
+    const hour = new Date().getHours();
     const reminderHour = profile?.reminder_hour ?? 18;
     if (
       training?.status === 'pending' &&
-      new Date().getHours() >= reminderHour &&
+      hour >= reminderHour &&
       readAck(ACK_REMINDER) !== training.local_date
     ) {
       const date = training.local_date;
@@ -119,8 +134,26 @@ export function SystemPopup() {
         ack: () => writeAck(ACK_REMINDER, date),
       };
     }
+    // Supplements: from 10:00 until the stack is logged (store holds only
+    // today's nutrition row, so a stale log never suppresses the reminder).
+    const today = training?.local_date ?? new Date().toLocaleDateString('en-CA');
+    if (
+      hour >= SUPPLEMENT_REMINDER_HOUR &&
+      !stackComplete(Boolean(nutrition?.creatine), Boolean(nutrition?.vitamins)) &&
+      readAck(ACK_SUPPLEMENTS) !== today
+    ) {
+      return {
+        key: `supplements:${today}`,
+        theme: SUPPLEMENT_THEME,
+        title: SUPPLEMENT_TITLE,
+        body: SUPPLEMENT_BODY,
+        questPath: '/training',
+        questLabel: '◆ Open Fuel Protocol',
+        ack: () => writeAck(ACK_SUPPLEMENTS, today),
+      };
+    }
     return null;
-  }, [event, training, profile, ackVersion, tick]);
+  }, [event, training, nutrition, profile, ackVersion, tick]);
 
   const popupKey = popup?.key;
 
@@ -171,7 +204,9 @@ export function SystemPopup() {
   }
 
   return (
-    <AnimatePresence>
+    // mode="wait": when one popup chains into another (quest reminder →
+    // supplements), the outgoing window fully dissolves before the next lands.
+    <AnimatePresence mode="wait">
       {popup && (
         <motion.div
           key={popup.key}

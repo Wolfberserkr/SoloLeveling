@@ -6,6 +6,7 @@
 //   morning (08–11):  ensure today's System Event exists and announce it;
 //                     announce knowledge checks falling due;
 //                     on Mondays, generate the AI weekly assessment
+//   10:00:            remind if the supplement stack is still unlogged
 //   evening (18–21):  remind if the Daily Training Quest is still unresolved
 //
 // Every push is claimed in notification_log (PK user/kind/date) before
@@ -16,6 +17,7 @@ import { adminClient } from '../_shared/db.ts';
 import { localDateInTz, localHourInTz } from '../_shared/time.ts';
 import { ensureSystemEvent } from '../_shared/eventEnsure.ts';
 import { ensureWeeklyReview } from '../_shared/weeklyReview.ts';
+import { stackComplete, SUPPLEMENT_REMINDER_HOUR } from '../_shared/game/nutrition.ts';
 
 const MORNING_START = 8;
 const MORNING_END = 12; // exclusive
@@ -113,6 +115,25 @@ async function tickUser(db: Db, profile: CronProfile, canPush: boolean): Promise
             'The week just past has been reviewed. Read the System’s verdict in your Status.',
           );
         }
+      }
+    }
+  }
+
+  if (hour === SUPPLEMENT_REMINDER_HOUR && canPush) {
+    const { data: fuel } = await db
+      .from('nutrition_logs')
+      .select('creatine, vitamins')
+      .eq('user_id', profile.user_id)
+      .eq('local_date', today)
+      .maybeSingle();
+    if (!fuel || !stackComplete(Boolean(fuel.creatine), Boolean(fuel.vitamins))) {
+      if (await claim(db, profile.user_id, 'supplement_reminder', today)) {
+        pushes += await sendPush(
+          db,
+          profile.user_id,
+          'Supplement stack pending.',
+          'Creatine and micros are still unlogged. Take the stack and mark it in Fuel — the vessel is built on consistency.',
+        );
       }
     }
   }

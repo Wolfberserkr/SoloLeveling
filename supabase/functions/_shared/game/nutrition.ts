@@ -34,6 +34,10 @@ export const CALORIE_TARGET_MAX_KCAL = 6000;
 export const MAX_KCAL_PER_LOG = 3000;
 export const MAX_KCAL_PER_DAY = 20000;
 
+/** Local hour the System checks in if the supplement stack is unlogged —
+ * popup in the app, push to the phone (cron), both skipped once complete. */
+export const SUPPLEMENT_REMINDER_HOUR = 10;
+
 /** The daily supplement stack shown in the Fuel panel. */
 export const SUPPLEMENT_STACK = [
   { key: 'creatine', name: 'Creatine Monohydrate', dose: '5 g, any time' },

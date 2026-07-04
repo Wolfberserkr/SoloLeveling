@@ -174,7 +174,7 @@ function NotificationsPanel() {
         pushAlert({
           kind: 'success',
           title: 'Notifications on',
-          body: 'Gates, knowledge checks, and evening reminders will reach this device.',
+          body: 'Gates, knowledge checks, supplement reminders, and evening warnings will reach this device.',
         });
       }
     } catch (err) {
@@ -193,8 +193,8 @@ function NotificationsPanel() {
       {supported ? (
         <>
           <p className="text-xs leading-relaxed text-slate-400">
-            The System announces Gates in the morning, surfaces due knowledge checks, and warns
-            in the evening if the Daily Quest is unresolved.
+            The System announces Gates in the morning, surfaces due knowledge checks, checks the
+            supplement stack at 10:00, and warns in the evening if the Daily Quest is unresolved.
           </p>
           <button className="sys-btn mt-3 w-full" disabled={busy} onClick={toggle}>
             {enabled ? 'Disable on this device' : 'Enable on this device'}
