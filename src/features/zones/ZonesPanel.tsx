@@ -10,6 +10,8 @@ import {
   ZONE_LIMIT,
   ZONE_RADIUS_DEFAULT_M,
   ZONE_TRIGGER_CHANCES,
+  ARUBA_TRAILS,
+  type TrailPreset,
   type ZoneKind,
 } from '@game/zones.ts';
 
@@ -94,6 +96,36 @@ export function ZonesPanel() {
     }
   }
 
+  async function addTrail(trail: TrailPreset) {
+    if (busy || !profile || zones.length >= ZONE_LIMIT) return;
+    setBusy(true);
+    try {
+      const { error } = await supabase.from('zones').insert({
+        user_id: profile.user_id,
+        name: trail.name,
+        kind: 'trail',
+        lat: trail.lat,
+        lng: trail.lng,
+        radius_m: trail.radius_m,
+      });
+      if (error) throw new Error(error.message);
+      pushAlert({
+        kind: 'success',
+        title: 'Treasure Trail registered',
+        body: `${trail.name} — ${ZONE_KIND_META.trail.hint}.`,
+      });
+      await refresh();
+    } catch (err) {
+      pushAlert({
+        kind: 'danger',
+        title: 'Trail rejected',
+        body: err instanceof Error ? err.message : undefined,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function removeZone(id: string) {
     if (busy) return;
     setBusy(true);
@@ -115,11 +147,14 @@ export function ZonesPanel() {
   return (
     <SystemWindow title="Field Zones" accent="cyan" delay={0.105}>
       <p className="text-xs leading-relaxed text-slate-400">
-        Mark real places — your gym, the supply store, a landmark. Arriving there with the app
-        open rolls once per zone per day: field monsters at Training Grounds (
-        {Math.round(ZONE_TRIGGER_CHANCES.gym * 100)}%), supply caches at Supply Posts (
-        {Math.round(ZONE_TRIGGER_CHANCES.store * 100)}%), buried treasure at Landmarks (
-        {Math.round(ZONE_TRIGGER_CHANCES.landmark * 100)}%).
+        Mark real places and the System watches for your arrival — each rolls once per day.
+        Earned visits run hot: monsters at Training and Hunting Grounds (
+        {Math.round(ZONE_TRIGGER_CHANCES.gym * 100)}%), rich treasure on Treasure Trails (
+        {Math.round(ZONE_TRIGGER_CHANCES.trail * 100)}%), caches and treasure at Supply Posts
+        and Landmarks ({Math.round(ZONE_TRIGGER_CHANCES.store * 100)}%). Everyday places run
+        cold ({Math.round(ZONE_TRIGGER_CHANCES.home * 100)}%): mental trials at the Duty Post,
+        and a mana blessing at the Sanctuary — paid only once the day&rsquo;s Daily Quest is
+        complete.
       </p>
 
       {/* Arm the watch */}
@@ -184,13 +219,13 @@ export function ZonesPanel() {
       {/* Mark a new zone */}
       {zones.length < ZONE_LIMIT && (
         <div className="mt-3 flex flex-col gap-2">
-          <div className="flex gap-1">
+          <div className="grid grid-cols-2 gap-1">
             {ZONE_KINDS.map((k) => (
               <button
                 key={k}
                 type="button"
                 onClick={() => setKind(k)}
-                className={`flex-1 border px-2 py-1 font-sys text-[0.6rem] uppercase tracking-widest transition-colors ${
+                className={`border px-2 py-1 font-sys text-[0.6rem] uppercase tracking-widest transition-colors ${
                   kind === k
                     ? 'border-accent-cyan/60 bg-accent-cyan/10 text-accent-cyan'
                     : 'border-white/10 text-slate-500'
@@ -200,6 +235,9 @@ export function ZonesPanel() {
               </button>
             ))}
           </div>
+          <p className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-600">
+            {ZONE_KIND_META[kind].hint}
+          </p>
           <div className="flex gap-2">
             <input
               value={name}
@@ -219,6 +257,76 @@ export function ZonesPanel() {
           </div>
         </div>
       )}
+
+      {/* Treasure Trails — Aruba: curated hikes, added with one tap. */}
+      <TrailPresets
+        added={new Set(zones.map((z) => z.name))}
+        full={zones.length >= ZONE_LIMIT}
+        busy={busy}
+        onAdd={(t) => void addTrail(t)}
+      />
     </SystemWindow>
+  );
+}
+
+function TrailPresets({
+  added,
+  full,
+  busy,
+  onAdd,
+}: {
+  added: Set<string>;
+  full: boolean;
+  busy: boolean;
+  onAdd: (trail: TrailPreset) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const remaining = ARUBA_TRAILS.filter((t) => !added.has(t.name));
+  if (remaining.length === 0) return null;
+
+  return (
+    <div className="mt-4 border-t border-white/5 pt-3">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between font-sys text-xs uppercase tracking-widest text-accent-gold"
+      >
+        <span>◈ Treasure Trails — Aruba</span>
+        <span>{open ? '▴' : '▾'}</span>
+      </button>
+      {open && (
+        <>
+          <p className="mt-2 font-sys text-[0.6rem] leading-relaxed text-slate-500">
+            Known hunting routes across the island. Register one and hike there — rich treasure
+            rolls on arrival. Pins carry map imprecision: if one sits off the true trailhead,
+            remove it and mark the spot on location instead.
+          </p>
+          <div className="mt-1 flex flex-col">
+            {remaining.map((t) => (
+              <div
+                key={t.name}
+                className="flex items-center justify-between gap-2 border-b border-white/5 py-2 last:border-b-0"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-sys text-xs uppercase tracking-widest text-white">
+                    {t.name}
+                  </span>
+                  <span className="block font-sys text-[0.6rem] leading-relaxed text-slate-500">
+                    {t.note}
+                  </span>
+                </span>
+                <button
+                  className="shrink-0 font-sys text-[0.65rem] uppercase tracking-widest text-accent-gold disabled:text-slate-600"
+                  disabled={busy || full}
+                  onClick={() => onAdd(t)}
+                >
+                  {full ? 'full' : 'register'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
   );
 }

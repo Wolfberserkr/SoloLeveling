@@ -60,6 +60,7 @@ export type XpSource =
   | 'riddle_solved'
   | 'encounter'
   | 'zone_fight'
+  | 'zone_trial'
   | 'item'
   | 'nutrition';
 
@@ -84,8 +85,10 @@ const STAT_GAINS: Record<XpSource, StatGain> = {
   riddle_solved: { STA: 0.4, INT: 0.3 },
   // Encounters reward quick wits and resolve; item XP trains nothing on its own.
   encounter: { AGI: 0.2, WIL: 0.2 },
-  // Field monsters are cleared with real physical work at the zone door.
+  // Field monsters are cleared with real physical work at the zone door;
+  // Duty Post specters fall to focus instead.
   zone_fight: { STR: 0.3, STA: 0.3, AGI: 0.2 },
+  zone_trial: { INT: 0.3, DIS: 0.3 },
   item: {},
   // Fuel — hitting the daily protein target is recovery discipline, every day.
   nutrition: { END: 0.2, DIS: 0.2 },

@@ -21,6 +21,10 @@ export function useZoneWatch() {
   // Zones already reported this session — don't re-ask the server while
   // standing still; refresh() brings the authoritative row anyway.
   const reported = useRef<Set<string>>(new Set());
+  // A waiting hearth (Daily Quest unfinished) retries on a slow cadence and
+  // announces itself only once per session.
+  const waitingRetryAt = useRef<Map<string, number>>(new Map());
+  const waitingAlerted = useRef<Set<string>>(new Set());
   const lastCheck = useRef(0);
   const inFlight = useRef(false);
 
@@ -42,6 +46,7 @@ export function useZoneWatch() {
         (z) =>
           !settled.has(z.id) &&
           !reported.current.has(z.id) &&
+          (waitingRetryAt.current.get(z.id) ?? 0) <= now &&
           insideZone(lat, lng, z.lat, z.lng, z.radius_m, 0),
       );
       if (!zone) return;
@@ -49,10 +54,25 @@ export function useZoneWatch() {
       reported.current.add(zone.id);
       inFlight.current = true;
       try {
-        const res = await gameAction<{ trigger: ZoneTrigger; quiet?: boolean; already?: boolean }>(
-          'enter-zone',
-          { zone_id: zone.id, lat, lng },
-        );
+        const res = await gameAction<{
+          trigger?: ZoneTrigger;
+          quiet?: boolean;
+          already?: boolean;
+          waiting?: boolean;
+          message?: string;
+        }>('enter-zone', { zone_id: zone.id, lat, lng });
+        if (res.waiting) {
+          // The hearth holds its blessing until the Daily Quest is done —
+          // leave the zone unreported and retry on a slow cadence so
+          // finishing the quest while home still claims it.
+          reported.current.delete(zone.id);
+          waitingRetryAt.current.set(zone.id, Date.now() + 5 * 60_000);
+          if (!waitingAlerted.current.has(zone.id)) {
+            waitingAlerted.current.add(zone.id);
+            pushAlert({ kind: 'info', title: 'The hearth waits', body: res.message });
+          }
+          return;
+        }
         if (!res.already && res.trigger && res.trigger.kind !== 'quiet') {
           pushAlert({
             kind: res.trigger.kind === 'fight' ? 'warning' : 'success',

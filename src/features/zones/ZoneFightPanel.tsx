@@ -28,6 +28,7 @@ function FightCard({ fight }: { fight: ZoneTrigger }) {
   const burstXp = useUiStore((s) => s.burstXp);
   const [busy, setBusy] = useState(false);
   const slain = fight.status === 'completed';
+  const mental = fight.payload.mode === 'mental';
 
   async function reportSlain(at?: { x: number; y: number }) {
     if (busy || slain) return;
@@ -39,7 +40,7 @@ function FightCard({ fight }: { fight: ZoneTrigger }) {
       burstXp(res.award.credited, at);
       pushAlert({
         kind: 'success',
-        title: 'FIELD MONSTER SLAIN',
+        title: mental ? 'SPECTER BANISHED' : 'FIELD MONSTER SLAIN',
         body: `+${res.award.credited} XP${res.award.capped ? ' · DAILY XP SATURATED' : ''}`,
       });
       if (res.award.leveled_up) showLevelUp(res.award.new_level);
@@ -47,7 +48,7 @@ function FightCard({ fight }: { fight: ZoneTrigger }) {
     } catch (err) {
       pushAlert({
         kind: 'danger',
-        title: 'The monster still stands',
+        title: mental ? 'The specter lingers' : 'The monster still stands',
         body: err instanceof Error ? err.message : undefined,
       });
     } finally {
@@ -72,7 +73,7 @@ function FightCard({ fight }: { fight: ZoneTrigger }) {
           className="pointer-events-none mx-auto mt-4 w-fit border-2 border-accent-green px-6 py-1 font-display text-xl font-bold uppercase tracking-[0.3em] text-accent-green"
           style={{ boxShadow: '0 0 18px rgba(16,185,129,0.4)' }}
         >
-          Slain
+          {mental ? 'Banished' : 'Slain'}
         </motion.div>
       ) : (
         <button
@@ -80,7 +81,9 @@ function FightCard({ fight }: { fight: ZoneTrigger }) {
           disabled={busy}
           onClick={(e) => reportSlain({ x: e.clientX, y: e.clientY })}
         >
-          ⚔ Report Monster Slain (+{fight.xp_reward} XP)
+          {mental
+            ? `◈ Report Trial Complete (+${fight.xp_reward} XP)`
+            : `⚔ Report Monster Slain (+${fight.xp_reward} XP)`}
         </button>
       )}
     </SystemWindow>

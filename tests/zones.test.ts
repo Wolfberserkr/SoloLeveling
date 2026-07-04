@@ -11,8 +11,15 @@ import {
   ZONE_RADIUS_DEFAULT_M,
   ZONE_GPS_SLACK_M,
   ZONE_FIGHT_XP,
+  ZONE_TRIAL_XP,
   ZONE_FIGHTS,
+  PARK_FIGHTS,
+  WORK_TRIALS,
   ZONE_KINDS,
+  ZONE_RADIUS_MIN_M as RADIUS_MIN,
+  HOME_BLESSING_MANA,
+  TRAIL_ESSENCE,
+  ARUBA_TRAILS,
 } from '@game/zones.ts';
 import { ITEMS, XP_BOOSTER_KEY, itemXpMultiplier, isConsumable, isGear } from '@game/items.ts';
 
@@ -143,6 +150,49 @@ describe('zone trigger roll', () => {
     expect(gear / hits).toBeLessThan(0.65);
   });
 
+  it('park monsters come from the outdoor bank; work trials are mental', () => {
+    for (let i = 0; i < 500; i++) {
+      const park = rollZoneTrigger(`user-${i}`, 'zone-park', '2026-07-03', 'park');
+      if (park && park.kind === 'fight') {
+        expect(park.mode).toBe('physical');
+        expect(park.xpReward).toBe(ZONE_FIGHT_XP);
+        expect(PARK_FIGHTS.some((f) => f.monster === park.fight.monster)).toBe(true);
+      }
+      const work = rollZoneTrigger(`user-${i}`, 'zone-work', '2026-07-03', 'work');
+      if (work && work.kind === 'fight') {
+        expect(work.mode).toBe('mental');
+        expect(work.xpReward).toBe(ZONE_TRIAL_XP);
+        expect(WORK_TRIALS.some((f) => f.monster === work.fight.monster)).toBe(true);
+      }
+    }
+  });
+
+  it('home rolls a mana blessing, never loot or XP', () => {
+    for (let i = 0; i < 500; i++) {
+      const roll = rollZoneTrigger(`user-${i}`, 'zone-home', '2026-07-03', 'home');
+      if (!roll) continue;
+      expect(roll.kind).toBe('blessing');
+      if (roll.kind === 'blessing') expect(roll.mana).toBe(HOME_BLESSING_MANA);
+    }
+  });
+
+  it('trail treasure is gear-biased and always carries Essence', () => {
+    let gear = 0;
+    let hits = 0;
+    for (let i = 0; i < 3000; i++) {
+      const roll = rollZoneTrigger(`user-${i}`, 'zone-trail', '2026-07-03', 'trail');
+      if (!roll) continue;
+      hits += 1;
+      expect(roll.kind).toBe('treasure');
+      if (roll.kind === 'treasure') {
+        expect(roll.essence).toBe(TRAIL_ESSENCE);
+        if (isGear(roll.items[0].key)) gear += 1;
+      }
+    }
+    expect(gear / hits).toBeGreaterThan(0.5);
+    expect(gear / hits).toBeLessThan(0.7);
+  });
+
   it('produces announcement copy naming the zone and the reward', () => {
     for (let i = 0; i < 200; i++) {
       for (const kind of ZONE_KINDS) {
@@ -151,9 +201,41 @@ describe('zone trigger roll', () => {
         const copy = zoneTriggerCopy(roll, 'Powerhouse Gym');
         expect(copy.title.length).toBeGreaterThan(0);
         expect(copy.body).toContain('Powerhouse Gym');
-        if (roll.kind !== 'fight') {
+        if (roll.kind === 'cache' || roll.kind === 'treasure') {
           expect(copy.body).toContain(ITEMS[roll.items[0].key].name);
         }
+        if (roll.kind === 'blessing') {
+          expect(copy.body).toContain(`+${HOME_BLESSING_MANA} mana`);
+        }
+      }
+    }
+  });
+});
+
+describe('Treasure Trails — Aruba presets', () => {
+  it('all sit on Aruba with sane radii and unique names', () => {
+    expect(ARUBA_TRAILS.length).toBeGreaterThanOrEqual(8);
+    const names = new Set(ARUBA_TRAILS.map((t) => t.name));
+    expect(names.size).toBe(ARUBA_TRAILS.length);
+    for (const t of ARUBA_TRAILS) {
+      // Aruba's bounding box.
+      expect(t.lat).toBeGreaterThan(12.39);
+      expect(t.lat).toBeLessThan(12.64);
+      expect(t.lng).toBeGreaterThan(-70.08);
+      expect(t.lng).toBeLessThan(-69.84);
+      expect(t.radius_m).toBeGreaterThanOrEqual(RADIUS_MIN);
+      expect(clampZoneRadius(t.radius_m)).toBe(t.radius_m);
+      expect(t.note.length).toBeGreaterThan(10);
+    }
+  });
+
+  it('trail sites are spread out — no two presets overlap', () => {
+    for (let i = 0; i < ARUBA_TRAILS.length; i++) {
+      for (let j = i + 1; j < ARUBA_TRAILS.length; j++) {
+        const a = ARUBA_TRAILS[i];
+        const b = ARUBA_TRAILS[j];
+        const d = haversineMeters(a.lat, a.lng, b.lat, b.lng);
+        expect(d).toBeGreaterThan(a.radius_m + b.radius_m);
       }
     }
   });

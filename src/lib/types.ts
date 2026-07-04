@@ -210,7 +210,7 @@ export type Zone = {
   id: string;
   user_id: string;
   name: string;
-  kind: 'gym' | 'store' | 'landmark';
+  kind: 'gym' | 'park' | 'store' | 'landmark' | 'trail' | 'work' | 'home';
   lat: number;
   lng: number;
   radius_m: number;
@@ -222,13 +222,16 @@ export type ZoneTrigger = {
   user_id: string;
   zone_id: string;
   local_date: string;
-  kind: 'fight' | 'cache' | 'treasure' | 'quiet';
+  kind: 'fight' | 'cache' | 'treasure' | 'blessing' | 'quiet';
   title: string;
   body: string;
   payload: {
     monster?: string;
     challenge?: string;
+    mode?: 'physical' | 'mental';
     items?: Array<{ key: string; qty: number }>;
+    essence?: number;
+    mana?: number;
   };
   status: 'active' | 'completed' | 'expired' | 'none';
   xp_reward: number;

@@ -120,6 +120,7 @@ import {
   zoneTriggerCopy,
   haversineMeters,
   ZONE_GPS_SLACK_M,
+  type ZoneKind,
 } from '../_shared/game/zones.ts';
 import {
   NUTRITION_XP,
@@ -1924,7 +1925,7 @@ type ZoneTriggerRow = {
   user_id: string;
   zone_id: string;
   local_date: string;
-  kind: 'fight' | 'cache' | 'treasure' | 'quiet';
+  kind: 'fight' | 'cache' | 'treasure' | 'blessing' | 'quiet';
   title: string;
   body: string;
   payload: Record<string, unknown>;
@@ -1974,7 +1975,25 @@ async function enterZone(ctx: Ctx, payload: { zone_id?: string; lat?: number; ln
     .maybeSingle();
   if (existing) return { ok: true, trigger: existing as ZoneTriggerRow, already: true };
 
-  const roll = rollZoneTrigger(userId, z.id, today, z.kind as 'gym' | 'store' | 'landmark');
+  const roll = rollZoneTrigger(userId, z.id, today, z.kind as ZoneKind);
+
+  // The hearth only blesses a finished day. Nothing is written while the
+  // Daily Quest is open, so coming home after training still claims it.
+  if (roll?.kind === 'blessing') {
+    const { data: quest } = await db
+      .from('training_quests')
+      .select('status')
+      .eq('user_id', userId)
+      .eq('local_date', today)
+      .maybeSingle();
+    if (quest?.status !== 'completed') {
+      return {
+        ok: true,
+        waiting: true,
+        message: `The hearth at ${z.name} is warm, but the day is unfinished. Complete the Daily Quest and return.`,
+      };
+    }
+  }
 
   const row = {
     user_id: userId,
@@ -1992,11 +2011,14 @@ async function enterZone(ctx: Ctx, payload: { zone_id?: string; lat?: number; ln
     row.title = copy.title;
     row.body = copy.body;
     if (roll.kind === 'fight') {
-      row.payload = { monster: roll.fight.monster, challenge: roll.fight.challenge };
+      row.payload = { monster: roll.fight.monster, challenge: roll.fight.challenge, mode: roll.mode };
       row.status = 'active';
       row.xp_reward = roll.xpReward;
+    } else if (roll.kind === 'blessing') {
+      row.payload = { mana: roll.mana };
+      row.status = 'completed';
     } else {
-      row.payload = { items: roll.items };
+      row.payload = { items: roll.items, ...(roll.essence ? { essence: roll.essence } : {}) };
       row.status = 'completed';
     }
   }
@@ -2025,10 +2047,18 @@ async function enterZone(ctx: Ctx, payload: { zone_id?: string; lat?: number; ln
   }
 
   // Instant rewards land with the insert, exactly once.
-  if (roll && roll.kind !== 'fight') {
+  if (roll && (roll.kind === 'cache' || roll.kind === 'treasure')) {
     for (const it of roll.items) {
       await db.rpc('grant_item', { p_user: userId, p_item_key: it.key, p_qty: it.qty });
     }
+    if (roll.essence) {
+      await db.rpc('grant_essence', { p_user: userId, p_amount: roll.essence });
+    }
+  }
+  if (roll?.kind === 'blessing') {
+    const mana = clampMana(ctx.profile.mana + roll.mana, ctx.profile.mana_max);
+    await db.from('profiles').update({ mana }).eq('user_id', userId);
+    ctx.profile.mana = mana;
   }
   if (roll) {
     await db.from('system_messages').insert({
@@ -2067,12 +2097,15 @@ async function completeZoneFight(ctx: Ctx, payload: { trigger_id?: string }) {
     .update({ status: 'completed', completed_at: new Date().toISOString() })
     .eq('id', trigger.id);
 
-  const award = await awardXp(ctx, trigger.xp_reward, 'zone_fight', trigger.id);
+  const mental = trigger.payload?.mode === 'mental';
+  const award = await awardXp(ctx, trigger.xp_reward, mental ? 'zone_trial' : 'zone_fight', trigger.id);
   await db.from('system_messages').insert({
     user_id: userId,
-    kind: 'zone_fight_won',
-    title: 'FIELD MONSTER SLAIN.',
-    body: `${String(trigger.payload?.monster ?? 'The monster')} falls. +${trigger.xp_reward} XP. The way is clear.`,
+    kind: mental ? 'zone_trial_won' : 'zone_fight_won',
+    title: mental ? 'SPECTER BANISHED.' : 'FIELD MONSTER SLAIN.',
+    body: mental
+      ? `${String(trigger.payload?.monster ?? 'The specter')} dissolves. +${trigger.xp_reward} XP. Your focus held.`
+      : `${String(trigger.payload?.monster ?? 'The monster')} falls. +${trigger.xp_reward} XP. The way is clear.`,
     payload: { trigger_id: trigger.id },
   });
 
