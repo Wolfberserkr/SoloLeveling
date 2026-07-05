@@ -114,7 +114,13 @@ import {
   resolveSeed,
   rankIndexOf,
 } from '../_shared/game/encounters.ts';
-import { itemStatMultiplier, applyConsumable, itemDef } from '../_shared/game/items.ts';
+import { itemStatMultiplier, applyConsumable, itemDef, STREAK_SHIELD_KEY } from '../_shared/game/items.ts';
+import {
+  penaltyTargets,
+  shouldSpawnPenalty,
+  isPenaltyComplete,
+  type ExerciseTargets,
+} from '../_shared/game/penalty.ts';
 import {
   NUTRITION_XP,
   SUPPLEMENT_STACK_XP,
@@ -227,6 +233,10 @@ Deno.serve(async (req) => {
         return json(await logTraining(ctx, payload));
       case 'complete-training':
         return json(await completeTraining(ctx));
+      case 'log-penalty':
+        return json(await logPenalty(ctx, payload));
+      case 'complete-penalty':
+        return json(await completePenalty(ctx));
       case 'complete-quest':
         return json(await completeSideQuest(ctx, payload));
       case 'log-sleep':
@@ -560,6 +570,9 @@ async function useItem(ctx: Ctx, payload: { item_key?: string }) {
   const key = typeof payload.item_key === 'string' ? payload.item_key : '';
   const def = itemDef(key);
   if (!def || def.category !== 'consumable') throw new HttpError(400, 'Not a usable item.');
+  if (def.autoConsume) {
+    throw new HttpError(409, 'The System spends this for you when the moment comes.');
+  }
 
   const { data: consumed } = await db.rpc('consume_item', {
     p_user: userId,
@@ -652,10 +665,11 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
 
   const yesterday = previousDate(today);
 
-  // Close out yesterday's training quest if it was left pending.
+  // Close out yesterday's training quest if it was left pending. Its targets
+  // seed a Penalty Quest if the streak breaks (the missed day, harder).
   const { data: prev } = await db
     .from('training_quests')
-    .select('id, status')
+    .select('id, status, pushups_target, situps_target, squats_target, run_km_target')
     .eq('user_id', userId)
     .eq('local_date', yesterday)
     .maybeSingle();
@@ -690,7 +704,19 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
     .eq('status', 'pending')
     .lt('local_date', today);
 
-  // Streak break: missing a full day resets the counter.
+  // A Penalty Quest left unresolved by midnight expires — the break stands.
+  const { error: penaltyExpireErr } = await db
+    .from('penalty_quests')
+    .update({ status: 'expired' })
+    .eq('user_id', userId)
+    .eq('status', 'pending')
+    .lt('local_date', today);
+  if (penaltyExpireErr && penaltyExpireErr.code !== '42P01' && penaltyExpireErr.code !== 'PGRST205') {
+    console.error('penalty expire failed:', penaltyExpireErr);
+  }
+
+  // Streak break: missing a full day resets the counter — unless something
+  // saves it (Steel Will, a Shield of Resolve item, or a Penalty Quest).
   const { data: totals } = await db
     .from('training_totals')
     .select('current_streak, last_completed_date')
@@ -698,16 +724,16 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
     .single();
   // Steel Will (passive) forgives a single missed day before the streak breaks.
   const twoDaysAgo = previousDate(yesterday);
-  const shielded =
+  const steelWill =
     hasStreakShield(ctx.skillKeys) && totals?.last_completed_date === twoDaysAgo;
-  if (
-    totals &&
+  const streakBreaks =
+    !!totals &&
     totals.current_streak > 0 &&
     totals.last_completed_date !== yesterday &&
-    totals.last_completed_date !== today &&
-    !shielded
-  ) {
-    await db.from('training_totals').update({ current_streak: 0 }).eq('user_id', userId);
+    totals.last_completed_date !== today;
+
+  if (streakBreaks && !steelWill) {
+    await handleStreakBreak(ctx, totals.current_streak, prev);
   }
 
   // Mana regen: a new day restores capacity before anything is asked of you.
@@ -792,6 +818,94 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
   profile.fatigue = fatigue;
   profile.explores_today = 0;
   profile.last_daily_reset = today;
+}
+
+type PrevTargets = {
+  pushups_target: number;
+  situps_target: number;
+  squats_target: number;
+  run_km_target: number | string;
+} | null;
+
+// ── Streak break: a Shield of Resolve saves it; else a Penalty Quest offers
+//    a redemption path before the break stands (Features F5 + F1). ───────────
+async function handleStreakBreak(ctx: Ctx, brokenStreak: number, prev: PrevTargets): Promise<void> {
+  const { db, userId, today } = ctx;
+
+  // A held Shield of Resolve is spent automatically to keep the streak alive.
+  const { data: shielded } = await db.rpc('consume_item', {
+    p_user: userId,
+    p_item_key: STREAK_SHIELD_KEY,
+    p_qty: 1,
+  });
+  if (shielded) {
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'shield_consumed',
+      title: 'SHIELD OF RESOLVE — consumed.',
+      body: `You missed a day, but your Shield held. Streak preserved at ${brokenStreak}. The System spends what you earned so your resolve is not undone by a single day.`,
+    });
+    return; // streak left intact
+  }
+
+  // No shield: the streak breaks now.
+  await db.from('training_totals').update({ current_streak: 0 }).eq('user_id', userId);
+  if (!shouldSpawnPenalty(brokenStreak, false)) return;
+
+  // Seed the Penalty Quest from the missed day's targets (or the latest known
+  // targets if the player never opened the app that day), scaled up.
+  let base: ExerciseTargets | null = prev
+    ? {
+        pushups: prev.pushups_target,
+        situps: prev.situps_target,
+        squats: prev.squats_target,
+        runKm: Number(prev.run_km_target),
+      }
+    : null;
+  if (!base) {
+    const { data: latest } = await db
+      .from('training_quests')
+      .select('pushups_target, situps_target, squats_target, run_km_target')
+      .eq('user_id', userId)
+      .order('local_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latest) {
+      base = {
+        pushups: latest.pushups_target,
+        situps: latest.situps_target,
+        squats: latest.squats_target,
+        runKm: Number(latest.run_km_target),
+      };
+    }
+  }
+  if (!base) return; // nothing to base a penalty on — let the break stand
+
+  const t = penaltyTargets(base);
+  const { error } = await db.from('penalty_quests').upsert(
+    {
+      user_id: userId,
+      local_date: today,
+      streak_to_restore: brokenStreak,
+      pushups_target: t.pushups,
+      situps_target: t.situps,
+      squats_target: t.squats,
+      run_km_target: t.runKm,
+    },
+    { onConflict: 'user_id,local_date', ignoreDuplicates: true },
+  );
+  if (error) {
+    // Table not migrated yet (0023): the streak simply breaks as before.
+    if (error.code === '42P01' || error.code === 'PGRST205') return;
+    console.error('penalty quest spawn failed:', error);
+    return;
+  }
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'penalty_issued',
+    title: 'PENALTY QUEST ISSUED.',
+    body: `Your ${brokenStreak}-day streak has broken. The System offers one path back: complete today's Penalty Quest — the missed targets, +25% — before midnight, and your streak is restored. Fail, and the break stands.`,
+  });
 }
 
 // ── Training quest generation — the one place today's row is written ────────
@@ -896,8 +1010,21 @@ function activeKind(event: SystemEventRow | null): SystemEventKind | null {
   return event && event.status === 'active' ? (event.kind as SystemEventKind) : null;
 }
 
+/** Today's pending Penalty Quest, if the streak broke and one was issued. */
+async function getTodayPenalty(ctx: Ctx) {
+  const { data, error } = await ctx.db
+    .from('penalty_quests')
+    .select('*')
+    .eq('user_id', ctx.userId)
+    .eq('local_date', ctx.today)
+    .maybeSingle();
+  // Table not migrated yet: the feature is simply absent.
+  if (error && (error.code === '42P01' || error.code === 'PGRST205')) return null;
+  return data ?? null;
+}
+
 async function getDailySnapshot(ctx: Ctx) {
-  const [quest, sideQuests, dungeon, event, gymToday, legacy] = await Promise.all([
+  const [quest, sideQuests, dungeon, event, gymToday, legacy, penalty] = await Promise.all([
     getTodayQuest(ctx),
     getTodaySideQuests(ctx),
     getDungeonProgress(ctx),
@@ -910,6 +1037,7 @@ async function getDailySnapshot(ctx: Ctx) {
       .maybeSingle()
       .then((r) => r.data),
     getArmedLegacy(ctx),
+    getTodayPenalty(ctx),
   ]);
   return {
     ok: true,
@@ -921,6 +1049,7 @@ async function getDailySnapshot(ctx: Ctx) {
     gym_done_today: Boolean(gymToday),
     legacy,
     legacy_due: Boolean(legacy && legacy.due_date <= ctx.today),
+    penalty,
   };
 }
 
@@ -1056,6 +1185,10 @@ async function completeTraining(ctx: Ctx) {
   );
   const perfect = await checkPerfectClear(ctx, { ...quest, status: 'completed' });
 
+  // A milestone streak (every 14 days) earns a Shield of Resolve — the more
+  // there is to lose, the more the System lets you insure it (max one held).
+  await maybeGrantStreakShield(ctx, newStreak);
+
   return {
     ok: true,
     award,
@@ -1063,6 +1196,160 @@ async function completeTraining(ctx: Ctx) {
     perfect,
     training: { ...quest, status: 'completed', perfect_clear: perfect !== null },
   };
+}
+
+/** Grant a Shield of Resolve on 14-day streak milestones, capped at one held. */
+async function maybeGrantStreakShield(ctx: Ctx, streak: number): Promise<void> {
+  if (streak <= 0 || streak % 14 !== 0) return;
+  const { data: held } = await ctx.db
+    .from('inventory')
+    .select('quantity')
+    .eq('user_id', ctx.userId)
+    .eq('item_key', STREAK_SHIELD_KEY)
+    .maybeSingle();
+  if (Number(held?.quantity ?? 0) >= 1) return; // already insured
+  const { error } = await ctx.db.rpc('grant_item', {
+    p_user: ctx.userId,
+    p_item_key: STREAK_SHIELD_KEY,
+    p_qty: 1,
+  });
+  if (error) return;
+  await ctx.db.from('system_messages').insert({
+    user_id: ctx.userId,
+    kind: 'shield_earned',
+    title: 'SHIELD OF RESOLVE — earned.',
+    body: `A ${streak}-day streak. The System grants you a Shield of Resolve: the day you miss training, it is spent automatically to keep your streak alive. Insurance for a resolve worth protecting.`,
+  });
+}
+
+function penaltyProgress(row: {
+  pushups_done: number;
+  situps_done: number;
+  squats_done: number;
+  run_km_done: number | string;
+}): ExerciseTargets {
+  return {
+    pushups: row.pushups_done,
+    situps: row.situps_done,
+    squats: row.squats_done,
+    runKm: Number(row.run_km_done),
+  };
+}
+
+function penaltyTargetsOf(row: {
+  pushups_target: number;
+  situps_target: number;
+  squats_target: number;
+  run_km_target: number | string;
+}): ExerciseTargets {
+  return {
+    pushups: row.pushups_target,
+    situps: row.situps_target,
+    squats: row.squats_target,
+    runKm: Number(row.run_km_target),
+  };
+}
+
+// ── log-penalty: log reps toward today's Penalty Quest (no XP — redemption) ──
+async function logPenalty(
+  ctx: Ctx,
+  payload: { pushups?: number; situps?: number; squats?: number; run_km?: number },
+) {
+  const penalty = await getTodayPenalty(ctx);
+  if (!penalty) throw new HttpError(404, 'No Penalty Quest active');
+  if (penalty.status !== 'pending') throw new HttpError(409, 'Penalty Quest already resolved');
+
+  const inc = {
+    pushups: sanitize(payload.pushups, 500),
+    situps: sanitize(payload.situps, 500),
+    squats: sanitize(payload.squats, 500),
+    run_km: sanitize(payload.run_km, 50),
+  };
+  if (inc.pushups + inc.situps + inc.squats + inc.run_km <= 0) {
+    throw new HttpError(400, 'Nothing to log');
+  }
+
+  const updated = {
+    pushups_done: Math.min(penalty.pushups_target, penalty.pushups_done + inc.pushups),
+    situps_done: Math.min(penalty.situps_target, penalty.situps_done + inc.situps),
+    squats_done: Math.min(penalty.squats_target, penalty.squats_done + inc.squats),
+    run_km_done: Math.min(
+      Number(penalty.run_km_target),
+      Number(penalty.run_km_done) + inc.run_km,
+    ),
+  };
+
+  const { data, error } = await ctx.db
+    .from('penalty_quests')
+    .update(updated)
+    .eq('id', penalty.id)
+    .select('*')
+    .single();
+  if (error) throw new HttpError(500, 'Failed to log Penalty Quest');
+
+  return { ok: true, penalty: data };
+}
+
+// ── complete-penalty: meet every target → the broken streak is RESTORED ─────
+async function completePenalty(ctx: Ctx) {
+  const { db, userId, today } = ctx;
+  const penalty = await getTodayPenalty(ctx);
+  if (!penalty) throw new HttpError(404, 'No Penalty Quest active');
+  if (penalty.status !== 'pending') throw new HttpError(409, 'Penalty Quest already resolved');
+
+  if (!isPenaltyComplete(penaltyProgress(penalty), penaltyTargetsOf(penalty))) {
+    throw new HttpError(400, 'Targets not yet met');
+  }
+
+  // Guarded transition: only one request may resolve the Penalty Quest.
+  const { data: claimed } = await db
+    .from('penalty_quests')
+    .update({ status: 'completed', completed_at: new Date().toISOString() })
+    .eq('id', penalty.id)
+    .eq('status', 'pending')
+    .select('id');
+  if (!claimed || claimed.length === 0) throw new HttpError(409, 'Penalty Quest already resolved');
+
+  const restored = Number(penalty.streak_to_restore);
+  const { data: totals } = await db
+    .from('training_totals')
+    .select('best_streak')
+    .eq('user_id', userId)
+    .single();
+  await db
+    .from('training_totals')
+    .update({
+      current_streak: restored,
+      best_streak: Math.max(Number(totals?.best_streak ?? 0), restored),
+      last_completed_date: today,
+    })
+    .eq('user_id', userId);
+
+  // Redemption itself earns insurance — clear the penalty, hold a Shield.
+  const { data: held } = await db
+    .from('inventory')
+    .select('quantity')
+    .eq('user_id', userId)
+    .eq('item_key', STREAK_SHIELD_KEY)
+    .maybeSingle();
+  let shieldEarned = false;
+  if (Number(held?.quantity ?? 0) < 1) {
+    const { error } = await db.rpc('grant_item', {
+      p_user: userId,
+      p_item_key: STREAK_SHIELD_KEY,
+      p_qty: 1,
+    });
+    shieldEarned = !error;
+  }
+
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'penalty_cleared',
+    title: 'PENALTY QUEST CLEARED.',
+    body: `Your streak is restored to ${restored}. You fell, and you rose the same day.${shieldEarned ? ' A Shield of Resolve is granted for the resolve you showed.' : ''} The System does not forget who gets back up.`,
+  });
+
+  return { ok: true, streak: restored, shield_earned: shieldEarned, penalty: { ...penalty, status: 'completed' } };
 }
 
 // ── complete-quest: finish a side quest — spend mana, earn XP ───────────────

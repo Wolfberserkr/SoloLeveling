@@ -14,7 +14,7 @@ const SEEN_KEY = 'system-briefing-seen';
  * the nearest milestone, then a single tap into the Training page.
  */
 export function DailyBriefing() {
-  const { profile, training, quests, event, dueQuestions, nutrition, totals, serverToday } =
+  const { profile, training, penalty, quests, event, dueQuestions, nutrition, totals, serverToday } =
     usePlayerStore();
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const [dismissed, setDismissed] = useState(false);
@@ -58,6 +58,15 @@ export function DailyBriefing() {
       ? [{ label: 'Knowledge Checks', value: `${dueQuestions.length} due`, accent: 'text-accent-purple' }]
       : []),
     ...(proteinTarget > 0 ? [{ label: 'Fuel Target', value: `${proteinTarget} g protein` }] : []),
+    ...(penalty && penalty.status === 'pending'
+      ? [
+          {
+            label: 'Penalty Quest',
+            value: `Redeem to restore ${penalty.streak_to_restore}-day streak`,
+            accent: 'text-accent-red',
+          },
+        ]
+      : []),
     {
       label: 'Streak',
       value: streak > 0 ? `${streak} days — hold the line` : 'Begin a new streak today',

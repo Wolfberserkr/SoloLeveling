@@ -11,6 +11,7 @@ import type {
   LegacySnapshot,
   TrainingQuest,
   TrainingTotals,
+  PenaltyQuest,
   DailyQuest,
   SleepLog,
   NutritionLog,
@@ -42,6 +43,7 @@ type PlayerState = {
   skills: Skill[];
   shadows: Shadow[];
   training: TrainingQuest | null;
+  penalty: PenaltyQuest | null; // today's Penalty Quest, if the streak broke
   quests: DailyQuest[];
   sleep: SleepLog | null; // today's log, if any
   nutrition: NutritionLog | null; // today's Fuel Protocol log, if any
@@ -71,6 +73,7 @@ type PlayerState = {
   /** Re-read DB state without re-running the daily reset. */
   refresh: () => Promise<void>;
   setTraining: (q: TrainingQuest) => void;
+  setPenalty: (p: PenaltyQuest | null) => void;
   setQuest: (q: DailyQuest) => void;
   setNutrition: (n: NutritionLog) => void;
   setDungeon: (d: DungeonProgress, gymDoneToday?: boolean) => void;
@@ -97,6 +100,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   skills: [],
   shadows: [],
   training: null,
+  penalty: null,
   quests: [],
   sleep: null,
   nutrition: null,
@@ -135,6 +139,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         quests: DailyQuest[];
         dungeon: DungeonProgress;
         gym_done_today: boolean;
+        penalty: PenaltyQuest | null;
       }>('ensure-daily');
       await readState(guarded);
       guarded({
@@ -142,6 +147,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         quests: daily.quests,
         dungeon: daily.dungeon,
         gymDoneToday: daily.gym_done_today,
+        penalty: daily.penalty ?? null,
         serverToday: daily.today ?? null,
         lastLoadAt: Date.now(),
         loading: false,
@@ -175,6 +181,8 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   },
 
   setTraining: (q) => set({ training: q }),
+
+  setPenalty: (p) => set({ penalty: p }),
 
   setQuest: (q) =>
     set((s) => ({ quests: s.quests.map((existing) => (existing.id === q.id ? q : existing)) })),
@@ -224,6 +232,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       skills: [],
       shadows: [],
       training: null,
+      penalty: null,
       quests: [],
       sleep: null,
       nutrition: null,
@@ -280,6 +289,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     masteredRes,
     perfectRes,
     riddlesRes,
+    penaltyRes,
   ] = await Promise.all([
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
@@ -378,6 +388,11 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
         .from('xp_ledger')
         .select('id', { count: 'exact', head: true })
         .eq('source', 'riddle_solved'),
+      supabase
+        .from('penalty_quests')
+        .select('*')
+        .order('local_date', { ascending: false })
+        .limit(1),
     ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
@@ -399,6 +414,10 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
   const nutritionRow = ((nutritionRes.data ?? [])[0] ?? null) as NutritionLog | null;
   const gymRow = (gymRes.data ?? [])[0] ?? null;
   const eventRow = ((eventRes.data ?? [])[0] ?? null) as SystemEvent | null;
+  // penalty_quests may not be migrated yet; a read error just means "none".
+  const penaltyRow = penaltyRes.error
+    ? null
+    : ((penaltyRes.data ?? [])[0] ?? null) as PenaltyQuest | null;
   const dueQuestions = ((questionsRes.data ?? []) as RetentionQuestion[]).filter(
     (q) => q.due_date != null && today != null && q.due_date <= today,
   );
@@ -414,6 +433,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     totals: (totalsRes.data ?? null) as TrainingTotals | null,
     messages: (messagesRes.data ?? []) as SystemMessage[],
     training,
+    penalty: penaltyRow && penaltyRow.local_date === today ? penaltyRow : null,
     quests,
     sleep: sleepRow && sleepRow.local_date === today ? sleepRow : null,
     nutrition: nutritionRow && nutritionRow.local_date === today ? nutritionRow : null,

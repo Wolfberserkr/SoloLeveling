@@ -98,6 +98,23 @@ export type TrainingQuest = {
   completed_at: string | null;
 };
 
+export type PenaltyQuest = {
+  id: string;
+  user_id: string;
+  local_date: string;
+  streak_to_restore: number;
+  pushups_target: number;
+  situps_target: number;
+  squats_target: number;
+  run_km_target: number;
+  pushups_done: number;
+  situps_done: number;
+  squats_done: number;
+  run_km_done: number;
+  status: 'pending' | 'completed' | 'expired';
+  completed_at: string | null;
+};
+
 export type DailyQuest = {
   id: string;
   user_id: string;

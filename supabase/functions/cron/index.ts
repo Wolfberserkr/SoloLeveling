@@ -99,6 +99,26 @@ async function tickUser(db: Db, profile: CronProfile, canPush: boolean): Promise
       }
     }
 
+    // A Penalty Quest is the day's most urgent re-engagement hook — a broken
+    // streak can still be saved. Push it hard. (Missing table = feature absent.)
+    if (canPush) {
+      const { data: penalty } = await db
+        .from('penalty_quests')
+        .select('streak_to_restore')
+        .eq('user_id', profile.user_id)
+        .eq('local_date', today)
+        .eq('status', 'pending')
+        .maybeSingle();
+      if (penalty && (await claim(db, profile.user_id, 'penalty_push', today))) {
+        pushes += await sendPush(
+          db,
+          profile.user_id,
+          'Penalty Quest issued.',
+          `Your ${penalty.streak_to_restore}-day streak broke — clear today's Penalty Quest before midnight to restore it. The System tests who gets back up.`,
+        );
+      }
+    }
+
     // Monday: the AI System Coach assesses the week that just ended. Generation
     // is idempotent (one row per week) and tolerates a silent Archive, so a
     // failed tick simply retries next hour until the morning window closes.
