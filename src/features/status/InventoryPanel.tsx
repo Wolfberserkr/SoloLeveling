@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { usePlayerStore } from '@/stores/playerStore';
 import { useUiStore } from '@/stores/uiStore';
 import { gameAction } from '@/lib/gameApi';
@@ -19,6 +19,16 @@ export function InventoryPanel() {
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
   const [busy, setBusy] = useState<string | null>(null);
+  const [, setClock] = useState(0);
+
+  // Gear countdowns ("42m left") must tick on their own, not only when
+  // something else happens to re-render the panel.
+  const hasGear = equipment.length > 0;
+  useEffect(() => {
+    if (!hasGear) return;
+    const id = setInterval(() => setClock((c) => c + 1), 30_000);
+    return () => clearInterval(id);
+  }, [hasGear]);
 
   // Loot lands via won encounters; an unread victory means unseen spoils.
   const newLoot = messages.some((m) => !m.read && m.kind === 'encounter_won');
@@ -85,11 +95,15 @@ export function InventoryPanel() {
     >
       {equipment.length > 0 && (
         <div className="mb-3">
-          <div className="mb-1 font-sys text-[0.6rem] uppercase tracking-[0.25em] text-slate-500">
+          <div className="mb-1 font-sys text-[0.6rem] uppercase tracking-[0.25em] text-slate-400">
             Equipped
           </div>
           <ul className="flex flex-col gap-2">
-            {equipment.map((e) => {
+            {/* Expired gear no longer buffs anything — drop it from view now;
+                the server retires the row on the next daily reset. */}
+            {equipment
+              .filter((e) => new Date(e.expires_at).getTime() > Date.now())
+              .map((e) => {
               const def = itemDef(e.item_key);
               return (
                 <li
@@ -131,7 +145,7 @@ export function InventoryPanel() {
                 <div className="min-w-0">
                   <div className="truncate font-display text-sm font-semibold text-white">
                     {def?.name ?? item.item_key}
-                    <span className="ml-2 font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+                    <span className="ml-2 font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
                       ×{item.quantity}
                     </span>
                   </div>

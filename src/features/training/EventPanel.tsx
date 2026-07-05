@@ -152,7 +152,7 @@ export function EventPanel() {
           >
             ◈ Speak the Answer (+{event.xp_reward} XP)
           </button>
-          <p className="mt-2 text-center font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+          <p className="mt-2 text-center font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
             {attemptsLeft} {attemptsLeft === 1 ? 'attempt' : 'attempts'} remaining
           </p>
         </div>

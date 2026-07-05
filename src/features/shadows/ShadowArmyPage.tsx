@@ -105,7 +105,7 @@ export function ShadowArmyPage() {
                 <li key={shadow.id} className="border border-accent-red/30 bg-bg-base/40 p-3">
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="font-display text-sm font-semibold text-white">{shadow.name}</span>
-                    <span className="shrink-0 font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+                    <span className="shrink-0 font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
                       {shadow.grade}
                     </span>
                   </div>

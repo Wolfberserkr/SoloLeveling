@@ -155,7 +155,7 @@ function SkillRow({
       <div className="flex items-baseline justify-between gap-2">
         <span className="font-display text-sm font-semibold text-white">{def.name}</span>
         {!owned && (
-          <span className={`shrink-0 font-sys text-[0.6rem] uppercase tracking-widest ${affordable ? 'text-essence' : 'text-slate-600'}`}>
+          <span className={`shrink-0 font-sys text-[0.6rem] uppercase tracking-widest ${affordable ? 'text-essence' : 'text-slate-500'}`}>
             {def.essenceCost} ◆
           </span>
         )}

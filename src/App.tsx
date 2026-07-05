@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { todayInTz } from '@/lib/dates';
@@ -17,11 +17,24 @@ import { GlitchText } from '@/components/system/GlitchText';
 import { LoginPage } from '@/features/auth/LoginPage';
 import { StatusPage } from '@/features/status/StatusPage';
 import { TrainingPage } from '@/features/training/TrainingPage';
-import { DungeonsPage } from '@/features/dungeons/DungeonsPage';
-import { LibraryPage } from '@/features/library/LibraryPage';
-import { SkillsPage } from '@/features/skills/SkillsPage';
-import { ShadowArmyPage } from '@/features/shadows/ShadowArmyPage';
-import { MorePage } from '@/features/more/MorePage';
+
+// Status and Training are the daily-loop pages — keep them in the main
+// bundle. Everything else loads on first visit.
+const DungeonsPage = lazy(() =>
+  import('@/features/dungeons/DungeonsPage').then((m) => ({ default: m.DungeonsPage })),
+);
+const LibraryPage = lazy(() =>
+  import('@/features/library/LibraryPage').then((m) => ({ default: m.LibraryPage })),
+);
+const SkillsPage = lazy(() =>
+  import('@/features/skills/SkillsPage').then((m) => ({ default: m.SkillsPage })),
+);
+const ShadowArmyPage = lazy(() =>
+  import('@/features/shadows/ShadowArmyPage').then((m) => ({ default: m.ShadowArmyPage })),
+);
+const MorePage = lazy(() =>
+  import('@/features/more/MorePage').then((m) => ({ default: m.MorePage })),
+);
 
 /** Manual re-sync — the only universal escape hatch for stale data. */
 function SyncButton() {
@@ -174,16 +187,18 @@ function AuthedApp() {
 
   return (
     <Shell>
-      <Routes>
-        <Route path="/" element={<StatusPage />} />
-        <Route path="/training" element={<TrainingPage />} />
-        <Route path="/dungeons" element={<DungeonsPage />} />
-        <Route path="/books" element={<LibraryPage />} />
-        <Route path="/skills" element={<SkillsPage />} />
-        <Route path="/army" element={<ShadowArmyPage />} />
-        <Route path="/more" element={<MorePage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <Suspense fallback={null}>
+        <Routes>
+          <Route path="/" element={<StatusPage />} />
+          <Route path="/training" element={<TrainingPage />} />
+          <Route path="/dungeons" element={<DungeonsPage />} />
+          <Route path="/books" element={<LibraryPage />} />
+          <Route path="/skills" element={<SkillsPage />} />
+          <Route path="/army" element={<ShadowArmyPage />} />
+          <Route path="/more" element={<MorePage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
     </Shell>
   );
 }
@@ -210,6 +225,9 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      {/* reducedMotion="user": Framer transforms obey the OS setting, matching
+          the CSS media query that already stills keyframe animations. */}
+      <MotionConfig reducedMotion="user">
       <SystemErrorBoundary>
       <AmbientMotes />
       <OfflineBanner />
@@ -222,6 +240,7 @@ export default function App() {
         <Route path="/*" element={session ? <AuthedApp /> : <Navigate to="/login" replace />} />
       </Routes>
       </SystemErrorBoundary>
+      </MotionConfig>
     </BrowserRouter>
   );
 }

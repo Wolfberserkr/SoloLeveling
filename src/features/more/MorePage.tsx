@@ -232,7 +232,7 @@ function Toggle({
       <span className="min-w-0">
         <span className="block font-sys text-xs uppercase tracking-widest text-white">{label}</span>
         {description && (
-          <span className="mt-0.5 block font-sys text-[0.6rem] leading-relaxed text-slate-500">
+          <span className="mt-0.5 block font-sys text-[0.6rem] leading-relaxed text-slate-400">
             {description}
           </span>
         )}

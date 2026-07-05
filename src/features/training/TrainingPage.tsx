@@ -37,7 +37,7 @@ function targetOf(q: TrainingQuest, key: ExerciseKey): number {
 }
 
 export function TrainingPage() {
-  const { training, setTraining, refresh } = usePlayerStore();
+  const { training, setTraining, refresh, applyAward, setStreak } = usePlayerStore();
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
@@ -103,7 +103,12 @@ export function TrainingPage() {
       if (res.award.leveled_up || res.perfect?.leveled_up) {
         showLevelUp(res.perfect?.leveled_up ? res.perfect.new_level : res.award.new_level);
       }
-      await refresh();
+      // The response carries the whole delta; only a level-up (possible
+      // rank/title changes) justifies refetching everything.
+      setTraining(res.training);
+      applyAward(res.perfect ?? res.award);
+      setStreak(res.streak);
+      if (res.award.leveled_up || res.perfect?.leveled_up) await refresh();
     } catch (err) {
       pushAlert({
         kind: 'danger',

@@ -100,7 +100,7 @@ export function StatusPage() {
         <div className="flex flex-col gap-3">
           {STAT_GROUPS.map((group, gi) => (
             <div key={group.name}>
-              <div className="mb-1 font-sys text-[0.6rem] uppercase tracking-[0.25em] text-slate-500">
+              <div className="mb-1 font-sys text-[0.6rem] uppercase tracking-[0.25em] text-slate-400">
                 {group.name}
               </div>
               <div className="grid grid-cols-3 gap-2">
@@ -166,7 +166,7 @@ export function StatusPage() {
               <li key={m.id} className="border-l-2 border-accent-gold/40 pl-3">
                 <div className="font-display text-sm font-semibold">{m.title}</div>
                 {m.body && <div className="mt-0.5 text-xs text-slate-400">{m.body}</div>}
-                <div className="mt-0.5 font-sys text-[0.6rem] uppercase tracking-widest text-slate-600">
+                <div className="mt-0.5 font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
                   {new Date(m.created_at).toLocaleString()}
                 </div>
               </li>

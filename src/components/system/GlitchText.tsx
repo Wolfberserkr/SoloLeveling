@@ -18,6 +18,11 @@ export function GlitchText({
   const [display, setDisplay] = useState(text);
 
   useEffect(() => {
+    // Scrambling text is exactly the kind of motion this setting exists for.
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setDisplay(text);
+      return;
+    }
     let frame = 0;
     let raf = 0;
     let last = performance.now();

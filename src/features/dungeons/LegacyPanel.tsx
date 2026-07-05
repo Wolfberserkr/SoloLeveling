@@ -116,7 +116,7 @@ export function LegacyPanel() {
             </li>
           ))}
         </ul>
-        <p className="mt-3 font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+        <p className="mt-3 font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
           ★ core — every comparable core measure must be beaten to win
         </p>
       </SystemWindow>

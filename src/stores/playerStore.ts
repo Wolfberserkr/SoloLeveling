@@ -70,8 +70,16 @@ type PlayerState = {
   setQuest: (q: DailyQuest) => void;
   setNutrition: (n: NutritionLog) => void;
   setDungeon: (d: DungeonProgress, gymDoneToday?: boolean) => void;
+  /** Fold an XP award into the profile without a full refetch. */
+  applyAward: (award: { xp_total?: number; new_level?: number } | null | undefined) => void;
+  setMana: (mana: number) => void;
+  setStreak: (streak: number) => void;
   reset: () => void;
 };
+
+// Monotonic token: a slow, older readState must never clobber the results of
+// a newer one that raced past it.
+let loadSeq = 0;
 
 export const usePlayerStore = create<PlayerState>((set) => ({
   loading: true,
@@ -107,6 +115,10 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   weeklyReview: null,
 
   loadAll: async () => {
+    const seq = ++loadSeq;
+    const guarded: typeof set = (partial) => {
+      if (seq === loadSeq) set(partial);
+    };
     set({ loading: true, error: null });
     try {
       // The System catches up on the day (generates today's quests) first.
@@ -117,8 +129,8 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         dungeon: DungeonProgress;
         gym_done_today: boolean;
       }>('ensure-daily');
-      await readState(set);
-      set({
+      await readState(guarded);
+      guarded({
         training: daily.training,
         quests: daily.quests,
         dungeon: daily.dungeon,
@@ -132,19 +144,26 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       // readable straight from the tables (RLS allows SELECT). Render that
       // instead of bricking the boot; actions will surface their own errors.
       try {
-        await readState(set);
-        set({ degraded: true, lastLoadAt: Date.now(), loading: false });
+        await readState(guarded);
+        guarded({ degraded: true, lastLoadAt: Date.now(), loading: false });
       } catch {
-        set({ error: err instanceof Error ? err.message : 'System link failed', loading: false });
+        guarded({
+          error: err instanceof Error ? err.message : 'System link failed',
+          loading: false,
+        });
       }
     }
   },
 
   refresh: async () => {
+    const seq = ++loadSeq;
+    const guarded: typeof set = (partial) => {
+      if (seq === loadSeq) set(partial);
+    };
     try {
-      await readState(set);
+      await readState(guarded);
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : 'System link failed' });
+      guarded({ error: err instanceof Error ? err.message : 'System link failed' });
     }
   },
 
@@ -157,6 +176,33 @@ export const usePlayerStore = create<PlayerState>((set) => ({
 
   setDungeon: (d, gymDoneToday) =>
     set((s) => ({ dungeon: d, gymDoneToday: gymDoneToday ?? s.gymDoneToday })),
+
+  applyAward: (award) =>
+    set((s) => {
+      if (!award || !s.profile) return {};
+      return {
+        profile: {
+          ...s.profile,
+          xp_total: award.xp_total ?? s.profile.xp_total,
+          level: award.new_level ?? s.profile.level,
+        },
+      };
+    }),
+
+  setMana: (mana) => set((s) => (s.profile ? { profile: { ...s.profile, mana } } : {})),
+
+  setStreak: (streak) =>
+    set((s) =>
+      s.totals
+        ? {
+            totals: {
+              ...s.totals,
+              current_streak: streak,
+              best_streak: Math.max(Number(s.totals.best_streak ?? 0), streak),
+            },
+          }
+        : {},
+    ),
 
   reset: () =>
     set({

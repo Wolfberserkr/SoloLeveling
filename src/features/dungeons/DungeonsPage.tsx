@@ -162,7 +162,7 @@ function DungeonRunPanel() {
             className={`border py-1 text-center font-sys text-[0.6rem] uppercase tracking-widest transition-colors ${
               k === kind
                 ? 'border-accent-cyan/60 bg-accent-cyan/10 text-accent-cyan'
-                : 'border-accent-cyan/15 text-slate-600'
+                : 'border-accent-cyan/15 text-slate-500'
             }`}
           >
             {SESSION_LABELS[k].title.split(' — ')[0]}
@@ -313,7 +313,7 @@ function LiftEditor({
     <div className="border border-t-0 border-accent-gold/25 bg-bg-base/60 p-2">
       <div className="flex items-end gap-2">
         <label className="flex-1">
-          <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+          <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
             Top set (kg)
           </span>
           <input
@@ -327,7 +327,7 @@ function LiftEditor({
           />
         </label>
         <label className="flex-1">
-          <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+          <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
             Reps
           </span>
           <input
@@ -348,7 +348,7 @@ function LiftEditor({
         </button>
       </div>
       {best > 0 && (
-        <p className="mt-1 font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+        <p className="mt-1 font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
           Best: {best} kg
         </p>
       )}
@@ -378,7 +378,7 @@ function ExerciseBlock({ label, exercises }: { label: string; exercises: Dungeon
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between font-sys text-[0.6rem] uppercase tracking-widest text-slate-500"
+        className="flex w-full items-center justify-between font-sys text-[0.6rem] uppercase tracking-widest text-slate-400"
       >
         <span>
           {label} · {exercises.length}
@@ -556,7 +556,7 @@ function MetricsPanel() {
       <div className="grid grid-cols-3 gap-2">
         {METRIC_FIELDS.map((f) => (
           <label key={f.key} className="block">
-            <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+            <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
               {f.label} ({f.unit})
             </span>
             <input
