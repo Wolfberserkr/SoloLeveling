@@ -430,13 +430,11 @@ async function exploreEncounter(ctx: Ctx) {
     };
   });
 
-  const mana = clampMana(profile.mana - EXPLORE_MANA_COST, profile.mana_max);
-  await db
-    .from('profiles')
-    .update({ mana, explores_today: profile.explores_today + 1 })
-    .eq('user_id', userId);
-  profile.mana = mana;
-  profile.explores_today += 1;
+  const { mana } = await spendResources(
+    ctx,
+    { mana: EXPLORE_MANA_COST, explores: 1 },
+    'Insufficient mana to Explore. Recover first.',
+  );
 
   const { data: encounter, error } = await db
     .from('encounters')
@@ -1092,9 +1090,11 @@ async function completeSideQuest(ctx: Ctx, payload: { key?: string }) {
     .select('id');
   if (!claimed || claimed.length === 0) throw new HttpError(409, 'Quest already resolved');
 
-  const mana = clampMana(profile.mana - manaCost, profile.mana_max);
-  await db.from('profiles').update({ mana }).eq('user_id', userId);
-  profile.mana = mana;
+  const { mana } = await spendResources(
+    ctx,
+    { mana: manaCost },
+    'Insufficient mana. Recover before taking this on.',
+  );
 
   const award = await awardXp(ctx, quest.xp_reward, 'daily_quest', quest.id);
   const training = await getTodayQuest(ctx);
@@ -1290,23 +1290,20 @@ async function logNutrition(
 
 // ── use-potion: spend an earned potion for a 20–50 mana restore ─────────────
 async function usePotion(ctx: Ctx) {
-  const { db, userId, profile } = ctx;
+  const { profile } = ctx;
   if (profile.mana_potions <= 0) throw new HttpError(409, 'No Mana Potions');
   if (profile.mana >= profile.mana_max) throw new HttpError(409, 'Mana already full');
 
   const roll =
     POTION_RESTORE_MIN + Math.floor(Math.random() * (POTION_RESTORE_MAX - POTION_RESTORE_MIN + 1));
-  const mana = clampMana(profile.mana + roll, profile.mana_max);
-  const restored = mana - profile.mana;
+  const before = profile.mana;
+  const { mana, mana_potions } = await spendResources(
+    ctx,
+    { mana: -roll, potions: 1 },
+    'No Mana Potions',
+  );
 
-  await db
-    .from('profiles')
-    .update({ mana, mana_potions: profile.mana_potions - 1 })
-    .eq('user_id', userId);
-  profile.mana = mana;
-  profile.mana_potions -= 1;
-
-  return { ok: true, restored, mana, potions: profile.mana_potions };
+  return { ok: true, restored: mana - before, mana, potions: mana_potions };
 }
 
 // ── complete-gym: one dungeon run per day — spend mana, earn XP ─────────────
@@ -1338,9 +1335,11 @@ async function completeGym(ctx: Ctx, payload: { notes?: string; kind?: string })
     throw new HttpError(500, 'Failed to record dungeon run');
   }
 
-  const mana = clampMana(profile.mana - MANA_COSTS.gym, profile.mana_max);
-  await db.from('profiles').update({ mana }).eq('user_id', userId);
-  profile.mana = mana;
+  const { mana } = await spendResources(
+    ctx,
+    { mana: MANA_COSTS.gym },
+    'Insufficient mana. Recover before entering the dungeon.',
+  );
 
   const sessionsCompleted = dungeon.sessions_completed + 1;
   await db
@@ -1658,9 +1657,11 @@ async function logReading(
     .select('*')
     .single();
 
-  const mana = clampMana(profile.mana - MANA_COSTS.reading, profile.mana_max);
-  await db.from('profiles').update({ mana }).eq('user_id', userId);
-  profile.mana = mana;
+  const { mana } = await spendResources(
+    ctx,
+    { mana: MANA_COSTS.reading },
+    'Insufficient mana. Recover before opening the tome.',
+  );
 
   // Read pays by pages; a genuine written reflection pays its bonus on top.
   const reflected = reflection.length >= MIN_REFLECTION_CHARS;
@@ -1977,9 +1978,11 @@ async function generateQuestions(ctx: Ctx, payload: { book_id?: string }) {
   if (error || !questions) throw new HttpError(500, 'Failed to bank generated questions');
 
   // Mana is only spent on success — a silent Archive costs nothing.
-  const mana = clampMana(profile.mana - MANA_COSTS.study, profile.mana_max);
-  await db.from('profiles').update({ mana }).eq('user_id', userId);
-  profile.mana = mana;
+  const { mana } = await spendResources(
+    ctx,
+    { mana: MANA_COSTS.study },
+    'Insufficient mana. Recover before consulting the Archive.',
+  );
 
   return {
     ok: true,
@@ -2028,6 +2031,62 @@ async function checkPerfectClear(
   return award;
 }
 
+// ── Atomic resource spends: one guarded UPDATE via spend_resources ─────────
+// Positive amounts spend, negative amounts grant (mana clamps to mana_max).
+// NULL from the RPC means insufficient funds and nothing changed.
+type ResourceSpend = { mana?: number; potions?: number; essence?: number; explores?: number };
+
+async function spendResources(ctx: Ctx, spend: ResourceSpend, insufficientMsg: string) {
+  const { db, userId, profile } = ctx;
+  const { data, error } = await db.rpc('spend_resources', {
+    p_user: userId,
+    p_mana: spend.mana ?? 0,
+    p_potions: spend.potions ?? 0,
+    p_essence: spend.essence ?? 0,
+    p_explores: spend.explores ?? 0,
+  });
+  if (error) {
+    // Migration 0022 not applied yet (function deploys can lead migrations):
+    // fall back to the legacy non-atomic path rather than blocking play.
+    if (error.code === 'PGRST202' || /spend_resources/.test(error.message ?? '')) {
+      const mana = clampMana(profile.mana - (spend.mana ?? 0), profile.mana_max);
+      const potions = profile.mana_potions - (spend.potions ?? 0);
+      const essence = profile.essence_stones - (spend.essence ?? 0);
+      const explores = profile.explores_today + (spend.explores ?? 0);
+      if (
+        profile.mana < (spend.mana ?? 0) ||
+        potions < 0 ||
+        essence < 0
+      ) {
+        throw new HttpError(409, insufficientMsg);
+      }
+      await db
+        .from('profiles')
+        .update({ mana, mana_potions: potions, essence_stones: essence, explores_today: explores })
+        .eq('user_id', userId);
+      profile.mana = mana;
+      profile.mana_potions = potions;
+      profile.essence_stones = essence;
+      profile.explores_today = explores;
+      return { mana, mana_potions: potions, essence_stones: essence, explores_today: explores };
+    }
+    console.error('spend_resources failed:', error);
+    throw new HttpError(500, 'Resource update failed');
+  }
+  if (!data) throw new HttpError(409, insufficientMsg);
+  const r = data as {
+    mana: number;
+    mana_potions: number;
+    essence_stones: number;
+    explores_today: number;
+  };
+  profile.mana = r.mana;
+  profile.mana_potions = r.mana_potions;
+  profile.essence_stones = r.essence_stones;
+  profile.explores_today = r.explores_today;
+  return r;
+}
+
 // ── XP gate wrapper: rpc → level-up announcement ────────────────────────────
 async function awardXp(
   ctx: Ctx,
@@ -2042,14 +2101,21 @@ async function awardXp(
     skillXpMultiplier(ctx.skillKeys, source) *
     shadowXpMultiplier(ctx.deployedShadows, source);
   const effectiveAmount = Math.round(amount * xpMult);
-  const { data: award, error } = await ctx.db.rpc('award_xp', {
+  const rpcArgs = {
     p_user: ctx.userId,
     p_amount: effectiveAmount,
     p_source: source,
     p_source_ref: sourceRef,
     p_cap_eligible: capEligible,
     p_local_date: ctx.today,
-  });
+  };
+  let { data: award, error } = await ctx.db.rpc('award_xp', rpcArgs);
+  if (error) {
+    // The quest/claim may already be resolved by the time we get here, so a
+    // transient blip would otherwise cost the XP forever. One retry.
+    console.error('award_xp failed (retrying once):', error);
+    ({ data: award, error } = await ctx.db.rpc('award_xp', rpcArgs));
+  }
   if (error) {
     console.error('award_xp failed:', error);
     throw new HttpError(500, 'XP award failed');
@@ -2251,9 +2317,11 @@ async function unlockSkill(ctx: Ctx, payload: { skill_key?: string }) {
     throw new HttpError(500, 'Failed to learn skill');
   }
 
-  const essence = profile.essence_stones - def.essenceCost;
-  await db.from('profiles').update({ essence_stones: essence }).eq('user_id', userId);
-  profile.essence_stones = essence;
+  const { essence_stones: essence } = await spendResources(
+    ctx,
+    { essence: def.essenceCost },
+    `Not enough Essence — ${def.essenceCost} required`,
+  );
   ctx.skills.push({ skill_key: key, last_used_at: null });
   ctx.skillKeys.push(key);
 
@@ -2303,19 +2371,23 @@ async function useSkill(ctx: Ctx, payload: { skill_key?: string }) {
       break;
     }
     case 'craft_potion': {
-      update.mana = clampMana(profile.mana - manaCost, profile.mana_max);
-      update.mana_potions = profile.mana_potions + 1;
-      result = { mana: update.mana, potions: update.mana_potions };
+      const spent = await spendResources(
+        ctx,
+        { mana: manaCost, potions: -1 },
+        'Insufficient mana for this skill',
+      );
+      result = { mana: spent.mana, potions: spent.mana_potions };
       break;
     }
     default:
       throw new HttpError(500, 'Skill has no effect');
   }
 
-  await db.from('profiles').update(update).eq('user_id', userId);
-  if (update.mana !== undefined) profile.mana = update.mana;
-  if (update.fatigue !== undefined) profile.fatigue = update.fatigue;
-  if (update.mana_potions !== undefined) profile.mana_potions = update.mana_potions;
+  if (Object.keys(update).length > 0) {
+    await db.from('profiles').update(update).eq('user_id', userId);
+    if (update.mana !== undefined) profile.mana = update.mana;
+    if (update.fatigue !== undefined) profile.fatigue = update.fatigue;
+  }
 
   await db.from('skills').update({ last_used_at: today }).eq('user_id', userId).eq('skill_key', key);
   row.last_used_at = today;
@@ -2545,9 +2617,11 @@ async function extractShadow(ctx: Ctx, payload: { shadow_id?: string }) {
   }
 
   // Mana is spent on every attempt; the conquest survives a failed Arise.
-  const mana = clampMana(profile.mana - SHADOW_EXTRACT_MANA, profile.mana_max);
-  await db.from('profiles').update({ mana }).eq('user_id', userId);
-  profile.mana = mana;
+  const { mana } = await spendResources(
+    ctx,
+    { mana: SHADOW_EXTRACT_MANA },
+    'Insufficient mana to attempt extraction',
+  );
 
   const chance = extractChance(shadow.grade as ShadowGrade, profile.rank);
   const success = Math.random() < chance;

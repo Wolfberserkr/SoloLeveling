@@ -3,6 +3,8 @@ import { motion } from 'framer-motion';
 import { usePlayerStore } from '@/stores/playerStore';
 import { useUiStore } from '@/stores/uiStore';
 import { gameAction } from '@/lib/gameApi';
+import { todayInTz, isoWeekStart } from '@/lib/dates';
+import { useSessionState } from '@/lib/useSessionState';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import { StatBar } from '@/components/system/StatBar';
 import { GlitchText } from '@/components/system/GlitchText';
@@ -77,7 +79,12 @@ function DungeonRunPanel() {
   const showLevelUp = useUiStore((s) => s.showLevelUp);
   const burstXp = useUiStore((s) => s.burstXp);
   const [busy, setBusy] = useState(false);
-  const [ticked, setTicked] = useState<Record<number, boolean>>({});
+  // Set ticks survive refreshes and tab switches — losing a half-finished
+  // workout checklist to a re-render was pure friction.
+  const [ticked, setTicked] = useSessionState<Record<number, boolean>>(
+    `gym-ticks-${dungeon?.phase ?? 0}-${todayInTz(profile?.timezone)}`,
+    {},
+  );
   const [selected, setSelected] = useState<SessionKind | null>(null);
   const [liftFor, setLiftFor] = useState<string | null>(null);
 
@@ -400,18 +407,22 @@ function ExerciseBlock({ label, exercises }: { label: string; exercises: Dungeon
 
 function BossPanel() {
   const showTakeover = useUiStore((s) => s.showTakeover);
-  const { dungeon, setDungeon, refresh } = usePlayerStore();
+  const { profile, dungeon, setDungeon, refresh } = usePlayerStore();
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
-  const [confirmed, setConfirmed] = useState<Record<string, boolean>>({});
+  // "Today" must agree with the server (profile timezone, not device clock),
+  // or a traveling player sees a spent attempt re-open — or a fresh one blocked.
+  const today = todayInTz(profile?.timezone);
+  const [confirmed, setConfirmed] = useSessionState<Record<string, boolean>>(
+    `boss-confirm-${dungeon?.phase ?? 0}-${today}`,
+    {},
+  );
   const [busy, setBusy] = useState(false);
 
   if (!dungeon) return null;
   const def = dungeonPhaseFor(dungeon.phase);
-  const today = new Date();
   const attemptedToday =
-    dungeon.last_boss_attempt != null &&
-    dungeon.last_boss_attempt === today.toLocaleDateString('en-CA');
+    dungeon.last_boss_attempt != null && dungeon.last_boss_attempt === today;
   const allConfirmed = def.boss.benchmarks.every((b) => confirmed[b.key]);
 
   async function challenge() {
@@ -492,7 +503,7 @@ const METRIC_FIELDS = [
 ] as const;
 
 function MetricsPanel() {
-  const { metrics, refresh } = usePlayerStore();
+  const { profile, metrics, refresh } = usePlayerStore();
   const pushAlert = useUiStore((s) => s.pushAlert);
   const [values, setValues] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -522,10 +533,7 @@ function MetricsPanel() {
   }
 
   // The trend line wants one entry per ISO week — glow until this week's is in.
-  const now = new Date();
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-  const weekStart = monday.toLocaleDateString('en-CA');
+  const weekStart = isoWeekStart(todayInTz(profile?.timezone));
   const entryDue = !metrics || metrics.local_date < weekStart;
 
   return (

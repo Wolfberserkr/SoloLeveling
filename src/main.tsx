@@ -15,12 +15,24 @@ import App from './App';
 // every time the app returns to the foreground; autoUpdate then swaps and
 // reloads on its own.
 const SW_UPDATE_INTERVAL_MS = 60 * 60 * 1000;
+
+// autoUpdate reloads the page the moment a new build activates. Never kick
+// that off while the player is mid-sentence in a reflection, riddle, or log —
+// a lost paragraph costs more trust than a build that lands an hour later.
+function typing(): boolean {
+  const el = document.activeElement;
+  return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement;
+}
+
 registerSW({
   onRegisteredSW(_url, registration) {
     if (!registration) return;
-    setInterval(() => void registration.update().catch(() => {}), SW_UPDATE_INTERVAL_MS);
+    const check = () => {
+      if (!typing()) void registration.update().catch(() => {});
+    };
+    setInterval(check, SW_UPDATE_INTERVAL_MS);
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') void registration.update().catch(() => {});
+      if (document.visibilityState === 'visible') check();
     });
   },
 });

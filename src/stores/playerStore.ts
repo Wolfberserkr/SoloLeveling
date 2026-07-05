@@ -125,7 +125,6 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         gymDoneToday: daily.gym_done_today,
         serverToday: daily.today ?? null,
         lastLoadAt: Date.now(),
-        degraded: false,
         loading: false,
       });
     } catch (err) {
@@ -312,6 +311,16 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
 
   if (profileRes.error) throw new Error(profileRes.error.message);
 
+  // A failed slice must not masquerade as an empty state ("no training quest
+  // found") — count failures and let the degraded banner tell the truth.
+  const sliceErrors = [
+    statsRes, titlesRes, skillsRes, totalsRes, messagesRes, trainingRes, questsRes,
+    sleepRes, nutritionRes, dungeonRes, gymRes, metricsRes, booksRes, questionsRes,
+    readingRes, applicationsRes, eventRes, liftsRes, legacyRes, shadowsRes,
+    inventoryRes, equipmentRes, encounterRes, weeklyReviewRes,
+  ].filter((r) => r.error != null).length;
+  if (sliceErrors > 0) console.error(`readState: ${sliceErrors} slice reads failed`);
+
   const training = ((trainingRes.data ?? [])[0] ?? null) as TrainingQuest | null;
   const today = training?.local_date;
   const quests = ((questsRes.data ?? []) as DailyQuest[]).filter((q) => q.local_date === today);
@@ -326,6 +335,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     (rows ?? []).filter((r) => r.local_date === today).map((r) => r.book_id);
 
   set({
+    degraded: sliceErrors > 0,
     profile: profileRes.data as Profile,
     stats: (statsRes.data ?? []) as StatRow[],
     titles: (titlesRes.data ?? []) as Title[],

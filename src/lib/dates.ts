@@ -20,6 +20,14 @@ export function todayInTz(tz: string | null | undefined, date: Date = new Date()
   }
 }
 
+/** YYYY-MM-DD of the Monday starting the ISO week containing `localDate`. */
+export function isoWeekStart(localDate: string): string {
+  const d = new Date(`${localDate}T12:00:00Z`);
+  const offset = (d.getUTCDay() + 6) % 7; // Mon=0 … Sun=6
+  d.setUTCDate(d.getUTCDate() - offset);
+  return d.toISOString().slice(0, 10);
+}
+
 /** Milliseconds until the next local midnight in the given timezone. */
 export function msUntilMidnight(tz: string | null | undefined, now: Date = new Date()): number {
   const today = todayInTz(tz, now);

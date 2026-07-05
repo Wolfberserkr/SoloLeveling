@@ -117,8 +117,10 @@ async function tickUser(db: Db, profile: CronProfile, canPush: boolean): Promise
     }
   }
 
+  // A two-hour window, not an exact match: one late or skipped tick must not
+  // silently cost the day's reminder. notification_log already dedupes.
   const reminderHour = profile.reminder_hour ?? DEFAULT_REMINDER_HOUR;
-  if (hour === reminderHour && canPush) {
+  if (hour >= reminderHour && hour < reminderHour + 2 && canPush) {
     // Pending OR missing — a player who never opened the app needs the
     // reminder most. (The quest row is only created on first contact.)
     const { data: quest } = await db

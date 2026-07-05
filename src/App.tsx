@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { todayInTz } from '@/lib/dates';
 import { usePlayerStore } from '@/stores/playerStore';
 import { BottomNav } from '@/components/system/BottomNav';
+import { SystemErrorBoundary } from '@/components/system/ErrorBoundary';
 import { SystemAlertStack } from '@/components/system/SystemAlertStack';
 import { OfflineBanner } from '@/components/system/OfflineBanner';
 import { LevelUpSequence } from '@/components/system/LevelUpSequence';
@@ -209,6 +210,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <SystemErrorBoundary>
       <AmbientMotes />
       <OfflineBanner />
       <SystemAlertStack />
@@ -219,6 +221,7 @@ export default function App() {
         <Route path="/login" element={session ? <Navigate to="/" replace /> : <LoginPage />} />
         <Route path="/*" element={session ? <AuthedApp /> : <Navigate to="/login" replace />} />
       </Routes>
+      </SystemErrorBoundary>
     </BrowserRouter>
   );
 }
