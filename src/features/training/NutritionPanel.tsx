@@ -33,6 +33,9 @@ export function NutritionPanel() {
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<TargetKind | null>(null);
   const [targetText, setTargetText] = useState('');
+  // Free-text intake entry, for logging an exact amount instead of a preset.
+  const [customProtein, setCustomProtein] = useState('');
+  const [customKcal, setCustomKcal] = useState('');
 
   if (!profile) return null;
 
@@ -98,6 +101,17 @@ export function NutritionPanel() {
     } finally {
       setBusy(false);
     }
+  }
+
+  // Log an exact, typed amount of protein or calories (accumulates like the
+  // presets). Clears the field afterward; `log` surfaces its own errors.
+  async function logCustom(kind: TargetKind) {
+    const raw = kind === 'protein' ? customProtein : customKcal;
+    const n = Number(raw);
+    if (busy || !Number.isFinite(n) || n <= 0) return;
+    await log(kind === 'protein' ? { protein_g: n } : { calories_kcal: n });
+    if (kind === 'protein') setCustomProtein('');
+    else setCustomKcal('');
   }
 
   async function saveTarget(kind: TargetKind) {
@@ -199,6 +213,29 @@ export function NutritionPanel() {
           </button>
         ))}
       </div>
+      {/* Exact entry — type the grams you actually ate. */}
+      <div className="mt-2 flex gap-2">
+        <input
+          type="number"
+          inputMode="decimal"
+          min={1}
+          step="any"
+          placeholder="exact g"
+          value={customProtein}
+          onChange={(e) => setCustomProtein(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void logCustom('protein');
+          }}
+          className="w-24 border border-accent-gold/40 bg-bg-base/60 px-2 py-1 text-center font-sys text-xs text-white outline-none focus:border-accent-gold"
+        />
+        <button
+          className="sys-btn sys-btn-ghost flex-1 !min-h-[34px] !py-1 !text-[0.65rem]"
+          disabled={busy || !customProtein}
+          onClick={() => logCustom('protein')}
+        >
+          + Add grams
+        </button>
+      </div>
 
       {/* Calories — the ceiling. Informational: no XP rides on eating less. */}
       <div className="mb-1 mt-4 flex items-baseline justify-between">
@@ -230,6 +267,29 @@ export function NutritionPanel() {
             +{step}
           </button>
         ))}
+      </div>
+      {/* Exact entry — type the calories you actually ate. */}
+      <div className="mt-2 flex gap-2">
+        <input
+          type="number"
+          inputMode="decimal"
+          min={1}
+          step="any"
+          placeholder="exact kcal"
+          value={customKcal}
+          onChange={(e) => setCustomKcal(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void logCustom('calories');
+          }}
+          className="w-24 border border-accent-cyan/40 bg-bg-base/60 px-2 py-1 text-center font-sys text-xs text-white outline-none focus:border-accent-cyan"
+        />
+        <button
+          className="sys-btn sys-btn-ghost flex-1 !min-h-[34px] !py-1 !text-[0.65rem]"
+          disabled={busy || !customKcal}
+          onClick={() => logCustom('calories')}
+        >
+          + Add kcal
+        </button>
       </div>
 
       {/* Supplement stack */}
