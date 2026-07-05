@@ -46,6 +46,12 @@ jobs:
         if: ${{ env.SUPABASE_DB_PASSWORD != '' }}
         run: |
           supabase link --project-ref "$SUPABASE_PROJECT_REF"
+          # Reconcile drifted history: 0020/0021 (the Fuel Protocol) were
+          # applied to the DB out of band but never recorded, so a plain
+          # `db push` replays 0020 and dies on "column already exists". Mark
+          # them applied (records history, runs no SQL), then push only 0022+.
+          # Idempotent — re-marking an already-applied migration is a no-op.
+          supabase migration repair --status applied 0020 0021
           supabase db push
 
       - name: Deploy edge functions
