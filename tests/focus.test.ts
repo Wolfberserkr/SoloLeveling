@@ -16,13 +16,13 @@ describe('instant dungeon (focus)', () => {
     expect(isFocusDuration(0)).toBe(false);
   });
 
-  it('scales daily keys with rank', () => {
-    expect(focusKeysPerDay('E')).toBe(2);
+  it('scales daily keys with rank, three at the baseline', () => {
+    expect(focusKeysPerDay('E')).toBe(3);
     expect(focusKeysPerDay('D')).toBe(3);
     expect(focusKeysPerDay('C')).toBe(4);
     expect(focusKeysPerDay('A')).toBe(5);
     expect(focusKeysPerDay('Monarch')).toBe(5);
-    expect(focusKeysPerDay('nonsense')).toBe(2); // safe floor
+    expect(focusKeysPerDay('nonsense')).toBe(3); // safe floor
   });
 
   it('rewards longer runs and extra mobs', () => {

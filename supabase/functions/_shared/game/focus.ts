@@ -32,13 +32,13 @@ export function isFocusDuration(n: unknown): n is FocusDuration {
   return typeof n === 'number' && (FOCUS_DURATIONS as readonly number[]).includes(n);
 }
 
-/** Daily Instant-Dungeon keys, scaled by rank (mirrors army capacity growth). */
+/** Daily Instant-Dungeon keys, scaled by rank (mirrors army capacity growth).
+ *  Everyone gets at least 3 from day one — enough to try the system out. */
 export function focusKeysPerDay(rank: string): number {
   const i = Math.max(0, RANKS.indexOf(rank as Rank));
   if (i >= RANKS.indexOf('A')) return 5;
   if (i >= RANKS.indexOf('C')) return 4;
-  if (i >= RANKS.indexOf('D')) return 3;
-  return 2; // E-Rank
+  return 3; // E / D-Rank baseline
 }
 
 /** XP for clearing a run: depth base + a bonus per additional mob. */
