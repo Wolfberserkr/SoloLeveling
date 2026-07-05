@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { usePlayerStore } from '@/stores/playerStore';
 import { useUiStore } from '@/stores/uiStore';
 import { gameAction } from '@/lib/gameApi';
+import { todayInTz } from '@/lib/dates';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import {
   SKILLS,
@@ -17,7 +18,8 @@ export function SkillsPage() {
   const [busy, setBusy] = useState<string | null>(null);
   if (!profile) return null;
 
-  const today = training?.local_date ?? new Date().toISOString().slice(0, 10);
+  // Server-day first, then profile timezone — never the raw device clock.
+  const today = training?.local_date ?? todayInTz(profile.timezone);
   const owned = new Map(skills.map((s) => [s.skill_key, s]));
   const rankIndex = Math.max(0, RANKS.indexOf(profile.rank as Rank));
 
@@ -153,7 +155,7 @@ function SkillRow({
       <div className="flex items-baseline justify-between gap-2">
         <span className="font-display text-sm font-semibold text-white">{def.name}</span>
         {!owned && (
-          <span className={`shrink-0 font-sys text-[0.6rem] uppercase tracking-widest ${affordable ? 'text-essence' : 'text-slate-600'}`}>
+          <span className={`shrink-0 font-sys text-[0.6rem] uppercase tracking-widest ${affordable ? 'text-essence' : 'text-slate-500'}`}>
             {def.essenceCost} ◆
           </span>
         )}

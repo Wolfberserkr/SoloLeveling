@@ -37,7 +37,9 @@ describe('item catalog integrity', () => {
       expect(def.category).toBe('consumable');
       expect(def.effect).toBeDefined();
       const effect = def.effect!;
-      if (effect.kind !== 'fatigue_purge') {
+      // Amount-bearing effects must be plausible; effect-only kinds
+      // (fatigue_purge, streak_shield) carry no amount.
+      if ('amount' in effect) {
         expect(effect.amount).toBeGreaterThan(0);
         expect(effect.amount).toBeLessThanOrEqual(100);
       }

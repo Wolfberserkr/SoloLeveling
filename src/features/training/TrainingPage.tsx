@@ -7,6 +7,9 @@ import { gameAction } from '@/lib/gameApi';
 import { fromKm, toKm } from '@/lib/units';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import { StatBar } from '@/components/system/StatBar';
+import { GateCountdown } from '@/components/system/GateCountdown';
+import { PenaltyPanel } from '@/features/training/PenaltyPanel';
+import { FocusPanel } from '@/features/training/FocusPanel';
 import { SideQuestsPanel } from '@/features/training/SideQuestsPanel';
 import { NutritionPanel } from '@/features/training/NutritionPanel';
 import { RecoveryPanel } from '@/features/training/RecoveryPanel';
@@ -37,7 +40,7 @@ function targetOf(q: TrainingQuest, key: ExerciseKey): number {
 }
 
 export function TrainingPage() {
-  const { training, setTraining, refresh } = usePlayerStore();
+  const { training, setTraining, refresh, applyAward, setStreak } = usePlayerStore();
   const distanceUnit = useSettingsStore((s) => s.distanceUnit);
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
@@ -49,7 +52,7 @@ export function TrainingPage() {
     return (
       <SystemWindow title="Daily Quest" accent="red">
         <p className="font-sys text-xs text-slate-400">
-          No training quest found. Pull to refresh or re-enter the System.
+          No training quest found. Tap the ⟳ sync control (top right) to re-enter the System.
         </p>
       </SystemWindow>
     );
@@ -103,7 +106,12 @@ export function TrainingPage() {
       if (res.award.leveled_up || res.perfect?.leveled_up) {
         showLevelUp(res.perfect?.leveled_up ? res.perfect.new_level : res.award.new_level);
       }
-      await refresh();
+      // The response carries the whole delta; only a level-up (possible
+      // rank/title changes) justifies refetching everything.
+      setTraining(res.training);
+      applyAward(res.perfect ?? res.award);
+      setStreak(res.streak);
+      if (res.award.leveled_up || res.perfect?.leveled_up) await refresh();
     } catch (err) {
       pushAlert({
         kind: 'danger',
@@ -117,8 +125,11 @@ export function TrainingPage() {
 
   return (
     <div className="flex flex-col gap-4">
+      <GateCountdown />
+      <PenaltyPanel />
       <EventPanel />
       <EncounterPanel />
+      <FocusPanel />
       <SystemWindow title="Daily Quest — Train to Become Strong" scan>
         <div className="mb-3 flex items-center justify-between font-sys text-[0.65rem] uppercase tracking-widest text-slate-400">
           <span>{training.local_date}</span>

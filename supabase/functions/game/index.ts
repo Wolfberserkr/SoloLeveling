@@ -85,6 +85,7 @@ import {
   skillStatMultiplier,
   skillManaRegenBonus,
   hasStreakShield,
+  nextStreak,
 } from '../_shared/game/progression.ts';
 import {
   SHADOW_EXTRACT_MANA,
@@ -113,7 +114,20 @@ import {
   resolveSeed,
   rankIndexOf,
 } from '../_shared/game/encounters.ts';
-import { itemStatMultiplier, applyConsumable, itemDef } from '../_shared/game/items.ts';
+import { itemStatMultiplier, applyConsumable, itemDef, STREAK_SHIELD_KEY } from '../_shared/game/items.ts';
+import {
+  penaltyTargets,
+  shouldSpawnPenalty,
+  isPenaltyComplete,
+  type ExerciseTargets,
+} from '../_shared/game/penalty.ts';
+import {
+  isFocusDuration,
+  focusKeysPerDay,
+  focusXp,
+  normalizeMobs,
+  type FocusDuration,
+} from '../_shared/game/focus.ts';
 import {
   NUTRITION_XP,
   SUPPLEMENT_STACK_XP,
@@ -226,6 +240,16 @@ Deno.serve(async (req) => {
         return json(await logTraining(ctx, payload));
       case 'complete-training':
         return json(await completeTraining(ctx));
+      case 'log-penalty':
+        return json(await logPenalty(ctx, payload));
+      case 'complete-penalty':
+        return json(await completePenalty(ctx));
+      case 'start-focus':
+        return json(await startFocus(ctx, payload));
+      case 'complete-focus':
+        return json(await completeFocus(ctx));
+      case 'abandon-focus':
+        return json(await abandonFocus(ctx));
       case 'complete-quest':
         return json(await completeSideQuest(ctx, payload));
       case 'log-sleep':
@@ -429,13 +453,11 @@ async function exploreEncounter(ctx: Ctx) {
     };
   });
 
-  const mana = clampMana(profile.mana - EXPLORE_MANA_COST, profile.mana_max);
-  await db
-    .from('profiles')
-    .update({ mana, explores_today: profile.explores_today + 1 })
-    .eq('user_id', userId);
-  profile.mana = mana;
-  profile.explores_today += 1;
+  const { mana } = await spendResources(
+    ctx,
+    { mana: EXPLORE_MANA_COST, explores: 1 },
+    'Insufficient mana to Explore. Recover first.',
+  );
 
   const { data: encounter, error } = await db
     .from('encounters')
@@ -493,6 +515,20 @@ async function resolveEncounter(ctx: Ctx, payload: { choice_key?: string }) {
   const success = rollOutcome(rand, statValue, choice.difficulty);
   const rankIndex = rankIndexOf(encounter.rank);
 
+  // Claim the encounter before paying out — a concurrent resolve of the same
+  // encounter must lose this race, not double the rewards.
+  const { data: claimed } = await db
+    .from('encounters')
+    .update({
+      status: success ? 'won' : 'lost',
+      chosen_key: choiceKey,
+      resolved_at: new Date().toISOString(),
+    })
+    .eq('id', encounter.id)
+    .eq('status', 'active')
+    .select('id');
+  if (!claimed || claimed.length === 0) throw new HttpError(409, 'Encounter already resolved.');
+
   let essence = 0;
   let items: Array<{ key: string; qty: number }> = [];
   let shadow: { name: string; grade: string } | null = null;
@@ -516,15 +552,7 @@ async function resolveEncounter(ctx: Ctx, payload: { choice_key?: string }) {
   }
 
   const result = { success, xp: award.credited, essence, items, shadow };
-  await db
-    .from('encounters')
-    .update({
-      status: success ? 'won' : 'lost',
-      chosen_key: choiceKey,
-      result,
-      resolved_at: new Date().toISOString(),
-    })
-    .eq('id', encounter.id);
+  await db.from('encounters').update({ result }).eq('id', encounter.id);
 
   const itemNames = items.map((it) => itemDef(it.key)?.name ?? it.key);
   const title = encounter.payload?.title ?? 'Encounter';
@@ -555,6 +583,9 @@ async function useItem(ctx: Ctx, payload: { item_key?: string }) {
   const key = typeof payload.item_key === 'string' ? payload.item_key : '';
   const def = itemDef(key);
   if (!def || def.category !== 'consumable') throw new HttpError(400, 'Not a usable item.');
+  if (def.autoConsume) {
+    throw new HttpError(409, 'The System spends this for you when the moment comes.');
+  }
 
   const { data: consumed } = await db.rpc('consume_item', {
     p_user: userId,
@@ -647,10 +678,11 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
 
   const yesterday = previousDate(today);
 
-  // Close out yesterday's training quest if it was left pending.
+  // Close out yesterday's training quest if it was left pending. Its targets
+  // seed a Penalty Quest if the streak breaks (the missed day, harder).
   const { data: prev } = await db
     .from('training_quests')
-    .select('id, status')
+    .select('id, status, pushups_target, situps_target, squats_target, run_km_target')
     .eq('user_id', userId)
     .eq('local_date', yesterday)
     .maybeSingle();
@@ -685,7 +717,19 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
     .eq('status', 'pending')
     .lt('local_date', today);
 
-  // Streak break: missing a full day resets the counter.
+  // A Penalty Quest left unresolved by midnight expires — the break stands.
+  const { error: penaltyExpireErr } = await db
+    .from('penalty_quests')
+    .update({ status: 'expired' })
+    .eq('user_id', userId)
+    .eq('status', 'pending')
+    .lt('local_date', today);
+  if (penaltyExpireErr && penaltyExpireErr.code !== '42P01' && penaltyExpireErr.code !== 'PGRST205') {
+    console.error('penalty expire failed:', penaltyExpireErr);
+  }
+
+  // Streak break: missing a full day resets the counter — unless something
+  // saves it (Steel Will, a Shield of Resolve item, or a Penalty Quest).
   const { data: totals } = await db
     .from('training_totals')
     .select('current_streak, last_completed_date')
@@ -693,16 +737,16 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
     .single();
   // Steel Will (passive) forgives a single missed day before the streak breaks.
   const twoDaysAgo = previousDate(yesterday);
-  const shielded =
+  const steelWill =
     hasStreakShield(ctx.skillKeys) && totals?.last_completed_date === twoDaysAgo;
-  if (
-    totals &&
+  const streakBreaks =
+    !!totals &&
     totals.current_streak > 0 &&
     totals.last_completed_date !== yesterday &&
-    totals.last_completed_date !== today &&
-    !shielded
-  ) {
-    await db.from('training_totals').update({ current_streak: 0 }).eq('user_id', userId);
+    totals.last_completed_date !== today;
+
+  if (streakBreaks && !steelWill) {
+    await handleStreakBreak(ctx, totals.current_streak, prev);
   }
 
   // Mana regen: a new day restores capacity before anything is asked of you.
@@ -787,6 +831,94 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
   profile.fatigue = fatigue;
   profile.explores_today = 0;
   profile.last_daily_reset = today;
+}
+
+type PrevTargets = {
+  pushups_target: number;
+  situps_target: number;
+  squats_target: number;
+  run_km_target: number | string;
+} | null;
+
+// ── Streak break: a Shield of Resolve saves it; else a Penalty Quest offers
+//    a redemption path before the break stands (Features F5 + F1). ───────────
+async function handleStreakBreak(ctx: Ctx, brokenStreak: number, prev: PrevTargets): Promise<void> {
+  const { db, userId, today } = ctx;
+
+  // A held Shield of Resolve is spent automatically to keep the streak alive.
+  const { data: shielded } = await db.rpc('consume_item', {
+    p_user: userId,
+    p_item_key: STREAK_SHIELD_KEY,
+    p_qty: 1,
+  });
+  if (shielded) {
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'shield_consumed',
+      title: 'SHIELD OF RESOLVE — consumed.',
+      body: `You missed a day, but your Shield held. Streak preserved at ${brokenStreak}. The System spends what you earned so your resolve is not undone by a single day.`,
+    });
+    return; // streak left intact
+  }
+
+  // No shield: the streak breaks now.
+  await db.from('training_totals').update({ current_streak: 0 }).eq('user_id', userId);
+  if (!shouldSpawnPenalty(brokenStreak, false)) return;
+
+  // Seed the Penalty Quest from the missed day's targets (or the latest known
+  // targets if the player never opened the app that day), scaled up.
+  let base: ExerciseTargets | null = prev
+    ? {
+        pushups: prev.pushups_target,
+        situps: prev.situps_target,
+        squats: prev.squats_target,
+        runKm: Number(prev.run_km_target),
+      }
+    : null;
+  if (!base) {
+    const { data: latest } = await db
+      .from('training_quests')
+      .select('pushups_target, situps_target, squats_target, run_km_target')
+      .eq('user_id', userId)
+      .order('local_date', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latest) {
+      base = {
+        pushups: latest.pushups_target,
+        situps: latest.situps_target,
+        squats: latest.squats_target,
+        runKm: Number(latest.run_km_target),
+      };
+    }
+  }
+  if (!base) return; // nothing to base a penalty on — let the break stand
+
+  const t = penaltyTargets(base);
+  const { error } = await db.from('penalty_quests').upsert(
+    {
+      user_id: userId,
+      local_date: today,
+      streak_to_restore: brokenStreak,
+      pushups_target: t.pushups,
+      situps_target: t.situps,
+      squats_target: t.squats,
+      run_km_target: t.runKm,
+    },
+    { onConflict: 'user_id,local_date', ignoreDuplicates: true },
+  );
+  if (error) {
+    // Table not migrated yet (0023): the streak simply breaks as before.
+    if (error.code === '42P01' || error.code === 'PGRST205') return;
+    console.error('penalty quest spawn failed:', error);
+    return;
+  }
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'penalty_issued',
+    title: 'PENALTY QUEST ISSUED.',
+    body: `Your ${brokenStreak}-day streak has broken. The System offers one path back: complete today's Penalty Quest — the missed targets, +25% — before midnight, and your streak is restored. Fail, and the break stands.`,
+  });
 }
 
 // ── Training quest generation — the one place today's row is written ────────
@@ -891,21 +1023,38 @@ function activeKind(event: SystemEventRow | null): SystemEventKind | null {
   return event && event.status === 'active' ? (event.kind as SystemEventKind) : null;
 }
 
+/** Today's pending Penalty Quest, if the streak broke and one was issued. */
+async function getTodayPenalty(ctx: Ctx) {
+  const { data, error } = await ctx.db
+    .from('penalty_quests')
+    .select('*')
+    .eq('user_id', ctx.userId)
+    .eq('local_date', ctx.today)
+    .maybeSingle();
+  // Table not migrated yet: the feature is simply absent.
+  if (error && (error.code === '42P01' || error.code === 'PGRST205')) return null;
+  return data ?? null;
+}
+
 async function getDailySnapshot(ctx: Ctx) {
-  const [quest, sideQuests, dungeon, event, gymToday, legacy] = await Promise.all([
-    getTodayQuest(ctx),
-    getTodaySideQuests(ctx),
-    getDungeonProgress(ctx),
-    getTodayEvent(ctx),
-    ctx.db
-      .from('gym_sessions')
-      .select('id')
-      .eq('user_id', ctx.userId)
-      .eq('local_date', ctx.today)
-      .maybeSingle()
-      .then((r) => r.data),
-    getArmedLegacy(ctx),
-  ]);
+  const [quest, sideQuests, dungeon, event, gymToday, legacy, penalty, focus, focusKeys] =
+    await Promise.all([
+      getTodayQuest(ctx),
+      getTodaySideQuests(ctx),
+      getDungeonProgress(ctx),
+      getTodayEvent(ctx),
+      ctx.db
+        .from('gym_sessions')
+        .select('id')
+        .eq('user_id', ctx.userId)
+        .eq('local_date', ctx.today)
+        .maybeSingle()
+        .then((r) => r.data),
+      getArmedLegacy(ctx),
+      getTodayPenalty(ctx),
+      getActiveFocus(ctx),
+      focusKeysLeft(ctx),
+    ]);
   return {
     ok: true,
     today: ctx.today,
@@ -916,6 +1065,9 @@ async function getDailySnapshot(ctx: Ctx) {
     gym_done_today: Boolean(gymToday),
     legacy,
     legacy_due: Boolean(legacy && legacy.due_date <= ctx.today),
+    penalty,
+    focus,
+    focus_keys_left: focusKeys,
   };
 }
 
@@ -984,20 +1136,31 @@ async function completeTraining(ctx: Ctx) {
     throw new HttpError(400, 'Targets not yet met');
   }
 
-  await db
+  // Guarded transition: only one request may flip pending → completed, so a
+  // double-tap or retry can never double-award XP or the streak.
+  const { data: claimed } = await db
     .from('training_quests')
     .update({ status: 'completed', completed_at: new Date().toISOString() })
-    .eq('id', quest.id);
+    .eq('id', quest.id)
+    .eq('status', 'pending')
+    .select('id');
+  if (!claimed || claimed.length === 0) throw new HttpError(409, 'Already completed');
 
-  // Cumulative counters + streak.
+  // Cumulative counters + streak. Steel Will lets the streak survive exactly
+  // one missed day — ensureDailyState preserved the counter; continue it here.
   const { data: totals } = await db
     .from('training_totals')
     .select('*')
     .eq('user_id', userId)
     .single();
   const yesterday = previousDate(today);
-  const newStreak =
-    totals?.last_completed_date === yesterday ? (totals.current_streak ?? 0) + 1 : 1;
+  const newStreak = nextStreak({
+    current: totals?.current_streak ?? 0,
+    lastCompleted: totals?.last_completed_date ?? null,
+    yesterday,
+    dayBefore: previousDate(yesterday),
+    shielded: hasStreakShield(ctx.skillKeys),
+  });
   await db
     .from('training_totals')
     .update({
@@ -1040,6 +1203,10 @@ async function completeTraining(ctx: Ctx) {
   );
   const perfect = await checkPerfectClear(ctx, { ...quest, status: 'completed' });
 
+  // A milestone streak (every 14 days) earns a Shield of Resolve — the more
+  // there is to lose, the more the System lets you insure it (max one held).
+  await maybeGrantStreakShield(ctx, newStreak);
+
   return {
     ok: true,
     award,
@@ -1047,6 +1214,269 @@ async function completeTraining(ctx: Ctx) {
     perfect,
     training: { ...quest, status: 'completed', perfect_clear: perfect !== null },
   };
+}
+
+/** Grant a Shield of Resolve on 14-day streak milestones, capped at one held. */
+async function maybeGrantStreakShield(ctx: Ctx, streak: number): Promise<void> {
+  if (streak <= 0 || streak % 14 !== 0) return;
+  const { data: held } = await ctx.db
+    .from('inventory')
+    .select('quantity')
+    .eq('user_id', ctx.userId)
+    .eq('item_key', STREAK_SHIELD_KEY)
+    .maybeSingle();
+  if (Number(held?.quantity ?? 0) >= 1) return; // already insured
+  const { error } = await ctx.db.rpc('grant_item', {
+    p_user: ctx.userId,
+    p_item_key: STREAK_SHIELD_KEY,
+    p_qty: 1,
+  });
+  if (error) return;
+  await ctx.db.from('system_messages').insert({
+    user_id: ctx.userId,
+    kind: 'shield_earned',
+    title: 'SHIELD OF RESOLVE — earned.',
+    body: `A ${streak}-day streak. The System grants you a Shield of Resolve: the day you miss training, it is spent automatically to keep your streak alive. Insurance for a resolve worth protecting.`,
+  });
+}
+
+function penaltyProgress(row: {
+  pushups_done: number;
+  situps_done: number;
+  squats_done: number;
+  run_km_done: number | string;
+}): ExerciseTargets {
+  return {
+    pushups: row.pushups_done,
+    situps: row.situps_done,
+    squats: row.squats_done,
+    runKm: Number(row.run_km_done),
+  };
+}
+
+function penaltyTargetsOf(row: {
+  pushups_target: number;
+  situps_target: number;
+  squats_target: number;
+  run_km_target: number | string;
+}): ExerciseTargets {
+  return {
+    pushups: row.pushups_target,
+    situps: row.situps_target,
+    squats: row.squats_target,
+    runKm: Number(row.run_km_target),
+  };
+}
+
+// ── log-penalty: log reps toward today's Penalty Quest (no XP — redemption) ──
+async function logPenalty(
+  ctx: Ctx,
+  payload: { pushups?: number; situps?: number; squats?: number; run_km?: number },
+) {
+  const penalty = await getTodayPenalty(ctx);
+  if (!penalty) throw new HttpError(404, 'No Penalty Quest active');
+  if (penalty.status !== 'pending') throw new HttpError(409, 'Penalty Quest already resolved');
+
+  const inc = {
+    pushups: sanitize(payload.pushups, 500),
+    situps: sanitize(payload.situps, 500),
+    squats: sanitize(payload.squats, 500),
+    run_km: sanitize(payload.run_km, 50),
+  };
+  if (inc.pushups + inc.situps + inc.squats + inc.run_km <= 0) {
+    throw new HttpError(400, 'Nothing to log');
+  }
+
+  const updated = {
+    pushups_done: Math.min(penalty.pushups_target, penalty.pushups_done + inc.pushups),
+    situps_done: Math.min(penalty.situps_target, penalty.situps_done + inc.situps),
+    squats_done: Math.min(penalty.squats_target, penalty.squats_done + inc.squats),
+    run_km_done: Math.min(
+      Number(penalty.run_km_target),
+      Number(penalty.run_km_done) + inc.run_km,
+    ),
+  };
+
+  const { data, error } = await ctx.db
+    .from('penalty_quests')
+    .update(updated)
+    .eq('id', penalty.id)
+    .select('*')
+    .single();
+  if (error) throw new HttpError(500, 'Failed to log Penalty Quest');
+
+  return { ok: true, penalty: data };
+}
+
+// ── complete-penalty: meet every target → the broken streak is RESTORED ─────
+async function completePenalty(ctx: Ctx) {
+  const { db, userId, today } = ctx;
+  const penalty = await getTodayPenalty(ctx);
+  if (!penalty) throw new HttpError(404, 'No Penalty Quest active');
+  if (penalty.status !== 'pending') throw new HttpError(409, 'Penalty Quest already resolved');
+
+  if (!isPenaltyComplete(penaltyProgress(penalty), penaltyTargetsOf(penalty))) {
+    throw new HttpError(400, 'Targets not yet met');
+  }
+
+  // Guarded transition: only one request may resolve the Penalty Quest.
+  const { data: claimed } = await db
+    .from('penalty_quests')
+    .update({ status: 'completed', completed_at: new Date().toISOString() })
+    .eq('id', penalty.id)
+    .eq('status', 'pending')
+    .select('id');
+  if (!claimed || claimed.length === 0) throw new HttpError(409, 'Penalty Quest already resolved');
+
+  const restored = Number(penalty.streak_to_restore);
+  const { data: totals } = await db
+    .from('training_totals')
+    .select('best_streak')
+    .eq('user_id', userId)
+    .single();
+  await db
+    .from('training_totals')
+    .update({
+      current_streak: restored,
+      best_streak: Math.max(Number(totals?.best_streak ?? 0), restored),
+      last_completed_date: today,
+    })
+    .eq('user_id', userId);
+
+  // Redemption itself earns insurance — clear the penalty, hold a Shield.
+  const { data: held } = await db
+    .from('inventory')
+    .select('quantity')
+    .eq('user_id', userId)
+    .eq('item_key', STREAK_SHIELD_KEY)
+    .maybeSingle();
+  let shieldEarned = false;
+  if (Number(held?.quantity ?? 0) < 1) {
+    const { error } = await db.rpc('grant_item', {
+      p_user: userId,
+      p_item_key: STREAK_SHIELD_KEY,
+      p_qty: 1,
+    });
+    shieldEarned = !error;
+  }
+
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'penalty_cleared',
+    title: 'PENALTY QUEST CLEARED.',
+    body: `Your streak is restored to ${restored}. You fell, and you rose the same day.${shieldEarned ? ' A Shield of Resolve is granted for the resolve you showed.' : ''} The System does not forget who gets back up.`,
+  });
+
+  return { ok: true, streak: restored, shield_earned: shieldEarned, penalty: { ...penalty, status: 'completed' } };
+}
+
+// ── Instant Dungeon (Feature F2): focus runs ─────────────────────────────────
+async function getActiveFocus(ctx: Ctx) {
+  const { data, error } = await ctx.db
+    .from('focus_runs')
+    .select('*')
+    .eq('user_id', ctx.userId)
+    .eq('status', 'active')
+    .maybeSingle();
+  // Table not migrated yet: the feature is simply absent.
+  if (error && (error.code === '42P01' || error.code === 'PGRST205')) return null;
+  return data ?? null;
+}
+
+/** Keys left today = allowance − (active + completed) runs; collapsed refund. */
+async function focusKeysLeft(ctx: Ctx): Promise<number> {
+  const allowance = focusKeysPerDay(ctx.profile.rank);
+  const { count } = await ctx.db
+    .from('focus_runs')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', ctx.userId)
+    .eq('local_date', ctx.today)
+    .in('status', ['active', 'completed']);
+  return Math.max(0, allowance - (count ?? 0));
+}
+
+// ── start-focus: open an Instant Dungeon ─────────────────────────────────────
+async function startFocus(ctx: Ctx, payload: { duration_min?: number; mobs?: unknown }) {
+  const { db, userId, today } = ctx;
+  const duration = payload.duration_min;
+  if (!isFocusDuration(duration)) throw new HttpError(400, 'Choose a 25, 50, or 90 minute dungeon.');
+  const mobs = normalizeMobs(payload.mobs);
+  if (mobs.length === 0) throw new HttpError(400, 'Name at least one objective (mob).');
+
+  if (await getActiveFocus(ctx)) {
+    throw new HttpError(409, 'A dungeon is already open. Clear or abandon it first.');
+  }
+  if ((await focusKeysLeft(ctx)) <= 0) {
+    throw new HttpError(409, 'No Instant Dungeon keys left today. Return tomorrow.');
+  }
+
+  const startedAt = new Date();
+  const endsAt = new Date(startedAt.getTime() + duration * 60_000);
+  const { data: run, error } = await db
+    .from('focus_runs')
+    .insert({
+      user_id: userId,
+      local_date: today,
+      duration_min: duration,
+      mobs,
+      started_at: startedAt.toISOString(),
+      ends_at: endsAt.toISOString(),
+    })
+    .select('*')
+    .single();
+  if (error || !run) {
+    if (error?.code === '23505') throw new HttpError(409, 'A dungeon is already open.');
+    if (error?.code === '42P01' || error?.code === 'PGRST205') {
+      throw new HttpError(503, 'Instant Dungeons are not provisioned yet — run the 0024 migration.');
+    }
+    console.error('start-focus failed:', error);
+    throw new HttpError(500, 'The dungeon did not open. Try again.');
+  }
+  return { ok: true, focus: run, keys_left: await focusKeysLeft(ctx) };
+}
+
+// ── complete-focus: clear the dungeon once the wall-clock has elapsed ────────
+// The server rejects completion before ends_at — the time must actually pass,
+// so a run cannot be forged from the client.
+async function completeFocus(ctx: Ctx) {
+  const { db, userId } = ctx;
+  const run = await getActiveFocus(ctx);
+  if (!run) throw new HttpError(404, 'No Instant Dungeon is open.');
+  if (new Date() < new Date(run.ends_at)) {
+    throw new HttpError(409, 'The dungeon is not yet cleared — see the timer through.');
+  }
+
+  const mobCount = Array.isArray(run.mobs) ? run.mobs.length : 1;
+  const xp = focusXp(run.duration_min as FocusDuration, mobCount);
+
+  const { data: claimed } = await db
+    .from('focus_runs')
+    .update({ status: 'completed', completed_at: new Date().toISOString(), xp_awarded: xp })
+    .eq('id', run.id)
+    .eq('status', 'active')
+    .select('id');
+  if (!claimed || claimed.length === 0) throw new HttpError(409, 'Dungeon already resolved.');
+
+  const award = await awardXp(ctx, xp, 'focus_run', run.id);
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'focus_cleared',
+    title: `INSTANT DUNGEON CLEARED — ${run.duration_min} min.`,
+    body: `${mobCount} ${mobCount === 1 ? 'mob' : 'mobs'} felled through focus. +${award.credited} XP. Discipline is a weapon.`,
+  });
+  return { ok: true, award, focus: { ...run, status: 'completed' } };
+}
+
+// ── abandon-focus: the dungeon collapses — the key is refunded, no reward ────
+async function abandonFocus(ctx: Ctx) {
+  const run = await getActiveFocus(ctx);
+  if (!run) throw new HttpError(404, 'No Instant Dungeon is open.');
+  await ctx.db
+    .from('focus_runs')
+    .update({ status: 'collapsed', completed_at: new Date().toISOString() })
+    .eq('id', run.id)
+    .eq('status', 'active');
+  return { ok: true, collapsed: true, keys_left: await focusKeysLeft(ctx) };
 }
 
 // ── complete-quest: finish a side quest — spend mana, earn XP ───────────────
@@ -1066,14 +1496,19 @@ async function completeSideQuest(ctx: Ctx, payload: { key?: string }) {
     throw new HttpError(409, 'Insufficient mana. Recover before taking this on.');
   }
 
-  await db
+  const { data: claimed } = await db
     .from('daily_quests')
     .update({ status: 'completed', completed_at: new Date().toISOString() })
-    .eq('id', quest.id);
+    .eq('id', quest.id)
+    .eq('status', 'pending')
+    .select('id');
+  if (!claimed || claimed.length === 0) throw new HttpError(409, 'Quest already resolved');
 
-  const mana = clampMana(profile.mana - manaCost, profile.mana_max);
-  await db.from('profiles').update({ mana }).eq('user_id', userId);
-  profile.mana = mana;
+  const { mana } = await spendResources(
+    ctx,
+    { mana: manaCost },
+    'Insufficient mana. Recover before taking this on.',
+  );
 
   const award = await awardXp(ctx, quest.xp_reward, 'daily_quest', quest.id);
   const training = await getTodayQuest(ctx);
@@ -1269,23 +1704,20 @@ async function logNutrition(
 
 // ── use-potion: spend an earned potion for a 20–50 mana restore ─────────────
 async function usePotion(ctx: Ctx) {
-  const { db, userId, profile } = ctx;
+  const { profile } = ctx;
   if (profile.mana_potions <= 0) throw new HttpError(409, 'No Mana Potions');
   if (profile.mana >= profile.mana_max) throw new HttpError(409, 'Mana already full');
 
   const roll =
     POTION_RESTORE_MIN + Math.floor(Math.random() * (POTION_RESTORE_MAX - POTION_RESTORE_MIN + 1));
-  const mana = clampMana(profile.mana + roll, profile.mana_max);
-  const restored = mana - profile.mana;
+  const before = profile.mana;
+  const { mana, mana_potions } = await spendResources(
+    ctx,
+    { mana: -roll, potions: 1 },
+    'No Mana Potions',
+  );
 
-  await db
-    .from('profiles')
-    .update({ mana, mana_potions: profile.mana_potions - 1 })
-    .eq('user_id', userId);
-  profile.mana = mana;
-  profile.mana_potions -= 1;
-
-  return { ok: true, restored, mana, potions: profile.mana_potions };
+  return { ok: true, restored: mana - before, mana, potions: mana_potions };
 }
 
 // ── complete-gym: one dungeon run per day — spend mana, earn XP ─────────────
@@ -1317,9 +1749,11 @@ async function completeGym(ctx: Ctx, payload: { notes?: string; kind?: string })
     throw new HttpError(500, 'Failed to record dungeon run');
   }
 
-  const mana = clampMana(profile.mana - MANA_COSTS.gym, profile.mana_max);
-  await db.from('profiles').update({ mana }).eq('user_id', userId);
-  profile.mana = mana;
+  const { mana } = await spendResources(
+    ctx,
+    { mana: MANA_COSTS.gym },
+    'Insufficient mana. Recover before entering the dungeon.',
+  );
 
   const sessionsCompleted = dungeon.sessions_completed + 1;
   await db
@@ -1637,9 +2071,11 @@ async function logReading(
     .select('*')
     .single();
 
-  const mana = clampMana(profile.mana - MANA_COSTS.reading, profile.mana_max);
-  await db.from('profiles').update({ mana }).eq('user_id', userId);
-  profile.mana = mana;
+  const { mana } = await spendResources(
+    ctx,
+    { mana: MANA_COSTS.reading },
+    'Insufficient mana. Recover before opening the tome.',
+  );
 
   // Read pays by pages; a genuine written reflection pays its bonus on top.
   const reflected = reflection.length >= MIN_REFLECTION_CHARS;
@@ -1754,7 +2190,9 @@ async function reviewQuestion(ctx: Ctx, payload: { question_id?: string; recalle
 
   const recalled = payload.recalled === true;
   const outcome = reviewOutcome(question.stage, recalled, ctx.today);
-  const { data: updated } = await ctx.db
+  // times_reviewed doubles as an optimistic-concurrency token: a duplicate
+  // request sees zero updated rows instead of advancing the ladder twice.
+  const { data: updatedRows } = await ctx.db
     .from('retention_questions')
     .update({
       stage: outcome.stage,
@@ -1763,8 +2201,10 @@ async function reviewQuestion(ctx: Ctx, payload: { question_id?: string; recalle
       times_reviewed: question.times_reviewed + 1,
     })
     .eq('id', question.id)
-    .select('*')
-    .single();
+    .eq('times_reviewed', question.times_reviewed)
+    .select('*');
+  const updated = updatedRows?.[0] ?? null;
+  if (!updated) throw new HttpError(409, 'Already reviewed');
 
   // Honest recall pays; a lapse costs nothing but the climb back.
   const award = recalled ? await awardXp(ctx, RETENTION_PASS_XP, 'knowledge_check', question.id) : null;
@@ -1786,10 +2226,13 @@ async function completeEvent(ctx: Ctx) {
   if (event.status === 'completed') throw new HttpError(409, 'Gate already cleared');
   if (event.status !== 'active') throw new HttpError(409, 'The gate has closed');
 
-  await ctx.db
+  const { data: claimed } = await ctx.db
     .from('system_events')
     .update({ status: 'completed', completed_at: new Date().toISOString() })
-    .eq('id', event.id);
+    .eq('id', event.id)
+    .eq('status', 'active')
+    .select('id');
+  if (!claimed || claimed.length === 0) throw new HttpError(409, 'Gate already cleared');
 
   const award = await awardXp(ctx, event.xp_reward, 'gate_clear', event.id);
   await ctx.db.from('system_messages').insert({
@@ -1949,9 +2392,11 @@ async function generateQuestions(ctx: Ctx, payload: { book_id?: string }) {
   if (error || !questions) throw new HttpError(500, 'Failed to bank generated questions');
 
   // Mana is only spent on success — a silent Archive costs nothing.
-  const mana = clampMana(profile.mana - MANA_COSTS.study, profile.mana_max);
-  await db.from('profiles').update({ mana }).eq('user_id', userId);
-  profile.mana = mana;
+  const { mana } = await spendResources(
+    ctx,
+    { mana: MANA_COSTS.study },
+    'Insufficient mana. Recover before consulting the Archive.',
+  );
 
   return {
     ok: true,
@@ -2000,6 +2445,62 @@ async function checkPerfectClear(
   return award;
 }
 
+// ── Atomic resource spends: one guarded UPDATE via spend_resources ─────────
+// Positive amounts spend, negative amounts grant (mana clamps to mana_max).
+// NULL from the RPC means insufficient funds and nothing changed.
+type ResourceSpend = { mana?: number; potions?: number; essence?: number; explores?: number };
+
+async function spendResources(ctx: Ctx, spend: ResourceSpend, insufficientMsg: string) {
+  const { db, userId, profile } = ctx;
+  const { data, error } = await db.rpc('spend_resources', {
+    p_user: userId,
+    p_mana: spend.mana ?? 0,
+    p_potions: spend.potions ?? 0,
+    p_essence: spend.essence ?? 0,
+    p_explores: spend.explores ?? 0,
+  });
+  if (error) {
+    // Migration 0022 not applied yet (function deploys can lead migrations):
+    // fall back to the legacy non-atomic path rather than blocking play.
+    if (error.code === 'PGRST202' || /spend_resources/.test(error.message ?? '')) {
+      const mana = clampMana(profile.mana - (spend.mana ?? 0), profile.mana_max);
+      const potions = profile.mana_potions - (spend.potions ?? 0);
+      const essence = profile.essence_stones - (spend.essence ?? 0);
+      const explores = profile.explores_today + (spend.explores ?? 0);
+      if (
+        profile.mana < (spend.mana ?? 0) ||
+        potions < 0 ||
+        essence < 0
+      ) {
+        throw new HttpError(409, insufficientMsg);
+      }
+      await db
+        .from('profiles')
+        .update({ mana, mana_potions: potions, essence_stones: essence, explores_today: explores })
+        .eq('user_id', userId);
+      profile.mana = mana;
+      profile.mana_potions = potions;
+      profile.essence_stones = essence;
+      profile.explores_today = explores;
+      return { mana, mana_potions: potions, essence_stones: essence, explores_today: explores };
+    }
+    console.error('spend_resources failed:', error);
+    throw new HttpError(500, 'Resource update failed');
+  }
+  if (!data) throw new HttpError(409, insufficientMsg);
+  const r = data as {
+    mana: number;
+    mana_potions: number;
+    essence_stones: number;
+    explores_today: number;
+  };
+  profile.mana = r.mana;
+  profile.mana_potions = r.mana_potions;
+  profile.essence_stones = r.essence_stones;
+  profile.explores_today = r.explores_today;
+  return r;
+}
+
 // ── XP gate wrapper: rpc → level-up announcement ────────────────────────────
 async function awardXp(
   ctx: Ctx,
@@ -2014,14 +2515,21 @@ async function awardXp(
     skillXpMultiplier(ctx.skillKeys, source) *
     shadowXpMultiplier(ctx.deployedShadows, source);
   const effectiveAmount = Math.round(amount * xpMult);
-  const { data: award, error } = await ctx.db.rpc('award_xp', {
+  const rpcArgs = {
     p_user: ctx.userId,
     p_amount: effectiveAmount,
     p_source: source,
     p_source_ref: sourceRef,
     p_cap_eligible: capEligible,
     p_local_date: ctx.today,
-  });
+  };
+  let { data: award, error } = await ctx.db.rpc('award_xp', rpcArgs);
+  if (error) {
+    // The quest/claim may already be resolved by the time we get here, so a
+    // transient blip would otherwise cost the XP forever. One retry.
+    console.error('award_xp failed (retrying once):', error);
+    ({ data: award, error } = await ctx.db.rpc('award_xp', rpcArgs));
+  }
   if (error) {
     console.error('award_xp failed:', error);
     throw new HttpError(500, 'XP award failed');
@@ -2223,9 +2731,11 @@ async function unlockSkill(ctx: Ctx, payload: { skill_key?: string }) {
     throw new HttpError(500, 'Failed to learn skill');
   }
 
-  const essence = profile.essence_stones - def.essenceCost;
-  await db.from('profiles').update({ essence_stones: essence }).eq('user_id', userId);
-  profile.essence_stones = essence;
+  const { essence_stones: essence } = await spendResources(
+    ctx,
+    { essence: def.essenceCost },
+    `Not enough Essence — ${def.essenceCost} required`,
+  );
   ctx.skills.push({ skill_key: key, last_used_at: null });
   ctx.skillKeys.push(key);
 
@@ -2275,19 +2785,23 @@ async function useSkill(ctx: Ctx, payload: { skill_key?: string }) {
       break;
     }
     case 'craft_potion': {
-      update.mana = clampMana(profile.mana - manaCost, profile.mana_max);
-      update.mana_potions = profile.mana_potions + 1;
-      result = { mana: update.mana, potions: update.mana_potions };
+      const spent = await spendResources(
+        ctx,
+        { mana: manaCost, potions: -1 },
+        'Insufficient mana for this skill',
+      );
+      result = { mana: spent.mana, potions: spent.mana_potions };
       break;
     }
     default:
       throw new HttpError(500, 'Skill has no effect');
   }
 
-  await db.from('profiles').update(update).eq('user_id', userId);
-  if (update.mana !== undefined) profile.mana = update.mana;
-  if (update.fatigue !== undefined) profile.fatigue = update.fatigue;
-  if (update.mana_potions !== undefined) profile.mana_potions = update.mana_potions;
+  if (Object.keys(update).length > 0) {
+    await db.from('profiles').update(update).eq('user_id', userId);
+    if (update.mana !== undefined) profile.mana = update.mana;
+    if (update.fatigue !== undefined) profile.fatigue = update.fatigue;
+  }
 
   await db.from('skills').update({ last_used_at: today }).eq('user_id', userId).eq('skill_key', key);
   row.last_used_at = today;
@@ -2517,9 +3031,11 @@ async function extractShadow(ctx: Ctx, payload: { shadow_id?: string }) {
   }
 
   // Mana is spent on every attempt; the conquest survives a failed Arise.
-  const mana = clampMana(profile.mana - SHADOW_EXTRACT_MANA, profile.mana_max);
-  await db.from('profiles').update({ mana }).eq('user_id', userId);
-  profile.mana = mana;
+  const { mana } = await spendResources(
+    ctx,
+    { mana: SHADOW_EXTRACT_MANA },
+    'Insufficient mana to attempt extraction',
+  );
 
   const chance = extractChance(shadow.grade as ShadowGrade, profile.rank);
   const success = Math.random() < chance;

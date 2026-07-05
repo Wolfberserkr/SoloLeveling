@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { supabase } from '@/lib/supabase';
 import { gameAction } from '@/lib/gameApi';
 import { EXPLORES_PER_DAY } from '@game/encounters.ts';
+import { focusKeysPerDay } from '@game/focus.ts';
 import type {
   Profile,
   StatRow,
@@ -11,6 +12,8 @@ import type {
   LegacySnapshot,
   TrainingQuest,
   TrainingTotals,
+  PenaltyQuest,
+  FocusRun,
   DailyQuest,
   SleepLog,
   NutritionLog,
@@ -30,12 +33,21 @@ import type {
 type PlayerState = {
   loading: boolean;
   error: string | null;
+  /** True when ensure-daily failed and we're rendering direct table reads. */
+  degraded: boolean;
+  /** Server-confirmed local date of the last successful ensure-daily. */
+  serverToday: string | null;
+  /** Epoch ms of the last successful loadAll, for foreground re-sync. */
+  lastLoadAt: number | null;
   profile: Profile | null;
   stats: StatRow[];
   titles: Title[];
   skills: Skill[];
   shadows: Shadow[];
   training: TrainingQuest | null;
+  penalty: PenaltyQuest | null; // today's Penalty Quest, if the streak broke
+  focus: FocusRun | null; // the active Instant Dungeon, if one is open
+  focusKeysLeft: number;
   quests: DailyQuest[];
   sleep: SleepLog | null; // today's log, if any
   nutrition: NutritionLog | null; // today's Fuel Protocol log, if any
@@ -56,26 +68,46 @@ type PlayerState = {
   encounter: Encounter | null; // the active encounter, if any
   exploresLeftToday: number;
   weeklyReview: WeeklyReview | null; // most recent AI System Coach assessment
+  // Lifetime tallies feeding the milestone tracker (cheap HEAD counts).
+  masteredCount: number;
+  perfectClearCount: number;
+  riddlesSolvedCount: number;
   /** Full refresh: lazy daily reset on the server, then re-read everything. */
   loadAll: () => Promise<void>;
   /** Re-read DB state without re-running the daily reset. */
   refresh: () => Promise<void>;
   setTraining: (q: TrainingQuest) => void;
+  setPenalty: (p: PenaltyQuest | null) => void;
+  setFocus: (f: FocusRun | null, keysLeft?: number) => void;
   setQuest: (q: DailyQuest) => void;
   setNutrition: (n: NutritionLog) => void;
   setDungeon: (d: DungeonProgress, gymDoneToday?: boolean) => void;
+  /** Fold an XP award into the profile without a full refetch. */
+  applyAward: (award: { xp_total?: number; new_level?: number } | null | undefined) => void;
+  setMana: (mana: number) => void;
+  setStreak: (streak: number) => void;
   reset: () => void;
 };
+
+// Monotonic token: a slow, older readState must never clobber the results of
+// a newer one that raced past it.
+let loadSeq = 0;
 
 export const usePlayerStore = create<PlayerState>((set) => ({
   loading: true,
   error: null,
+  degraded: false,
+  serverToday: null,
+  lastLoadAt: null,
   profile: null,
   stats: [],
   titles: [],
   skills: [],
   shadows: [],
   training: null,
+  penalty: null,
+  focus: null,
+  focusKeysLeft: 0,
   quests: [],
   sleep: null,
   nutrition: null,
@@ -96,39 +128,75 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   encounter: null,
   exploresLeftToday: EXPLORES_PER_DAY,
   weeklyReview: null,
+  masteredCount: 0,
+  perfectClearCount: 0,
+  riddlesSolvedCount: 0,
 
   loadAll: async () => {
+    const seq = ++loadSeq;
+    const guarded: typeof set = (partial) => {
+      if (seq === loadSeq) set(partial);
+    };
     set({ loading: true, error: null });
     try {
       // The System catches up on the day (generates today's quests) first.
       const daily = await gameAction<{
+        today: string;
         training: TrainingQuest;
         quests: DailyQuest[];
         dungeon: DungeonProgress;
         gym_done_today: boolean;
+        penalty: PenaltyQuest | null;
+        focus: FocusRun | null;
+        focus_keys_left: number;
       }>('ensure-daily');
-      await readState(set);
-      set({
+      await readState(guarded);
+      guarded({
         training: daily.training,
         quests: daily.quests,
         dungeon: daily.dungeon,
         gymDoneToday: daily.gym_done_today,
+        penalty: daily.penalty ?? null,
+        focus: daily.focus ?? null,
+        focusKeysLeft: daily.focus_keys_left ?? 0,
+        serverToday: daily.today ?? null,
+        lastLoadAt: Date.now(),
         loading: false,
       });
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : 'System link failed', loading: false });
+      // The edge function is down or unreachable — most state is still
+      // readable straight from the tables (RLS allows SELECT). Render that
+      // instead of bricking the boot; actions will surface their own errors.
+      try {
+        await readState(guarded);
+        guarded({ degraded: true, lastLoadAt: Date.now(), loading: false });
+      } catch {
+        guarded({
+          error: err instanceof Error ? err.message : 'System link failed',
+          loading: false,
+        });
+      }
     }
   },
 
   refresh: async () => {
+    const seq = ++loadSeq;
+    const guarded: typeof set = (partial) => {
+      if (seq === loadSeq) set(partial);
+    };
     try {
-      await readState(set);
+      await readState(guarded);
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : 'System link failed' });
+      guarded({ error: err instanceof Error ? err.message : 'System link failed' });
     }
   },
 
   setTraining: (q) => set({ training: q }),
+
+  setPenalty: (p) => set({ penalty: p }),
+
+  setFocus: (f, keysLeft) =>
+    set((s) => ({ focus: f, focusKeysLeft: keysLeft ?? s.focusKeysLeft })),
 
   setQuest: (q) =>
     set((s) => ({ quests: s.quests.map((existing) => (existing.id === q.id ? q : existing)) })),
@@ -138,16 +206,49 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   setDungeon: (d, gymDoneToday) =>
     set((s) => ({ dungeon: d, gymDoneToday: gymDoneToday ?? s.gymDoneToday })),
 
+  applyAward: (award) =>
+    set((s) => {
+      if (!award || !s.profile) return {};
+      return {
+        profile: {
+          ...s.profile,
+          xp_total: award.xp_total ?? s.profile.xp_total,
+          level: award.new_level ?? s.profile.level,
+        },
+      };
+    }),
+
+  setMana: (mana) => set((s) => (s.profile ? { profile: { ...s.profile, mana } } : {})),
+
+  setStreak: (streak) =>
+    set((s) =>
+      s.totals
+        ? {
+            totals: {
+              ...s.totals,
+              current_streak: streak,
+              best_streak: Math.max(Number(s.totals.best_streak ?? 0), streak),
+            },
+          }
+        : {},
+    ),
+
   reset: () =>
     set({
       loading: true,
       error: null,
+      degraded: false,
+      serverToday: null,
+      lastLoadAt: null,
       profile: null,
       stats: [],
       titles: [],
       skills: [],
       shadows: [],
       training: null,
+      penalty: null,
+      focus: null,
+      focusKeysLeft: 0,
       quests: [],
       sleep: null,
       nutrition: null,
@@ -168,6 +269,9 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       encounter: null,
       exploresLeftToday: EXPLORES_PER_DAY,
       weeklyReview: null,
+      masteredCount: 0,
+      perfectClearCount: 0,
+      riddlesSolvedCount: 0,
     }),
 }));
 
@@ -198,6 +302,11 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     equipmentRes,
     encounterRes,
     weeklyReviewRes,
+    masteredRes,
+    perfectRes,
+    riddlesRes,
+    penaltyRes,
+    focusRes,
   ] = await Promise.all([
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
@@ -284,9 +393,41 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
         .order('week_start', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabase
+        .from('retention_questions')
+        .select('id', { count: 'exact', head: true })
+        .eq('mastered', true),
+      supabase
+        .from('training_quests')
+        .select('id', { count: 'exact', head: true })
+        .eq('perfect_clear', true),
+      supabase
+        .from('xp_ledger')
+        .select('id', { count: 'exact', head: true })
+        .eq('source', 'riddle_solved'),
+      supabase
+        .from('penalty_quests')
+        .select('*')
+        .order('local_date', { ascending: false })
+        .limit(1),
+      supabase
+        .from('focus_runs')
+        .select('*')
+        .order('started_at', { ascending: false })
+        .limit(12),
     ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
+
+  // A failed slice must not masquerade as an empty state ("no training quest
+  // found") — count failures and let the degraded banner tell the truth.
+  const sliceErrors = [
+    statsRes, titlesRes, skillsRes, totalsRes, messagesRes, trainingRes, questsRes,
+    sleepRes, nutritionRes, dungeonRes, gymRes, metricsRes, booksRes, questionsRes,
+    readingRes, applicationsRes, eventRes, liftsRes, legacyRes, shadowsRes,
+    inventoryRes, equipmentRes, encounterRes, weeklyReviewRes,
+  ].filter((r) => r.error != null).length;
+  if (sliceErrors > 0) console.error(`readState: ${sliceErrors} slice reads failed`);
 
   const training = ((trainingRes.data ?? [])[0] ?? null) as TrainingQuest | null;
   const today = training?.local_date;
@@ -295,6 +436,20 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
   const nutritionRow = ((nutritionRes.data ?? [])[0] ?? null) as NutritionLog | null;
   const gymRow = (gymRes.data ?? [])[0] ?? null;
   const eventRow = ((eventRes.data ?? [])[0] ?? null) as SystemEvent | null;
+  // penalty_quests may not be migrated yet; a read error just means "none".
+  const penaltyRow = penaltyRes.error
+    ? null
+    : ((penaltyRes.data ?? [])[0] ?? null) as PenaltyQuest | null;
+  // focus_runs likewise; the active run + today's used keys drive the panel.
+  const focusRows = focusRes.error ? [] : ((focusRes.data ?? []) as FocusRun[]);
+  const focusRow = focusRows.find((r) => r.status === 'active') ?? null;
+  const focusUsed = focusRows.filter(
+    (r) => r.local_date === today && (r.status === 'active' || r.status === 'completed'),
+  ).length;
+  const focusKeys = Math.max(
+    0,
+    focusKeysPerDay((profileRes.data as Profile).rank) - focusUsed,
+  );
   const dueQuestions = ((questionsRes.data ?? []) as RetentionQuestion[]).filter(
     (q) => q.due_date != null && today != null && q.due_date <= today,
   );
@@ -302,6 +457,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     (rows ?? []).filter((r) => r.local_date === today).map((r) => r.book_id);
 
   set({
+    degraded: sliceErrors > 0,
     profile: profileRes.data as Profile,
     stats: (statsRes.data ?? []) as StatRow[],
     titles: (titlesRes.data ?? []) as Title[],
@@ -309,6 +465,9 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     totals: (totalsRes.data ?? null) as TrainingTotals | null,
     messages: (messagesRes.data ?? []) as SystemMessage[],
     training,
+    penalty: penaltyRow && penaltyRow.local_date === today ? penaltyRow : null,
+    focus: focusRow,
+    focusKeysLeft: focusKeys,
     quests,
     sleep: sleepRow && sleepRow.local_date === today ? sleepRow : null,
     nutrition: nutritionRow && nutritionRow.local_date === today ? nutritionRow : null,
@@ -327,6 +486,9 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     equipment: (equipmentRes.data ?? []) as EquippedItem[],
     encounter: (encounterRes.data ?? null) as Encounter | null,
     weeklyReview: (weeklyReviewRes.data ?? null) as WeeklyReview | null,
+    masteredCount: masteredRes.count ?? 0,
+    perfectClearCount: perfectRes.count ?? 0,
+    riddlesSolvedCount: riddlesRes.count ?? 0,
     exploresLeftToday: Math.max(
       0,
       EXPLORES_PER_DAY - Number((profileRes.data as Profile).explores_today ?? 0),

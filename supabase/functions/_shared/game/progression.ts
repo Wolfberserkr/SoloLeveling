@@ -60,7 +60,8 @@ export type XpSource =
   | 'riddle_solved'
   | 'encounter'
   | 'item'
-  | 'nutrition';
+  | 'nutrition'
+  | 'focus_run';
 
 type StatGain = Partial<Record<StatKey, number>>;
 
@@ -86,6 +87,8 @@ const STAT_GAINS: Record<XpSource, StatGain> = {
   item: {},
   // Fuel — hitting the daily protein target is recovery discipline, every day.
   nutrition: { END: 0.2, DIS: 0.2 },
+  // Instant Dungeon — sustained focus on real work sharpens mind and will.
+  focus_run: { INT: 0.3, WIS: 0.2, DIS: 0.2 },
 };
 
 /**
@@ -345,4 +348,21 @@ export function skillManaRegenBonus(keys: string[]): number {
 /** Whether any unlocked passive grants a one-day streak shield. */
 export function hasStreakShield(keys: string[]): boolean {
   return passives(keys).some((d) => d.streakShield);
+}
+
+/**
+ * Streak value after completing today's quest. Continues when yesterday was
+ * completed — or, with a streak shield (Steel Will), when exactly one day
+ * was missed. Anything longer starts over at 1.
+ */
+export function nextStreak(opts: {
+  current: number;
+  lastCompleted: string | null;
+  yesterday: string;
+  dayBefore: string;
+  shielded: boolean;
+}): number {
+  if (opts.lastCompleted === opts.yesterday) return opts.current + 1;
+  if (opts.shielded && opts.lastCompleted === opts.dayBefore) return opts.current + 1;
+  return 1;
 }

@@ -71,7 +71,7 @@ export function SystemAssessmentPanel() {
     >
       {weeklyReview ? (
         <>
-          <div className="font-sys text-[0.6rem] uppercase tracking-[0.25em] text-slate-500">
+          <div className="font-sys text-[0.6rem] uppercase tracking-[0.25em] text-slate-400">
             Week of {fmtDay(weeklyReview.week_start)} – {fmtDay(weeklyReview.week_end)}
           </div>
           <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-200">

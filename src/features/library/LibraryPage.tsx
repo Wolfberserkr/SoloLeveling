@@ -162,7 +162,7 @@ function BookCard({ book, open, onToggle }: { book: Book; open: boolean; onToggl
       <button type="button" onClick={onToggle} className="w-full p-3 text-left">
         <div className="flex items-baseline justify-between gap-2">
           <span className="font-sys text-sm text-slate-200">{book.title}</span>
-          <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+          <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
             {open ? '▾' : '▸'}
           </span>
         </div>
@@ -308,7 +308,7 @@ function BookActions({ book }: { book: Book }) {
       {tab === 'read' && (
         <div className="mt-3">
           <label className="block">
-            <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+            <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
               Pages read
             </span>
             <input
@@ -321,7 +321,7 @@ function BookActions({ book }: { book: Book }) {
             />
           </label>
           <label className="mt-2 block">
-            <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+            <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
               Reflection — what did this change? (≥{MIN_REFLECTION_CHARS} chars: +{REFLECTION_XP} XP)
             </span>
             <textarea
@@ -348,7 +348,7 @@ function BookActions({ book }: { book: Book }) {
       {tab === 'apply' && (
         <div className="mt-3">
           <label className="block">
-            <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+            <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
               One concrete action you took because of this tome (+{APPLY_XP} XP)
             </span>
             <textarea
@@ -371,7 +371,7 @@ function BookActions({ book }: { book: Book }) {
       {tab === 'retain' && (
         <div className="mt-3">
           <label className="block">
-            <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+            <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
               Question — what must you still know in a month?
             </span>
             <input
@@ -382,7 +382,7 @@ function BookActions({ book }: { book: Book }) {
             />
           </label>
           <label className="mt-2 block">
-            <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+            <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
               Answer (shown when the check falls due)
             </span>
             <textarea
@@ -458,7 +458,7 @@ function AddBookPanel({ shelfCount }: { shelfCount: number }) {
     <SystemWindow title="Add Tome" accent="purple" delay={0.12}>
       <div className="grid grid-cols-2 gap-2">
         <label className="col-span-2 block">
-          <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+          <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
             Title
           </span>
           <input
@@ -469,7 +469,7 @@ function AddBookPanel({ shelfCount }: { shelfCount: number }) {
           />
         </label>
         <label className="block">
-          <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+          <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
             Author
           </span>
           <input
@@ -480,7 +480,7 @@ function AddBookPanel({ shelfCount }: { shelfCount: number }) {
           />
         </label>
         <label className="block">
-          <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+          <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
             Total pages
           </span>
           <input
@@ -520,7 +520,7 @@ function ArchivePanel({ finished }: { finished: Book[] }) {
             className="flex items-baseline justify-between border border-accent-gold/20 bg-bg-base/40 p-2"
           >
             <span className="font-sys text-xs text-slate-300">{b.title}</span>
-            <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+            <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
               {b.total_pages}p · {b.finished_date}
             </span>
           </div>

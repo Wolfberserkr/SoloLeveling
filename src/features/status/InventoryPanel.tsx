@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { usePlayerStore } from '@/stores/playerStore';
 import { useUiStore } from '@/stores/uiStore';
 import { gameAction } from '@/lib/gameApi';
@@ -19,6 +19,16 @@ export function InventoryPanel() {
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
   const [busy, setBusy] = useState<string | null>(null);
+  const [, setClock] = useState(0);
+
+  // Gear countdowns ("42m left") must tick on their own, not only when
+  // something else happens to re-render the panel.
+  const hasGear = equipment.length > 0;
+  useEffect(() => {
+    if (!hasGear) return;
+    const id = setInterval(() => setClock((c) => c + 1), 30_000);
+    return () => clearInterval(id);
+  }, [hasGear]);
 
   // Loot lands via won encounters; an unread victory means unseen spoils.
   const newLoot = messages.some((m) => !m.read && m.kind === 'encounter_won');
@@ -85,11 +95,15 @@ export function InventoryPanel() {
     >
       {equipment.length > 0 && (
         <div className="mb-3">
-          <div className="mb-1 font-sys text-[0.6rem] uppercase tracking-[0.25em] text-slate-500">
+          <div className="mb-1 font-sys text-[0.6rem] uppercase tracking-[0.25em] text-slate-400">
             Equipped
           </div>
           <ul className="flex flex-col gap-2">
-            {equipment.map((e) => {
+            {/* Expired gear no longer buffs anything — drop it from view now;
+                the server retires the row on the next daily reset. */}
+            {equipment
+              .filter((e) => new Date(e.expires_at).getTime() > Date.now())
+              .map((e) => {
               const def = itemDef(e.item_key);
               return (
                 <li
@@ -123,32 +137,45 @@ export function InventoryPanel() {
           {inventory.map((item) => {
             const def = itemDef(item.item_key);
             const isGearItem = def?.category === 'gear';
+            // Auto-consume items (Shield of Resolve) are spent by the System,
+            // never from a button — show their standby state instead.
+            const isAuto = Boolean(def?.autoConsume);
             return (
               <li
                 key={item.item_key}
-                className="flex items-center justify-between gap-2 border border-accent-cyan/20 bg-bg-base/40 p-2"
+                className={`flex items-center justify-between gap-2 border p-2 ${
+                  isAuto
+                    ? 'border-accent-gold/40 bg-accent-gold/5'
+                    : 'border-accent-cyan/20 bg-bg-base/40'
+                }`}
               >
                 <div className="min-w-0">
                   <div className="truncate font-display text-sm font-semibold text-white">
                     {def?.name ?? item.item_key}
-                    <span className="ml-2 font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+                    <span className="ml-2 font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
                       ×{item.quantity}
                     </span>
                   </div>
                   <div className="font-sys text-[0.6rem] text-slate-400">{def?.description}</div>
                   {isGearItem && (
-                    <div className="font-sys text-[0.55rem] uppercase tracking-widest text-slate-600">
+                    <div className="font-sys text-[0.55rem] uppercase tracking-widest text-slate-500">
                       Consumed on equip
                     </div>
                   )}
                 </div>
-                <button
-                  className="sys-btn shrink-0 !min-h-[30px] !py-1 !text-[0.6rem]"
-                  disabled={busy === item.item_key}
-                  onClick={() => act(isGearItem ? 'equip-item' : 'use-item', item.item_key)}
-                >
-                  {isGearItem ? 'Equip' : 'Use'}
-                </button>
+                {isAuto ? (
+                  <span className="shrink-0 font-sys text-[0.6rem] uppercase tracking-widest text-accent-gold">
+                    Standby
+                  </span>
+                ) : (
+                  <button
+                    className="sys-btn shrink-0 !min-h-[30px] !py-1 !text-[0.6rem]"
+                    disabled={busy === item.item_key}
+                    onClick={() => act(isGearItem ? 'equip-item' : 'use-item', item.item_key)}
+                  >
+                    {isGearItem ? 'Equip' : 'Use'}
+                  </button>
+                )}
               </li>
             );
           })}

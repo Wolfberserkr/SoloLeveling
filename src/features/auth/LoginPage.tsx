@@ -12,6 +12,7 @@ export function LoginPage() {
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [awaitConfirm, setAwaitConfirm] = useState(false);
   const navigate = useNavigate();
 
   async function submit(e: FormEvent) {
@@ -20,7 +21,7 @@ export function LoginPage() {
     setBusy(true);
     try {
       if (mode === 'signup') {
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
@@ -31,6 +32,12 @@ export function LoginPage() {
           },
         });
         if (error) throw error;
+        // Email confirmation on: no session yet. Say so instead of silently
+        // bouncing back to this page looking like a failure.
+        if (!data.session) {
+          setAwaitConfirm(true);
+          return;
+        }
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
@@ -63,6 +70,24 @@ export function LoginPage() {
           </p>
         </motion.div>
 
+        {awaitConfirm ? (
+          <SystemWindow scan accent="gold">
+            <p className="font-sys text-xs leading-relaxed text-slate-300">
+              A confirmation link has been sent to{' '}
+              <span className="text-accent-cyan">{email}</span>. Open it to complete your
+              awakening, then return here and log in.
+            </p>
+            <button
+              className="mt-4 w-full text-center font-sys text-[0.65rem] uppercase tracking-widest text-slate-400 underline-offset-4 hover:text-accent-cyan hover:underline"
+              onClick={() => {
+                setAwaitConfirm(false);
+                setMode('login');
+              }}
+            >
+              Back to log in
+            </button>
+          </SystemWindow>
+        ) : (
         <SystemWindow scan>
           <form onSubmit={submit} className="flex flex-col gap-3">
             {mode === 'signup' && (
@@ -121,6 +146,7 @@ export function LoginPage() {
             {mode === 'login' ? 'No account — begin the awakening' : 'Already a Player — log in'}
           </button>
         </SystemWindow>
+        )}
       </div>
     </div>
   );

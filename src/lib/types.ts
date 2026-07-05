@@ -98,6 +98,36 @@ export type TrainingQuest = {
   completed_at: string | null;
 };
 
+export type PenaltyQuest = {
+  id: string;
+  user_id: string;
+  local_date: string;
+  streak_to_restore: number;
+  pushups_target: number;
+  situps_target: number;
+  squats_target: number;
+  run_km_target: number;
+  pushups_done: number;
+  situps_done: number;
+  squats_done: number;
+  run_km_done: number;
+  status: 'pending' | 'completed' | 'expired';
+  completed_at: string | null;
+};
+
+export type FocusRun = {
+  id: string;
+  user_id: string;
+  local_date: string;
+  duration_min: 25 | 50 | 90;
+  mobs: string[];
+  started_at: string;
+  ends_at: string;
+  status: 'active' | 'completed' | 'collapsed';
+  xp_awarded: number;
+  completed_at: string | null;
+};
+
 export type DailyQuest = {
   id: string;
   user_id: string;

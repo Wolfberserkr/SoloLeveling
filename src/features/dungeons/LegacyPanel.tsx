@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { usePlayerStore } from '@/stores/playerStore';
 import { useUiStore } from '@/stores/uiStore';
 import { gameAction } from '@/lib/gameApi';
+import { todayInTz } from '@/lib/dates';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import { GlitchText } from '@/components/system/GlitchText';
 import { LEGACY_DIMENSIONS, LEGACY_HORIZON_DAYS, type LegacyMetrics } from '@game/legacy.ts';
@@ -34,7 +35,7 @@ function fmt(n: number, unit?: string): string {
 }
 
 export function LegacyPanel() {
-  const { legacy, training, refresh } = usePlayerStore();
+  const { legacy, training, profile, refresh } = usePlayerStore();
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
   const [busy, setBusy] = useState(false);
@@ -42,7 +43,8 @@ export function LegacyPanel() {
 
   if (!legacy) return null;
 
-  const today = training?.local_date ?? new Date().toISOString().slice(0, 10);
+  // Server-day first, then profile timezone — never the raw device clock.
+  const today = training?.local_date ?? todayInTz(profile?.timezone);
   const daysLeft = Math.max(
     0,
     Math.ceil((Date.parse(legacy.due_date) - Date.parse(today)) / ONE_DAY),
@@ -114,7 +116,7 @@ export function LegacyPanel() {
             </li>
           ))}
         </ul>
-        <p className="mt-3 font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+        <p className="mt-3 font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
           ★ core — every comparable core measure must be beaten to win
         </p>
       </SystemWindow>

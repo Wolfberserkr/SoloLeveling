@@ -6,7 +6,7 @@ import { SystemWindow } from '@/components/system/SystemWindow';
 import type { DailyQuest, XpAward } from '@/lib/types';
 
 export function SideQuestsPanel() {
-  const { profile, quests, setQuest, refresh } = usePlayerStore();
+  const { profile, quests, setQuest, refresh, applyAward, setMana } = usePlayerStore();
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
   const burstXp = useUiStore((s) => s.burstXp);
@@ -43,7 +43,11 @@ export function SideQuestsPanel() {
       if (res.award.leveled_up || res.perfect?.leveled_up) {
         showLevelUp(res.perfect?.leveled_up ? res.perfect.new_level : res.award.new_level);
       }
-      await refresh();
+      // Response carries the delta; refetch only when a level-up may have
+      // cascaded into ranks or titles.
+      applyAward(res.perfect ?? res.award);
+      setMana(res.mana);
+      if (res.award.leveled_up || res.perfect?.leveled_up) await refresh();
     } catch (err) {
       pushAlert({
         kind: 'danger',

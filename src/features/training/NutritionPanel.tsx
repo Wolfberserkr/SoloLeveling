@@ -26,7 +26,7 @@ const CALORIE_STEPS = [150, 300, 600]; // kcal — snack · light meal · full m
 type TargetKind = 'protein' | 'calories';
 
 export function NutritionPanel() {
-  const { profile, nutrition, setNutrition, refresh } = usePlayerStore();
+  const { profile, nutrition, setNutrition, refresh, applyAward } = usePlayerStore();
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
   const burstXp = useUiStore((s) => s.burstXp);
@@ -86,7 +86,9 @@ export function NutritionPanel() {
       if (res.fuel_award?.leveled_up || res.stack_award?.leveled_up) {
         showLevelUp(res.stack_award?.leveled_up ? res.stack_award.new_level : res.fuel_award!.new_level);
       }
-      if (res.fuel_award || res.stack_award) await refresh();
+      // Awards carry the XP delta; only a level-up warrants a full refetch.
+      applyAward(res.stack_award ?? res.fuel_award);
+      if (res.fuel_award?.leveled_up || res.stack_award?.leveled_up) await refresh();
     } catch (err) {
       pushAlert({
         kind: 'danger',
@@ -251,10 +253,10 @@ export function NutritionPanel() {
                 {taken[s.key] ? '✓ ' : ''}
                 {s.name}
               </span>
-              <span className="mt-0.5 block font-sys text-[0.6rem] text-slate-500">{s.dose}</span>
+              <span className="mt-0.5 block font-sys text-[0.6rem] text-slate-400">{s.dose}</span>
             </span>
             {!taken[s.key] && (
-              <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+              <span className="font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
                 mark taken
               </span>
             )}

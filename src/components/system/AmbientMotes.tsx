@@ -5,7 +5,12 @@ import type { CSSProperties } from 'react';
  * gate. Pure CSS animation (transform/opacity only) — GPU-cheap, and the
  * global prefers-reduced-motion rule stills them entirely.
  */
-const MOTES = Array.from({ length: 18 }, (_, i) => {
+// 18 glowing composited layers is a battery tax on mid-range phones —
+// halve the ambience where cores are scarce; the vibe survives.
+const MOTE_COUNT =
+  typeof navigator !== 'undefined' && (navigator.hardwareConcurrency ?? 8) <= 4 ? 9 : 18;
+
+const MOTES = Array.from({ length: MOTE_COUNT }, (_, i) => {
   const seed = (i * 2654435761) % 1000;
   return {
     left: `${(seed % 100)}%`,

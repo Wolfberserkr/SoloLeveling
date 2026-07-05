@@ -29,7 +29,8 @@ export type ConsumableEffect =
   | { kind: 'mana'; amount: number }
   | { kind: 'essence'; amount: number }
   | { kind: 'xp'; amount: number }
-  | { kind: 'fatigue_purge' };
+  | { kind: 'fatigue_purge' }
+  | { kind: 'streak_shield' };
 
 export type ItemDef = {
   key: string;
@@ -39,11 +40,16 @@ export type ItemDef = {
   category: 'consumable' | 'gear';
   // consumable only:
   effect?: ConsumableEffect;
+  /** Consumed automatically by the System, never from a Use button. */
+  autoConsume?: boolean;
   // gear only:
   affinity?: StatKey;
   statMult?: number;
   durationHours?: number;
 };
+
+/** The Shield item key — earned insurance that auto-saves a broken streak. */
+export const STREAK_SHIELD_KEY = 'shield_of_resolve';
 
 export const ITEMS: Record<string, ItemDef> = {
   // ── Consumables ──
@@ -78,6 +84,16 @@ export const ITEMS: Record<string, ItemDef> = {
     rarity: 'rare',
     category: 'consumable',
     effect: { kind: 'essence', amount: 3 },
+  },
+  shield_of_resolve: {
+    key: STREAK_SHIELD_KEY,
+    name: 'Shield of Resolve',
+    description:
+      'Earned insurance. The System consumes it automatically to preserve your streak the day you miss training. Cannot be bought — only earned.',
+    rarity: 'epic',
+    category: 'consumable',
+    effect: { kind: 'streak_shield' },
+    autoConsume: true,
   },
 
   // ── Gear (one per attribute) ──
@@ -175,6 +191,12 @@ export const ITEMS: Record<string, ItemDef> = {
 
 export const CONSUMABLE_KEYS = Object.values(ITEMS)
   .filter((i) => i.category === 'consumable')
+  .map((i) => i.key);
+
+/** Consumables that can fall as random loot — excludes earned-only items
+ *  (the Shield of Resolve is granted by the System, never dropped). */
+export const DROPPABLE_CONSUMABLE_KEYS = Object.values(ITEMS)
+  .filter((i) => i.category === 'consumable' && !i.autoConsume)
   .map((i) => i.key);
 
 export const GEAR_KEYS = Object.values(ITEMS)

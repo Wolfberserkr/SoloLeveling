@@ -91,7 +91,7 @@ export function EncounterPanel() {
         <button className="sys-btn mt-3 w-full" disabled={busy || lowMana || noneLeft} onClick={explore}>
           ⚔ Explore — Cost {EXPLORE_MANA_COST} mana
         </button>
-        <p className="mt-2 text-center font-sys text-[0.6rem] uppercase tracking-widest text-slate-500">
+        <p className="mt-2 text-center font-sys text-[0.6rem] uppercase tracking-widest text-slate-400">
           {noneLeft
             ? 'No explorations left today'
             : lowMana
