@@ -7,6 +7,7 @@ import { gameAction } from '@/lib/gameApi';
 import { fromKm, toKm } from '@/lib/units';
 import { SystemWindow } from '@/components/system/SystemWindow';
 import { StatBar } from '@/components/system/StatBar';
+import { GateCountdown } from '@/components/system/GateCountdown';
 import { SideQuestsPanel } from '@/features/training/SideQuestsPanel';
 import { NutritionPanel } from '@/features/training/NutritionPanel';
 import { RecoveryPanel } from '@/features/training/RecoveryPanel';
@@ -122,6 +123,7 @@ export function TrainingPage() {
 
   return (
     <div className="flex flex-col gap-4">
+      <GateCountdown />
       <EventPanel />
       <EncounterPanel />
       <SystemWindow title="Daily Quest — Train to Become Strong" scan>

@@ -62,6 +62,10 @@ type PlayerState = {
   encounter: Encounter | null; // the active encounter, if any
   exploresLeftToday: number;
   weeklyReview: WeeklyReview | null; // most recent AI System Coach assessment
+  // Lifetime tallies feeding the milestone tracker (cheap HEAD counts).
+  masteredCount: number;
+  perfectClearCount: number;
+  riddlesSolvedCount: number;
   /** Full refresh: lazy daily reset on the server, then re-read everything. */
   loadAll: () => Promise<void>;
   /** Re-read DB state without re-running the daily reset. */
@@ -113,6 +117,9 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   encounter: null,
   exploresLeftToday: EXPLORES_PER_DAY,
   weeklyReview: null,
+  masteredCount: 0,
+  perfectClearCount: 0,
+  riddlesSolvedCount: 0,
 
   loadAll: async () => {
     const seq = ++loadSeq;
@@ -237,6 +244,9 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       encounter: null,
       exploresLeftToday: EXPLORES_PER_DAY,
       weeklyReview: null,
+      masteredCount: 0,
+      perfectClearCount: 0,
+      riddlesSolvedCount: 0,
     }),
 }));
 
@@ -267,6 +277,9 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     equipmentRes,
     encounterRes,
     weeklyReviewRes,
+    masteredRes,
+    perfectRes,
+    riddlesRes,
   ] = await Promise.all([
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
@@ -353,6 +366,18 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
         .order('week_start', { ascending: false })
         .limit(1)
         .maybeSingle(),
+      supabase
+        .from('retention_questions')
+        .select('id', { count: 'exact', head: true })
+        .eq('mastered', true),
+      supabase
+        .from('training_quests')
+        .select('id', { count: 'exact', head: true })
+        .eq('perfect_clear', true),
+      supabase
+        .from('xp_ledger')
+        .select('id', { count: 'exact', head: true })
+        .eq('source', 'riddle_solved'),
     ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
@@ -407,6 +432,9 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     equipment: (equipmentRes.data ?? []) as EquippedItem[],
     encounter: (encounterRes.data ?? null) as Encounter | null,
     weeklyReview: (weeklyReviewRes.data ?? null) as WeeklyReview | null,
+    masteredCount: masteredRes.count ?? 0,
+    perfectClearCount: perfectRes.count ?? 0,
+    riddlesSolvedCount: riddlesRes.count ?? 0,
     exploresLeftToday: Math.max(
       0,
       EXPLORES_PER_DAY - Number((profileRes.data as Profile).explores_today ?? 0),

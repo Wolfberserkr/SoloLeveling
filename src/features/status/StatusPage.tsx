@@ -10,6 +10,7 @@ import { TickingNumber } from '@/components/system/TickingNumber';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { formatDistance } from '@/lib/units';
 import { ClassPanel } from './ClassPanel';
+import { NextObjectivesPanel } from './NextObjectivesPanel';
 import { InventoryPanel } from './InventoryPanel';
 import { SystemAssessmentPanel } from './SystemAssessmentPanel';
 import { levelProgress } from '@game/xpCurve.ts';
@@ -94,6 +95,9 @@ export function StatusPage() {
           </div>
         </div>
       </SystemWindow>
+
+      {/* ── Nearest unlocks — always a next reward in sight ── */}
+      <NextObjectivesPanel />
 
       {/* ── 9 stats ── */}
       <SystemWindow title="Attributes" delay={0.08}>
