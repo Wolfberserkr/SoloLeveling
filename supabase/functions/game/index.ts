@@ -122,6 +122,13 @@ import {
   type ExerciseTargets,
 } from '../_shared/game/penalty.ts';
 import {
+  isFocusDuration,
+  focusKeysPerDay,
+  focusXp,
+  normalizeMobs,
+  type FocusDuration,
+} from '../_shared/game/focus.ts';
+import {
   NUTRITION_XP,
   SUPPLEMENT_STACK_XP,
   DEFAULT_PROTEIN_TARGET_G,
@@ -237,6 +244,12 @@ Deno.serve(async (req) => {
         return json(await logPenalty(ctx, payload));
       case 'complete-penalty':
         return json(await completePenalty(ctx));
+      case 'start-focus':
+        return json(await startFocus(ctx, payload));
+      case 'complete-focus':
+        return json(await completeFocus(ctx));
+      case 'abandon-focus':
+        return json(await abandonFocus(ctx));
       case 'complete-quest':
         return json(await completeSideQuest(ctx, payload));
       case 'log-sleep':
@@ -1024,21 +1037,24 @@ async function getTodayPenalty(ctx: Ctx) {
 }
 
 async function getDailySnapshot(ctx: Ctx) {
-  const [quest, sideQuests, dungeon, event, gymToday, legacy, penalty] = await Promise.all([
-    getTodayQuest(ctx),
-    getTodaySideQuests(ctx),
-    getDungeonProgress(ctx),
-    getTodayEvent(ctx),
-    ctx.db
-      .from('gym_sessions')
-      .select('id')
-      .eq('user_id', ctx.userId)
-      .eq('local_date', ctx.today)
-      .maybeSingle()
-      .then((r) => r.data),
-    getArmedLegacy(ctx),
-    getTodayPenalty(ctx),
-  ]);
+  const [quest, sideQuests, dungeon, event, gymToday, legacy, penalty, focus, focusKeys] =
+    await Promise.all([
+      getTodayQuest(ctx),
+      getTodaySideQuests(ctx),
+      getDungeonProgress(ctx),
+      getTodayEvent(ctx),
+      ctx.db
+        .from('gym_sessions')
+        .select('id')
+        .eq('user_id', ctx.userId)
+        .eq('local_date', ctx.today)
+        .maybeSingle()
+        .then((r) => r.data),
+      getArmedLegacy(ctx),
+      getTodayPenalty(ctx),
+      getActiveFocus(ctx),
+      focusKeysLeft(ctx),
+    ]);
   return {
     ok: true,
     today: ctx.today,
@@ -1050,6 +1066,8 @@ async function getDailySnapshot(ctx: Ctx) {
     legacy,
     legacy_due: Boolean(legacy && legacy.due_date <= ctx.today),
     penalty,
+    focus,
+    focus_keys_left: focusKeys,
   };
 }
 
@@ -1350,6 +1368,115 @@ async function completePenalty(ctx: Ctx) {
   });
 
   return { ok: true, streak: restored, shield_earned: shieldEarned, penalty: { ...penalty, status: 'completed' } };
+}
+
+// ── Instant Dungeon (Feature F2): focus runs ─────────────────────────────────
+async function getActiveFocus(ctx: Ctx) {
+  const { data, error } = await ctx.db
+    .from('focus_runs')
+    .select('*')
+    .eq('user_id', ctx.userId)
+    .eq('status', 'active')
+    .maybeSingle();
+  // Table not migrated yet: the feature is simply absent.
+  if (error && (error.code === '42P01' || error.code === 'PGRST205')) return null;
+  return data ?? null;
+}
+
+/** Keys left today = allowance − (active + completed) runs; collapsed refund. */
+async function focusKeysLeft(ctx: Ctx): Promise<number> {
+  const allowance = focusKeysPerDay(ctx.profile.rank);
+  const { count } = await ctx.db
+    .from('focus_runs')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', ctx.userId)
+    .eq('local_date', ctx.today)
+    .in('status', ['active', 'completed']);
+  return Math.max(0, allowance - (count ?? 0));
+}
+
+// ── start-focus: open an Instant Dungeon ─────────────────────────────────────
+async function startFocus(ctx: Ctx, payload: { duration_min?: number; mobs?: unknown }) {
+  const { db, userId, today } = ctx;
+  const duration = payload.duration_min;
+  if (!isFocusDuration(duration)) throw new HttpError(400, 'Choose a 25, 50, or 90 minute dungeon.');
+  const mobs = normalizeMobs(payload.mobs);
+  if (mobs.length === 0) throw new HttpError(400, 'Name at least one objective (mob).');
+
+  if (await getActiveFocus(ctx)) {
+    throw new HttpError(409, 'A dungeon is already open. Clear or abandon it first.');
+  }
+  if ((await focusKeysLeft(ctx)) <= 0) {
+    throw new HttpError(409, 'No Instant Dungeon keys left today. Return tomorrow.');
+  }
+
+  const startedAt = new Date();
+  const endsAt = new Date(startedAt.getTime() + duration * 60_000);
+  const { data: run, error } = await db
+    .from('focus_runs')
+    .insert({
+      user_id: userId,
+      local_date: today,
+      duration_min: duration,
+      mobs,
+      started_at: startedAt.toISOString(),
+      ends_at: endsAt.toISOString(),
+    })
+    .select('*')
+    .single();
+  if (error || !run) {
+    if (error?.code === '23505') throw new HttpError(409, 'A dungeon is already open.');
+    if (error?.code === '42P01' || error?.code === 'PGRST205') {
+      throw new HttpError(503, 'Instant Dungeons are not provisioned yet — run the 0024 migration.');
+    }
+    console.error('start-focus failed:', error);
+    throw new HttpError(500, 'The dungeon did not open. Try again.');
+  }
+  return { ok: true, focus: run, keys_left: await focusKeysLeft(ctx) };
+}
+
+// ── complete-focus: clear the dungeon once the wall-clock has elapsed ────────
+// The server rejects completion before ends_at — the time must actually pass,
+// so a run cannot be forged from the client.
+async function completeFocus(ctx: Ctx) {
+  const { db, userId } = ctx;
+  const run = await getActiveFocus(ctx);
+  if (!run) throw new HttpError(404, 'No Instant Dungeon is open.');
+  if (new Date() < new Date(run.ends_at)) {
+    throw new HttpError(409, 'The dungeon is not yet cleared — see the timer through.');
+  }
+
+  const mobCount = Array.isArray(run.mobs) ? run.mobs.length : 1;
+  const xp = focusXp(run.duration_min as FocusDuration, mobCount);
+
+  const { data: claimed } = await db
+    .from('focus_runs')
+    .update({ status: 'completed', completed_at: new Date().toISOString(), xp_awarded: xp })
+    .eq('id', run.id)
+    .eq('status', 'active')
+    .select('id');
+  if (!claimed || claimed.length === 0) throw new HttpError(409, 'Dungeon already resolved.');
+
+  const award = await awardXp(ctx, xp, 'focus_run', run.id);
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'focus_cleared',
+    title: `INSTANT DUNGEON CLEARED — ${run.duration_min} min.`,
+    body: `${mobCount} ${mobCount === 1 ? 'mob' : 'mobs'} felled through focus. +${award.credited} XP. Discipline is a weapon.`,
+  });
+  return { ok: true, award, focus: { ...run, status: 'completed' } };
+}
+
+// ── abandon-focus: the dungeon collapses — the key is refunded, no reward ────
+async function abandonFocus(ctx: Ctx) {
+  const run = await getActiveFocus(ctx);
+  if (!run) throw new HttpError(404, 'No Instant Dungeon is open.');
+  await ctx.db
+    .from('focus_runs')
+    .update({ status: 'collapsed', completed_at: new Date().toISOString() })
+    .eq('id', run.id)
+    .eq('status', 'active');
+  return { ok: true, collapsed: true, keys_left: await focusKeysLeft(ctx) };
 }
 
 // ── complete-quest: finish a side quest — spend mana, earn XP ───────────────

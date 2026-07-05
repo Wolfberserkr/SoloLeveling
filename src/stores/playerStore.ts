@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { supabase } from '@/lib/supabase';
 import { gameAction } from '@/lib/gameApi';
 import { EXPLORES_PER_DAY } from '@game/encounters.ts';
+import { focusKeysPerDay } from '@game/focus.ts';
 import type {
   Profile,
   StatRow,
@@ -12,6 +13,7 @@ import type {
   TrainingQuest,
   TrainingTotals,
   PenaltyQuest,
+  FocusRun,
   DailyQuest,
   SleepLog,
   NutritionLog,
@@ -44,6 +46,8 @@ type PlayerState = {
   shadows: Shadow[];
   training: TrainingQuest | null;
   penalty: PenaltyQuest | null; // today's Penalty Quest, if the streak broke
+  focus: FocusRun | null; // the active Instant Dungeon, if one is open
+  focusKeysLeft: number;
   quests: DailyQuest[];
   sleep: SleepLog | null; // today's log, if any
   nutrition: NutritionLog | null; // today's Fuel Protocol log, if any
@@ -74,6 +78,7 @@ type PlayerState = {
   refresh: () => Promise<void>;
   setTraining: (q: TrainingQuest) => void;
   setPenalty: (p: PenaltyQuest | null) => void;
+  setFocus: (f: FocusRun | null, keysLeft?: number) => void;
   setQuest: (q: DailyQuest) => void;
   setNutrition: (n: NutritionLog) => void;
   setDungeon: (d: DungeonProgress, gymDoneToday?: boolean) => void;
@@ -101,6 +106,8 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   shadows: [],
   training: null,
   penalty: null,
+  focus: null,
+  focusKeysLeft: 0,
   quests: [],
   sleep: null,
   nutrition: null,
@@ -140,6 +147,8 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         dungeon: DungeonProgress;
         gym_done_today: boolean;
         penalty: PenaltyQuest | null;
+        focus: FocusRun | null;
+        focus_keys_left: number;
       }>('ensure-daily');
       await readState(guarded);
       guarded({
@@ -148,6 +157,8 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         dungeon: daily.dungeon,
         gymDoneToday: daily.gym_done_today,
         penalty: daily.penalty ?? null,
+        focus: daily.focus ?? null,
+        focusKeysLeft: daily.focus_keys_left ?? 0,
         serverToday: daily.today ?? null,
         lastLoadAt: Date.now(),
         loading: false,
@@ -183,6 +194,9 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   setTraining: (q) => set({ training: q }),
 
   setPenalty: (p) => set({ penalty: p }),
+
+  setFocus: (f, keysLeft) =>
+    set((s) => ({ focus: f, focusKeysLeft: keysLeft ?? s.focusKeysLeft })),
 
   setQuest: (q) =>
     set((s) => ({ quests: s.quests.map((existing) => (existing.id === q.id ? q : existing)) })),
@@ -233,6 +247,8 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       shadows: [],
       training: null,
       penalty: null,
+      focus: null,
+      focusKeysLeft: 0,
       quests: [],
       sleep: null,
       nutrition: null,
@@ -290,6 +306,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     perfectRes,
     riddlesRes,
     penaltyRes,
+    focusRes,
   ] = await Promise.all([
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
@@ -393,6 +410,11 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
         .select('*')
         .order('local_date', { ascending: false })
         .limit(1),
+      supabase
+        .from('focus_runs')
+        .select('*')
+        .order('started_at', { ascending: false })
+        .limit(12),
     ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
@@ -418,6 +440,16 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
   const penaltyRow = penaltyRes.error
     ? null
     : ((penaltyRes.data ?? [])[0] ?? null) as PenaltyQuest | null;
+  // focus_runs likewise; the active run + today's used keys drive the panel.
+  const focusRows = focusRes.error ? [] : ((focusRes.data ?? []) as FocusRun[]);
+  const focusRow = focusRows.find((r) => r.status === 'active') ?? null;
+  const focusUsed = focusRows.filter(
+    (r) => r.local_date === today && (r.status === 'active' || r.status === 'completed'),
+  ).length;
+  const focusKeys = Math.max(
+    0,
+    focusKeysPerDay((profileRes.data as Profile).rank) - focusUsed,
+  );
   const dueQuestions = ((questionsRes.data ?? []) as RetentionQuestion[]).filter(
     (q) => q.due_date != null && today != null && q.due_date <= today,
   );
@@ -434,6 +466,8 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     messages: (messagesRes.data ?? []) as SystemMessage[],
     training,
     penalty: penaltyRow && penaltyRow.local_date === today ? penaltyRow : null,
+    focus: focusRow,
+    focusKeysLeft: focusKeys,
     quests,
     sleep: sleepRow && sleepRow.local_date === today ? sleepRow : null,
     nutrition: nutritionRow && nutritionRow.local_date === today ? nutritionRow : null,

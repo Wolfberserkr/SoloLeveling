@@ -115,6 +115,19 @@ export type PenaltyQuest = {
   completed_at: string | null;
 };
 
+export type FocusRun = {
+  id: string;
+  user_id: string;
+  local_date: string;
+  duration_min: 25 | 50 | 90;
+  mobs: string[];
+  started_at: string;
+  ends_at: string;
+  status: 'active' | 'completed' | 'collapsed';
+  xp_awarded: number;
+  completed_at: string | null;
+};
+
 export type DailyQuest = {
   id: string;
   user_id: string;

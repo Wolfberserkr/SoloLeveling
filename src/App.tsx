@@ -8,6 +8,7 @@ import { usePlayerStore } from '@/stores/playerStore';
 import { BottomNav } from '@/components/system/BottomNav';
 import { SystemErrorBoundary } from '@/components/system/ErrorBoundary';
 import { DailyBriefing } from '@/components/system/DailyBriefing';
+import { FocusOverlay } from '@/components/system/FocusOverlay';
 import { SystemAlertStack } from '@/components/system/SystemAlertStack';
 import { OfflineBanner } from '@/components/system/OfflineBanner';
 import { LevelUpSequence } from '@/components/system/LevelUpSequence';
@@ -189,6 +190,7 @@ function AuthedApp() {
   return (
     <Shell>
       <DailyBriefing />
+      <FocusOverlay />
       <Suspense fallback={null}>
         <Routes>
           <Route path="/" element={<StatusPage />} />

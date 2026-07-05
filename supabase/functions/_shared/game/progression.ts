@@ -60,7 +60,8 @@ export type XpSource =
   | 'riddle_solved'
   | 'encounter'
   | 'item'
-  | 'nutrition';
+  | 'nutrition'
+  | 'focus_run';
 
 type StatGain = Partial<Record<StatKey, number>>;
 
@@ -86,6 +87,8 @@ const STAT_GAINS: Record<XpSource, StatGain> = {
   item: {},
   // Fuel — hitting the daily protein target is recovery discipline, every day.
   nutrition: { END: 0.2, DIS: 0.2 },
+  // Instant Dungeon — sustained focus on real work sharpens mind and will.
+  focus_run: { INT: 0.3, WIS: 0.2, DIS: 0.2 },
 };
 
 /**

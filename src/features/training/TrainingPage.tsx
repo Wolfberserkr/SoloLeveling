@@ -9,6 +9,7 @@ import { SystemWindow } from '@/components/system/SystemWindow';
 import { StatBar } from '@/components/system/StatBar';
 import { GateCountdown } from '@/components/system/GateCountdown';
 import { PenaltyPanel } from '@/features/training/PenaltyPanel';
+import { FocusPanel } from '@/features/training/FocusPanel';
 import { SideQuestsPanel } from '@/features/training/SideQuestsPanel';
 import { NutritionPanel } from '@/features/training/NutritionPanel';
 import { RecoveryPanel } from '@/features/training/RecoveryPanel';
@@ -128,6 +129,7 @@ export function TrainingPage() {
       <PenaltyPanel />
       <EventPanel />
       <EncounterPanel />
+      <FocusPanel />
       <SystemWindow title="Daily Quest — Train to Become Strong" scan>
         <div className="mb-3 flex items-center justify-between font-sys text-[0.65rem] uppercase tracking-widest text-slate-400">
           <span>{training.local_date}</span>
