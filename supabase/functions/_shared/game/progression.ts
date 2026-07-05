@@ -346,3 +346,20 @@ export function skillManaRegenBonus(keys: string[]): number {
 export function hasStreakShield(keys: string[]): boolean {
   return passives(keys).some((d) => d.streakShield);
 }
+
+/**
+ * Streak value after completing today's quest. Continues when yesterday was
+ * completed — or, with a streak shield (Steel Will), when exactly one day
+ * was missed. Anything longer starts over at 1.
+ */
+export function nextStreak(opts: {
+  current: number;
+  lastCompleted: string | null;
+  yesterday: string;
+  dayBefore: string;
+  shielded: boolean;
+}): number {
+  if (opts.lastCompleted === opts.yesterday) return opts.current + 1;
+  if (opts.shielded && opts.lastCompleted === opts.dayBefore) return opts.current + 1;
+  return 1;
+}

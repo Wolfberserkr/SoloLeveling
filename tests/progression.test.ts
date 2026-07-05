@@ -19,6 +19,7 @@ import {
   skillStatMultiplier,
   skillManaRegenBonus,
   hasStreakShield,
+  nextStreak,
 } from '@game/progression.ts';
 import { RANKS, STATS } from '@game/constants.ts';
 
@@ -243,5 +244,29 @@ describe('skills', () => {
   it('ignores unknown or active keys in passive modifiers', () => {
     expect(skillXpMultiplier(['second_wind', 'nonsense'], 'gym_session')).toBe(1);
     expect(skillStatMultiplier(['transmute'])).toBe(1);
+  });
+});
+
+describe('streak continuation', () => {
+  const days = { yesterday: '2026-07-04', dayBefore: '2026-07-03' };
+
+  it('continues an unbroken streak', () => {
+    expect(nextStreak({ current: 9, lastCompleted: '2026-07-04', shielded: false, ...days })).toBe(10);
+  });
+
+  it('restarts at 1 after a missed day without a shield', () => {
+    expect(nextStreak({ current: 9, lastCompleted: '2026-07-03', shielded: false, ...days })).toBe(1);
+  });
+
+  it('Steel Will carries the streak across exactly one missed day', () => {
+    expect(nextStreak({ current: 9, lastCompleted: '2026-07-03', shielded: true, ...days })).toBe(10);
+  });
+
+  it('even Steel Will cannot bridge two missed days', () => {
+    expect(nextStreak({ current: 9, lastCompleted: '2026-07-02', shielded: true, ...days })).toBe(1);
+  });
+
+  it('a first-ever completion starts at 1', () => {
+    expect(nextStreak({ current: 0, lastCompleted: null, shielded: true, ...days })).toBe(1);
   });
 });

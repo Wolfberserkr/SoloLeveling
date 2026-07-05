@@ -49,7 +49,7 @@ export function TrainingPage() {
     return (
       <SystemWindow title="Daily Quest" accent="red">
         <p className="font-sys text-xs text-slate-400">
-          No training quest found. Pull to refresh or re-enter the System.
+          No training quest found. Tap the ⟳ sync control (top right) to re-enter the System.
         </p>
       </SystemWindow>
     );

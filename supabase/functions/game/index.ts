@@ -85,6 +85,7 @@ import {
   skillStatMultiplier,
   skillManaRegenBonus,
   hasStreakShield,
+  nextStreak,
 } from '../_shared/game/progression.ts';
 import {
   SHADOW_EXTRACT_MANA,
@@ -493,6 +494,20 @@ async function resolveEncounter(ctx: Ctx, payload: { choice_key?: string }) {
   const success = rollOutcome(rand, statValue, choice.difficulty);
   const rankIndex = rankIndexOf(encounter.rank);
 
+  // Claim the encounter before paying out — a concurrent resolve of the same
+  // encounter must lose this race, not double the rewards.
+  const { data: claimed } = await db
+    .from('encounters')
+    .update({
+      status: success ? 'won' : 'lost',
+      chosen_key: choiceKey,
+      resolved_at: new Date().toISOString(),
+    })
+    .eq('id', encounter.id)
+    .eq('status', 'active')
+    .select('id');
+  if (!claimed || claimed.length === 0) throw new HttpError(409, 'Encounter already resolved.');
+
   let essence = 0;
   let items: Array<{ key: string; qty: number }> = [];
   let shadow: { name: string; grade: string } | null = null;
@@ -516,15 +531,7 @@ async function resolveEncounter(ctx: Ctx, payload: { choice_key?: string }) {
   }
 
   const result = { success, xp: award.credited, essence, items, shadow };
-  await db
-    .from('encounters')
-    .update({
-      status: success ? 'won' : 'lost',
-      chosen_key: choiceKey,
-      result,
-      resolved_at: new Date().toISOString(),
-    })
-    .eq('id', encounter.id);
+  await db.from('encounters').update({ result }).eq('id', encounter.id);
 
   const itemNames = items.map((it) => itemDef(it.key)?.name ?? it.key);
   const title = encounter.payload?.title ?? 'Encounter';
@@ -984,20 +991,31 @@ async function completeTraining(ctx: Ctx) {
     throw new HttpError(400, 'Targets not yet met');
   }
 
-  await db
+  // Guarded transition: only one request may flip pending → completed, so a
+  // double-tap or retry can never double-award XP or the streak.
+  const { data: claimed } = await db
     .from('training_quests')
     .update({ status: 'completed', completed_at: new Date().toISOString() })
-    .eq('id', quest.id);
+    .eq('id', quest.id)
+    .eq('status', 'pending')
+    .select('id');
+  if (!claimed || claimed.length === 0) throw new HttpError(409, 'Already completed');
 
-  // Cumulative counters + streak.
+  // Cumulative counters + streak. Steel Will lets the streak survive exactly
+  // one missed day — ensureDailyState preserved the counter; continue it here.
   const { data: totals } = await db
     .from('training_totals')
     .select('*')
     .eq('user_id', userId)
     .single();
   const yesterday = previousDate(today);
-  const newStreak =
-    totals?.last_completed_date === yesterday ? (totals.current_streak ?? 0) + 1 : 1;
+  const newStreak = nextStreak({
+    current: totals?.current_streak ?? 0,
+    lastCompleted: totals?.last_completed_date ?? null,
+    yesterday,
+    dayBefore: previousDate(yesterday),
+    shielded: hasStreakShield(ctx.skillKeys),
+  });
   await db
     .from('training_totals')
     .update({
@@ -1066,10 +1084,13 @@ async function completeSideQuest(ctx: Ctx, payload: { key?: string }) {
     throw new HttpError(409, 'Insufficient mana. Recover before taking this on.');
   }
 
-  await db
+  const { data: claimed } = await db
     .from('daily_quests')
     .update({ status: 'completed', completed_at: new Date().toISOString() })
-    .eq('id', quest.id);
+    .eq('id', quest.id)
+    .eq('status', 'pending')
+    .select('id');
+  if (!claimed || claimed.length === 0) throw new HttpError(409, 'Quest already resolved');
 
   const mana = clampMana(profile.mana - manaCost, profile.mana_max);
   await db.from('profiles').update({ mana }).eq('user_id', userId);
@@ -1754,7 +1775,9 @@ async function reviewQuestion(ctx: Ctx, payload: { question_id?: string; recalle
 
   const recalled = payload.recalled === true;
   const outcome = reviewOutcome(question.stage, recalled, ctx.today);
-  const { data: updated } = await ctx.db
+  // times_reviewed doubles as an optimistic-concurrency token: a duplicate
+  // request sees zero updated rows instead of advancing the ladder twice.
+  const { data: updatedRows } = await ctx.db
     .from('retention_questions')
     .update({
       stage: outcome.stage,
@@ -1763,8 +1786,10 @@ async function reviewQuestion(ctx: Ctx, payload: { question_id?: string; recalle
       times_reviewed: question.times_reviewed + 1,
     })
     .eq('id', question.id)
-    .select('*')
-    .single();
+    .eq('times_reviewed', question.times_reviewed)
+    .select('*');
+  const updated = updatedRows?.[0] ?? null;
+  if (!updated) throw new HttpError(409, 'Already reviewed');
 
   // Honest recall pays; a lapse costs nothing but the climb back.
   const award = recalled ? await awardXp(ctx, RETENTION_PASS_XP, 'knowledge_check', question.id) : null;
@@ -1786,10 +1811,13 @@ async function completeEvent(ctx: Ctx) {
   if (event.status === 'completed') throw new HttpError(409, 'Gate already cleared');
   if (event.status !== 'active') throw new HttpError(409, 'The gate has closed');
 
-  await ctx.db
+  const { data: claimed } = await ctx.db
     .from('system_events')
     .update({ status: 'completed', completed_at: new Date().toISOString() })
-    .eq('id', event.id);
+    .eq('id', event.id)
+    .eq('status', 'active')
+    .select('id');
+  if (!claimed || claimed.length === 0) throw new HttpError(409, 'Gate already cleared');
 
   const award = await awardXp(ctx, event.xp_reward, 'gate_clear', event.id);
   await ctx.db.from('system_messages').insert({

@@ -30,6 +30,12 @@ import type {
 type PlayerState = {
   loading: boolean;
   error: string | null;
+  /** True when ensure-daily failed and we're rendering direct table reads. */
+  degraded: boolean;
+  /** Server-confirmed local date of the last successful ensure-daily. */
+  serverToday: string | null;
+  /** Epoch ms of the last successful loadAll, for foreground re-sync. */
+  lastLoadAt: number | null;
   profile: Profile | null;
   stats: StatRow[];
   titles: Title[];
@@ -70,6 +76,9 @@ type PlayerState = {
 export const usePlayerStore = create<PlayerState>((set) => ({
   loading: true,
   error: null,
+  degraded: false,
+  serverToday: null,
+  lastLoadAt: null,
   profile: null,
   stats: [],
   titles: [],
@@ -102,6 +111,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
     try {
       // The System catches up on the day (generates today's quests) first.
       const daily = await gameAction<{
+        today: string;
         training: TrainingQuest;
         quests: DailyQuest[];
         dungeon: DungeonProgress;
@@ -113,10 +123,21 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         quests: daily.quests,
         dungeon: daily.dungeon,
         gymDoneToday: daily.gym_done_today,
+        serverToday: daily.today ?? null,
+        lastLoadAt: Date.now(),
+        degraded: false,
         loading: false,
       });
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : 'System link failed', loading: false });
+      // The edge function is down or unreachable — most state is still
+      // readable straight from the tables (RLS allows SELECT). Render that
+      // instead of bricking the boot; actions will surface their own errors.
+      try {
+        await readState(set);
+        set({ degraded: true, lastLoadAt: Date.now(), loading: false });
+      } catch {
+        set({ error: err instanceof Error ? err.message : 'System link failed', loading: false });
+      }
     }
   },
 
@@ -142,6 +163,9 @@ export const usePlayerStore = create<PlayerState>((set) => ({
     set({
       loading: true,
       error: null,
+      degraded: false,
+      serverToday: null,
+      lastLoadAt: null,
       profile: null,
       stats: [],
       titles: [],
