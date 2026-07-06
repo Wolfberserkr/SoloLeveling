@@ -44,12 +44,16 @@ export type ResetState = {
   nutrition: Nutrition[];
   cloudLogs: CloudLog[];
   calMonth?: string;
+  /** Epoch ms of the last local app-state write, so the cloud reconcile on
+   *  reopen never overwrites newer local checkmarks with a stale cloud row. */
+  updatedAt?: number;
 };
 
 export function defaultState(): ResetState {
   return {
     week: 1, progress: {}, log: {}, videos: {}, swaps: {},
     history: [], sessions: [], weights: [], nutrition: [], cloudLogs: [],
+    updatedAt: 0,
   };
 }
 
@@ -171,11 +175,22 @@ export async function insertSession(uid: string, session: {
   }
 }
 
-export function insertExerciseLog(uid: string, row: { exercise_id: string; reps: string; weight: number }) {
+export function insertExerciseLog(
+  uid: string,
+  row: { exercise_id: string; reps: string; weight: number | null },
+) {
   return pushOp(uid, {
     kind: 'insert',
     table: 'reset_exercise_logs',
-    data: { ...row, user_id: uid, logged_at: new Date().toISOString() },
+    // weight is nullable — bodyweight / timed moves (plank, dead bug) log
+    // reps (or a held duration) with no load.
+    data: {
+      exercise_id: row.exercise_id,
+      reps: row.reps || null,
+      weight: row.weight,
+      user_id: uid,
+      logged_at: new Date().toISOString(),
+    },
   });
 }
 
@@ -205,7 +220,7 @@ export function upsertNutrition(uid: string, n: { recorded_on: string; rating: s
 
 // ── Cloud read (reconcile on boot) ───────────────────────────────────────────
 export type CloudSnapshot = {
-  appState: { week: number; progress: SetProgress; swaps: Swaps; videos: Videos } | null;
+  appState: { week: number; progress: SetProgress; swaps: Swaps; videos: Videos; updatedAt: number } | null;
   sessions: Session[];
   logs: CloudLog[];
   weights: Weight[];
@@ -221,9 +236,19 @@ export async function fetchAll(uid: string): Promise<CloudSnapshot | null> {
       supabase.from('reset_weights').select('recorded_on, kg').eq('user_id', uid).order('recorded_on', { ascending: true }),
       supabase.from('reset_nutrition').select('recorded_on, rating, note').eq('user_id', uid).order('recorded_on', { ascending: false }).limit(60),
     ]);
-    const st = stRes.data as { week: number; progress: SetProgress; swaps: Swaps; videos: Videos } | null;
+    const st = stRes.data as
+      | { week: number; progress: SetProgress; swaps: Swaps; videos: Videos; updated_at?: string }
+      | null;
     return {
-      appState: st ? { week: st.week, progress: st.progress || {}, swaps: st.swaps || {}, videos: st.videos || {} } : null,
+      appState: st
+        ? {
+            week: st.week,
+            progress: st.progress || {},
+            swaps: st.swaps || {},
+            videos: st.videos || {},
+            updatedAt: st.updated_at ? +new Date(st.updated_at) : 0,
+          }
+        : null,
       sessions: ((sessRes.data ?? []) as Array<Record<string, unknown>>).map((s) => ({
         id: s.id as string,
         dayId: s.day_id as string,

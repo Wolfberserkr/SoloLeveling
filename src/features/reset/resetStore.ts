@@ -50,11 +50,17 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     if (!cloud) return;
     const cur = get().s;
     const next: ResetState = { ...cur };
-    if (cloud.appState) {
+    // Only let the cloud app-state win when it is at least as new as our local
+    // cache. Otherwise a stale cloud row (e.g. a write that failed and is still
+    // queued) would wipe checkmarks the user just made — the "everything reset
+    // when I came back" bug. Queued writes flush above, so a genuinely newer
+    // cloud is honoured; a stale one is left for flushQueue to catch up to.
+    if (cloud.appState && cloud.appState.updatedAt >= (cur.updatedAt ?? 0)) {
       next.week = cloud.appState.week ?? cur.week;
       next.progress = cloud.appState.progress ?? cur.progress;
       next.swaps = cloud.appState.swaps ?? cur.swaps;
       next.videos = cloud.appState.videos ?? cur.videos;
+      next.updatedAt = cloud.appState.updatedAt;
     }
     if (cloud.sessions.length) {
       next.sessions = cloud.sessions;
@@ -73,7 +79,7 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     const { uid, s } = get();
     if (!uid) return;
     const week = Math.min(12, Math.max(1, s.week + n));
-    const next = { ...s, week };
+    const next = { ...s, week, updatedAt: Date.now() };
     saveCache(uid, next);
     void upsertAppState(uid, next);
     set({ s: next });
@@ -86,7 +92,7 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     const arr = [...progress[dayId][slotId]];
     arr[i] = !arr[i];
     progress[dayId] = { ...progress[dayId], [slotId]: arr };
-    const next = { ...s, progress };
+    const next = { ...s, progress, updatedAt: Date.now() };
     saveCache(uid, next);
     void upsertAppState(uid, next);
     set({ s: next });
@@ -101,9 +107,9 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     const next = { ...s, log };
     saveCache(uid, next);
     set({ s: next });
-    // Persist a log row once both reps and a parseable weight are present.
-    const w = parseFloat(entry.weight);
-    if (entry.reps && !isNaN(w)) void insertExerciseLog(uid, { exercise_id: slotId, reps: entry.reps, weight: w });
+    // The durable exercise-log row is written on Finish (see finishSession) so
+    // bodyweight / timed moves record too, and each exercise logs at most once
+    // per session. Here we only keep the draft (cache + live PR preview).
   },
 
   finishSession: (dayId) => {
@@ -126,15 +132,15 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     });
     const date = new Date().toISOString();
     const entry: Session = { dayId, name: d.name, date, done, total, exercises };
-    // Reset that day's set progress.
-    const clearedDay: Record<string, boolean[]> = {};
-    d.ex.forEach((e) => { clearedDay[e.id] = new Array(e.sets).fill(false); });
-    const nextProgress = { ...progress, [dayId]: clearedDay };
+    // Keep the day's checkmarks after finishing so she can go back and verify
+    // the workout (e.g. at the end of the week). "Reset" clears it for a fresh
+    // start on the next session.
     const next: ResetState = {
       ...s,
-      progress: nextProgress,
+      progress,
       history: [...s.history, entry],
       sessions: [entry, ...s.sessions],
+      updatedAt: Date.now(),
     };
     if (uid) {
       saveCache(uid, next);
@@ -142,6 +148,20 @@ export const useResetStore = create<ResetStore>((set, get) => ({
       void insertSession(uid, {
         day_id: dayId, day_name: d.name, completed_at: date,
         done_sets: done, total_sets: total, exercises,
+      });
+      // One durable exercise-log row per exercise with any logged detail —
+      // including bodyweight / timed moves (plank, dead bug) that carry reps or
+      // a held duration but no weight (weight → null).
+      exercises.forEach((e) => {
+        const w = parseFloat(e.weight);
+        const hasWeight = !isNaN(w);
+        if (e.reps || hasWeight) {
+          void insertExerciseLog(uid, {
+            exercise_id: e.slot_id,
+            reps: e.reps,
+            weight: hasWeight ? w : null,
+          });
+        }
       });
     }
     set({ s: next });
@@ -155,7 +175,7 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     const progress = ensureDay(s.progress, dayId);
     const clearedDay: Record<string, boolean[]> = {};
     d.ex.forEach((e) => { clearedDay[e.id] = new Array(e.sets).fill(false); });
-    const next = { ...s, progress: { ...progress, [dayId]: clearedDay } };
+    const next = { ...s, progress: { ...progress, [dayId]: clearedDay }, updatedAt: Date.now() };
     saveCache(uid, next);
     void upsertAppState(uid, next);
     set({ s: next });
@@ -165,7 +185,7 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     const { uid, s } = get();
     if (!uid) return;
     const swaps = { ...s.swaps, [dayId]: { ...(s.swaps[dayId] || {}), [slotId]: altId } };
-    const next = { ...s, swaps };
+    const next = { ...s, swaps, updatedAt: Date.now() };
     saveCache(uid, next);
     void upsertAppState(uid, next);
     set({ s: next });
@@ -176,7 +196,7 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     if (!uid || !s.swaps[dayId]?.[slotId]) return;
     const dayMap = { ...s.swaps[dayId] };
     delete dayMap[slotId];
-    const next = { ...s, swaps: { ...s.swaps, [dayId]: dayMap } };
+    const next = { ...s, swaps: { ...s.swaps, [dayId]: dayMap }, updatedAt: Date.now() };
     saveCache(uid, next);
     void upsertAppState(uid, next);
     set({ s: next });
@@ -185,7 +205,7 @@ export const useResetStore = create<ResetStore>((set, get) => ({
   saveVideo: (exId, url) => {
     const { uid, s } = get();
     if (!uid) return;
-    const next = { ...s, videos: { ...s.videos, [exId]: url } };
+    const next = { ...s, videos: { ...s.videos, [exId]: url }, updatedAt: Date.now() };
     saveCache(uid, next);
     void upsertAppState(uid, next);
     set({ s: next });
