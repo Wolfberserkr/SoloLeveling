@@ -47,6 +47,10 @@ export type ResetState = {
   /** Epoch ms of the last local app-state write, so the cloud reconcile on
    *  reopen never overwrites newer local checkmarks with a stale cloud row. */
   updatedAt?: number;
+  /** ISO date (Sunday) of the training week the current checkmarks belong to.
+   *  When a new week begins, the day checkmarks auto-clear for a fresh start
+   *  (past sessions stay in history for review). */
+  progressWeekStart?: string;
 };
 
 export function defaultState(): ResetState {

@@ -116,20 +116,36 @@ function ExerciseCard({ dayId, slotId, onSwap }: { dayId: string; slotId: string
       </div>
 
       <div className="logrow">
-        <span className="field">
-          Reps
-          <input
-            type="text" inputMode="decimal" placeholder="—" defaultValue={lg.reps}
-            onBlur={(e2) => logVal(slotId, 'reps', e2.target.value)}
-          />
-        </span>
-        <span className="field">
-          Wt
-          <input
-            type="text" inputMode="decimal" placeholder="kg" defaultValue={lg.weight}
-            onBlur={(e2) => logVal(slotId, 'weight', e2.target.value)}
-          />
-        </span>
+        {e.metric === 'time' ? (
+          // Timed holds (plank, wall-sit…) log a duration in seconds, no load.
+          <span className="field">
+            Time
+            <input
+              type="text" inputMode="decimal" placeholder="sec" defaultValue={lg.reps}
+              onBlur={(e2) => logVal(slotId, 'reps', e2.target.value)}
+            />
+          </span>
+        ) : (
+          <>
+            <span className="field">
+              Reps
+              <input
+                type="text" inputMode="decimal" placeholder="—" defaultValue={lg.reps}
+                onBlur={(e2) => logVal(slotId, 'reps', e2.target.value)}
+              />
+            </span>
+            {/* Bodyweight moves (push-up, dead bug…) have no load — reps only. */}
+            {e.metric === 'weighted' && (
+              <span className="field">
+                Wt
+                <input
+                  type="text" inputMode="decimal" placeholder="kg" defaultValue={lg.weight}
+                  onBlur={(e2) => logVal(slotId, 'weight', e2.target.value)}
+                />
+              </span>
+            )}
+          </>
+        )}
       </div>
 
       <VideoBlock ex={e} />

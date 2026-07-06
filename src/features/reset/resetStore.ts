@@ -24,6 +24,17 @@ type ResetStore = {
   setCalMonth: (m: string) => void;
 };
 
+/** ISO date (YYYY-MM-DD) of the Sunday that starts the week containing `d`.
+ *  The training week rolls over on Sunday — checkmarks reset then. */
+export function weekStartSunday(d = new Date()): string {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - x.getDay()); // getDay(): Sun=0 → back to Sunday
+  const y = x.getFullYear();
+  const m = String(x.getMonth() + 1).padStart(2, '0');
+  const day = String(x.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 /** Ensure per-set boolean arrays exist for every exercise of a day. */
 function ensureDay(progress: ResetState['progress'], dayId: string): ResetState['progress'] {
   const d = dayById(dayId);
@@ -71,7 +82,20 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     if (cloud.nutrition.length) {
       next.nutrition = cloud.nutrition.map((n) => ({ date: n.date, rating: n.rating, note: n.note }));
     }
+
+    // Weekly reset: when the training week rolls over (Sunday), clear the day
+    // checkmarks for a fresh start. Every finished session is preserved in
+    // history, so nothing is lost — this only clears the live plan boxes.
+    const thisWeek = weekStartSunday();
+    const newWeek = !!next.progressWeekStart && next.progressWeekStart !== thisWeek;
+    if (newWeek) {
+      next.progress = {};
+      next.updatedAt = Date.now();
+    }
+    next.progressWeekStart = thisWeek;
+
     saveCache(uid, next);
+    if (newWeek) void upsertAppState(uid, next);
     set({ s: next });
   },
 
