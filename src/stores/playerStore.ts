@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 import { gameAction } from '@/lib/gameApi';
 import { EXPLORES_PER_DAY } from '@game/encounters.ts';
 import { focusKeysPerDay } from '@game/focus.ts';
+import { buildSpartanSnapshot, type SpartanSnapshot } from '@game/spartan.ts';
 import type {
   Profile,
   StatRow,
@@ -48,6 +49,7 @@ type PlayerState = {
   penalty: PenaltyQuest | null; // today's Penalty Quest, if the streak broke
   focus: FocusRun | null; // the active Instant Dungeon, if one is open
   focusKeysLeft: number;
+  spartan: SpartanSnapshot | null; // the Spartan Protocol campaign, if enlisted
   quests: DailyQuest[];
   sleep: SleepLog | null; // today's log, if any
   nutrition: NutritionLog | null; // today's Fuel Protocol log, if any
@@ -79,6 +81,7 @@ type PlayerState = {
   setTraining: (q: TrainingQuest) => void;
   setPenalty: (p: PenaltyQuest | null) => void;
   setFocus: (f: FocusRun | null, keysLeft?: number) => void;
+  setSpartan: (s: SpartanSnapshot | null) => void;
   setQuest: (q: DailyQuest) => void;
   setNutrition: (n: NutritionLog) => void;
   setDungeon: (d: DungeonProgress, gymDoneToday?: boolean) => void;
@@ -108,6 +111,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   penalty: null,
   focus: null,
   focusKeysLeft: 0,
+  spartan: null,
   quests: [],
   sleep: null,
   nutrition: null,
@@ -149,6 +153,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         penalty: PenaltyQuest | null;
         focus: FocusRun | null;
         focus_keys_left: number;
+        spartan: SpartanSnapshot | null;
       }>('ensure-daily');
       await readState(guarded);
       guarded({
@@ -159,6 +164,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
         penalty: daily.penalty ?? null,
         focus: daily.focus ?? null,
         focusKeysLeft: daily.focus_keys_left ?? 0,
+        spartan: daily.spartan ?? null,
         serverToday: daily.today ?? null,
         lastLoadAt: Date.now(),
         loading: false,
@@ -197,6 +203,8 @@ export const usePlayerStore = create<PlayerState>((set) => ({
 
   setFocus: (f, keysLeft) =>
     set((s) => ({ focus: f, focusKeysLeft: keysLeft ?? s.focusKeysLeft })),
+
+  setSpartan: (spartan) => set({ spartan }),
 
   setQuest: (q) =>
     set((s) => ({ quests: s.quests.map((existing) => (existing.id === q.id ? q : existing)) })),
@@ -249,6 +257,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       penalty: null,
       focus: null,
       focusKeysLeft: 0,
+      spartan: null,
       quests: [],
       sleep: null,
       nutrition: null,
@@ -307,6 +316,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     riddlesRes,
     penaltyRes,
     focusRes,
+    spartanRes,
   ] = await Promise.all([
       supabase.from('profiles').select('*').single(),
       supabase.from('stats').select('*'),
@@ -415,6 +425,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
         .select('*')
         .order('started_at', { ascending: false })
         .limit(12),
+      supabase.from('spartan_campaign').select('*').maybeSingle(),
     ]);
 
   if (profileRes.error) throw new Error(profileRes.error.message);
@@ -456,7 +467,30 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
   const todaysBookIds = (rows: Array<{ book_id: string; local_date: string }> | null) =>
     (rows ?? []).filter((r) => r.local_date === today).map((r) => r.book_id);
 
+  const metricsRow = ((metricsRes.data ?? [])[0] ?? null) as BodyMetrics | null;
+
+  // The Spartan Protocol campaign. A read error (table not migrated, transient)
+  // leaves any existing server snapshot untouched rather than blanking it. The
+  // client fast-path can derive weight/streak/phase; protein & gym cadence come
+  // from the server snapshot on the next full load (shown "syncing" until then).
+  const spartanPatch = spartanRes.error
+    ? {}
+    : {
+        spartan: buildSpartanSnapshot(
+          (spartanRes.data as Parameters<typeof buildSpartanSnapshot>[0]) ?? null,
+          {
+            weightKg: metricsRow?.weight_kg != null ? Number(metricsRow.weight_kg) : null,
+            streak: Number((totalsRes.data as TrainingTotals | null)?.current_streak ?? 0),
+            dungeonPhase: Number((dungeonRes.data as DungeonProgress | null)?.phase ?? 1),
+            proteinDaysThisWeek: null,
+            gymDaysThisWeek: null,
+          },
+          today ?? new Date().toISOString().slice(0, 10),
+        ),
+      };
+
   set({
+    ...spartanPatch,
     degraded: sliceErrors > 0,
     profile: profileRes.data as Profile,
     stats: (statsRes.data ?? []) as StatRow[],
@@ -473,7 +507,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     nutrition: nutritionRow && nutritionRow.local_date === today ? nutritionRow : null,
     dungeon: (dungeonRes.data ?? null) as DungeonProgress | null,
     gymDoneToday: Boolean(gymRow && gymRow.local_date === today),
-    metrics: ((metricsRes.data ?? [])[0] ?? null) as BodyMetrics | null,
+    metrics: metricsRow,
     books: (booksRes.data ?? []) as Book[],
     dueQuestions,
     readTodayBookIds: todaysBookIds(readingRes.data),

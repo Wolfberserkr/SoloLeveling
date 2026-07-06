@@ -9,6 +9,7 @@ import { SystemWindow } from '@/components/system/SystemWindow';
 import { StatBar } from '@/components/system/StatBar';
 import { GateCountdown } from '@/components/system/GateCountdown';
 import { PenaltyPanel } from '@/features/training/PenaltyPanel';
+import { SpartanPanel } from '@/features/training/SpartanPanel';
 import { FocusPanel } from '@/features/training/FocusPanel';
 import { SideQuestsPanel } from '@/features/training/SideQuestsPanel';
 import { NutritionPanel } from '@/features/training/NutritionPanel';
@@ -232,6 +233,7 @@ export function TrainingPage() {
         )}
       </SystemWindow>
 
+      <SpartanPanel />
       <SideQuestsPanel />
       <NutritionPanel />
       <RecoveryPanel />

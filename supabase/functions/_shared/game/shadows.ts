@@ -17,7 +17,7 @@
 import { RANKS, type Rank } from './constants.ts';
 
 /** Source of a shadow — the kind of conquest it was extracted from. */
-export type ShadowSource = 'boss' | 'gate' | 'book' | 'legacy' | 'encounter';
+export type ShadowSource = 'boss' | 'gate' | 'book' | 'legacy' | 'encounter' | 'campaign';
 
 /** Strength tiers, weakest → strongest. Scales the passive and Arise odds. */
 export const SHADOW_GRADES = [
@@ -97,6 +97,7 @@ export function bookShadowGrade(totalPages: number): ShadowGrade {
  *   boss   → XP on body sources        gate   → daily mana regeneration
  *   book   → all attribute gains       legacy → XP on every source (generalist)
  *   encounter → XP on every source (a wandering ally, like legacy)
+ *   campaign  → XP on every source (the Spartan Protocol capstone ally)
  */
 export function shadowPassive(source: ShadowSource, grade: ShadowGrade): ShadowPassive {
   switch (source) {
@@ -108,6 +109,7 @@ export function shadowPassive(source: ShadowSource, grade: ShadowGrade): ShadowP
       return { kind: 'stat', mult: GRADE_MULT[grade] };
     case 'legacy':
     case 'encounter':
+    case 'campaign':
       return { kind: 'xp', sources: 'all', mult: GRADE_MULT[grade] };
   }
 }
