@@ -16,13 +16,24 @@ describe('item catalog integrity', () => {
     for (const [key, def] of Object.entries(ITEMS)) expect(def.key).toBe(key);
   });
 
-  it('every gear has an affinity stat, multiplier > 1, and a positive duration', () => {
+  it('every gear has an affinity stat and a multiplier > 1', () => {
     for (const key of GEAR_KEYS) {
       const def = ITEMS[key];
       expect(def.category).toBe('gear');
       expect(STATS).toContain(def.affinity);
       expect(def.statMult).toBeGreaterThan(1);
-      expect(def.durationHours).toBeGreaterThan(0);
+    }
+  });
+
+  it('temporary gear expires; only exclusive artifacts are permanent', () => {
+    for (const key of GEAR_KEYS) {
+      const def = ITEMS[key];
+      if (def.exclusive) {
+        // Permanent artifacts carry no duration — permanence is applied at grant.
+        expect(def.durationHours).toBeUndefined();
+      } else {
+        expect(def.durationHours).toBeGreaterThan(0);
+      }
     }
   });
 

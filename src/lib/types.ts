@@ -47,7 +47,7 @@ export type Skill = {
 export type Shadow = {
   id: string;
   user_id: string;
-  source_type: 'boss' | 'gate' | 'book' | 'legacy' | 'encounter';
+  source_type: 'boss' | 'gate' | 'book' | 'legacy' | 'encounter' | 'campaign';
   source_ref: string;
   name: string;
   grade: 'Soldier' | 'Knight' | 'Elite Knight' | 'Marshal' | 'Commander' | 'Monarch';

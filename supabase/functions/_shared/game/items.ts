@@ -46,6 +46,9 @@ export type ItemDef = {
   affinity?: StatKey;
   statMult?: number;
   durationHours?: number;
+  /** Never falls as random loot — granted only by a specific System event
+   *  (e.g. the Spartan Protocol capstone). Kept out of the drop pools. */
+  exclusive?: boolean;
 };
 
 /** The Shield item key — earned insurance that auto-saves a broken streak. */
@@ -187,6 +190,19 @@ export const ITEMS: Record<string, ItemDef> = {
     statMult: 1.5,
     durationHours: 24,
   },
+
+  // ── Exclusive artifact — the Spartan Protocol capstone (never dropped) ──
+  spartans_aegis: {
+    key: 'spartans_aegis',
+    name: "Spartan's Aegis",
+    description:
+      'Forged by clearing the six-month Spartan Protocol. A permanent artifact: ×1.3 Endurance gains, forever. It does not expire.',
+    rarity: 'epic',
+    category: 'gear',
+    affinity: 'END',
+    statMult: 1.3,
+    exclusive: true,
+  },
 };
 
 export const CONSUMABLE_KEYS = Object.values(ITEMS)
@@ -201,6 +217,11 @@ export const DROPPABLE_CONSUMABLE_KEYS = Object.values(ITEMS)
 
 export const GEAR_KEYS = Object.values(ITEMS)
   .filter((i) => i.category === 'gear')
+  .map((i) => i.key);
+
+/** Gear that can fall as random loot — excludes exclusive, granted-only pieces. */
+export const DROPPABLE_GEAR_KEYS = Object.values(ITEMS)
+  .filter((i) => i.category === 'gear' && !i.exclusive)
   .map((i) => i.key);
 
 export function itemDef(key: string): ItemDef | undefined {

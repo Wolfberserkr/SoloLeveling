@@ -141,6 +141,22 @@ import {
 } from '../_shared/game/nutrition.ts';
 import { mulberry32 } from '../_shared/game/rng.ts';
 import { type StatKey } from '../_shared/game/constants.ts';
+import {
+  buildSpartanSnapshot,
+  chapterByIndex,
+  chapterConditions,
+  chapterCleared,
+  collapsePenalty,
+  isChapterOverdue,
+  isFinalChapter,
+  SPARTAN_FINAL_CHAPTER,
+  SPARTAN_PROTEIN_TARGET_G,
+  SPARTAN_REENLIST_COOLDOWN_DAYS,
+  SPARTAN_SHADOW_GRADE,
+  SPARTAN_SHADOW_NAME,
+  type SpartanChapter,
+  type SpartanMetrics,
+} from '../_shared/game/spartan.ts';
 
 type SkillRow = { skill_key: string; last_used_at: string | null };
 
@@ -310,6 +326,12 @@ Deno.serve(async (req) => {
         return json(await equipItem(ctx, payload));
       case 'unequip-item':
         return json(await unequipItem(ctx, payload));
+      case 'enlist-spartan':
+        return json(await enlistSpartan(ctx));
+      case 'attempt-spartan-boss':
+        return json(await attemptSpartanBoss(ctx));
+      case 'abandon-spartan':
+        return json(await abandonSpartan(ctx));
       case 'reset-progress':
         return json(await resetProgress(ctx, payload));
       default:
@@ -361,6 +383,7 @@ async function resetProgress(ctx: Ctx, payload: { confirm?: string }) {
     'encounters',
     'inventory',
     'equipment',
+    'spartan_campaign',
     'stats',
     'training_totals',
     'dungeon_progress',
@@ -749,6 +772,9 @@ async function ensureDailyState(ctx: Ctx): Promise<void> {
     await handleStreakBreak(ctx, totals.current_streak, prev);
   }
 
+  // The Spartan Protocol: a lapsed chapter deadline collapses the campaign.
+  await checkSpartanDeadline(ctx);
+
   // Mana regen: a new day restores capacity before anything is asked of you.
   const mana = clampMana(
     profile.mana +
@@ -1037,7 +1063,7 @@ async function getTodayPenalty(ctx: Ctx) {
 }
 
 async function getDailySnapshot(ctx: Ctx) {
-  const [quest, sideQuests, dungeon, event, gymToday, legacy, penalty, focus, focusKeys] =
+  const [quest, sideQuests, dungeon, event, gymToday, legacy, penalty, focus, focusKeys, spartan] =
     await Promise.all([
       getTodayQuest(ctx),
       getTodaySideQuests(ctx),
@@ -1054,6 +1080,7 @@ async function getDailySnapshot(ctx: Ctx) {
       getTodayPenalty(ctx),
       getActiveFocus(ctx),
       focusKeysLeft(ctx),
+      getSpartanState(ctx),
     ]);
   return {
     ok: true,
@@ -1068,6 +1095,7 @@ async function getDailySnapshot(ctx: Ctx) {
     penalty,
     focus,
     focus_keys_left: focusKeys,
+    spartan,
   };
 }
 
@@ -3092,4 +3120,325 @@ async function setShadowDeployed(ctx: Ctx, payload: { shadow_id?: string }, depl
     .select('*')
     .single();
   return { ok: true, shadow: updated ?? { ...shadow, deployed } };
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// THE SPARTAN PROTOCOL — an optional, binding 6-month campaign (Feature).
+// Rules and math live in _shared/game/spartan.ts; this is the server side that
+// gates enlistment, chapter advancement (with rewards), desertion, and the
+// deadline-collapse toll. One row per Player in spartan_campaign; every write
+// is service-role only (Tier B). See docs/SPARTAN_PROTOCOL.md.
+// ═════════════════════════════════════════════════════════════════════════
+
+type SpartanRow = {
+  status: 'inactive' | 'active' | 'completed' | 'failed';
+  current_chapter: number;
+  chapters_cleared: number;
+  enlisted_at: string;
+  chapter_started_at: string;
+  reenlist_available_on: string | null;
+  failed_at: string | null;
+  completed_at: string | null;
+};
+
+async function getSpartanRow(ctx: Ctx): Promise<SpartanRow | null> {
+  const { data, error } = await ctx.db
+    .from('spartan_campaign')
+    .select('*')
+    .eq('user_id', ctx.userId)
+    .maybeSingle();
+  if (error) {
+    // Table not migrated yet (deploy lag) → treat as "never enlisted".
+    if (error.code === '42P01' || error.code === 'PGRST205') return null;
+    console.error('spartan_campaign read failed:', error);
+    return null;
+  }
+  return (data as SpartanRow) ?? null;
+}
+
+// Latest bodyweight + trailing-7-day protein/gym cadence — the derived
+// checkpoints a chapter is judged on. Strength is attested via the dungeon boss.
+async function spartanMetrics(ctx: Ctx): Promise<SpartanMetrics> {
+  const weekAgo = addDays(ctx.today, -6);
+  const [metricsRes, totalsRes, dungeon, proteinRes, gymRes] = await Promise.all([
+    ctx.db
+      .from('body_metrics')
+      .select('weight_kg')
+      .eq('user_id', ctx.userId)
+      .not('weight_kg', 'is', null)
+      .order('local_date', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    ctx.db.from('training_totals').select('current_streak').eq('user_id', ctx.userId).maybeSingle(),
+    getDungeonProgress(ctx),
+    ctx.db
+      .from('nutrition_logs')
+      .select('local_date, protein_g')
+      .eq('user_id', ctx.userId)
+      .gte('local_date', weekAgo)
+      .lte('local_date', ctx.today),
+    ctx.db
+      .from('gym_sessions')
+      .select('local_date')
+      .eq('user_id', ctx.userId)
+      .gte('local_date', weekAgo)
+      .lte('local_date', ctx.today),
+  ]);
+
+  const target = Number(ctx.profile.protein_target_g ?? SPARTAN_PROTEIN_TARGET_G);
+  const proteinDays = new Set(
+    ((proteinRes.data ?? []) as Array<{ local_date: string; protein_g: number | null }>)
+      .filter((r) => Number(r.protein_g ?? 0) >= target)
+      .map((r) => r.local_date),
+  ).size;
+  const gymDays = new Set(
+    ((gymRes.data ?? []) as Array<{ local_date: string }>).map((r) => r.local_date),
+  ).size;
+
+  return {
+    weightKg: metricsRes.data ? Number(metricsRes.data.weight_kg) : null,
+    streak: Number(totalsRes.data?.current_streak ?? 0),
+    dungeonPhase: Number(dungeon.phase ?? 1),
+    proteinDaysThisWeek: proteinDays,
+    gymDaysThisWeek: gymDays,
+  };
+}
+
+/** The campaign snapshot the client renders — campaign row + live evaluation. */
+async function getSpartanState(ctx: Ctx) {
+  const row = await getSpartanRow(ctx);
+  // No live metrics needed for a campaign that isn't running.
+  if (!row || row.status !== 'active') {
+    return buildSpartanSnapshot(row, EMPTY_SPARTAN_METRICS, ctx.today);
+  }
+  const metrics = await spartanMetrics(ctx);
+  return buildSpartanSnapshot(row, metrics, ctx.today);
+}
+
+const EMPTY_SPARTAN_METRICS: SpartanMetrics = {
+  weightKg: null,
+  streak: 0,
+  dungeonPhase: 1,
+  proteinDaysThisWeek: 0,
+  gymDaysThisWeek: 0,
+};
+
+// ── enlist-spartan: undertake the campaign (chapter 1) ──────────────────────
+async function enlistSpartan(ctx: Ctx) {
+  const { db, userId, today } = ctx;
+  const row = await getSpartanRow(ctx);
+  if (row?.status === 'active') throw new HttpError(409, 'The Spartan Protocol is already underway.');
+  if (row?.status === 'completed') {
+    throw new HttpError(409, 'The Spartan Protocol has already been conquered. It cannot be repeated.');
+  }
+  if (row?.status === 'failed' && row.reenlist_available_on && today < row.reenlist_available_on) {
+    throw new HttpError(
+      409,
+      `The System bars re-enlistment until ${row.reenlist_available_on}. A collapse is not undone by will alone.`,
+    );
+  }
+
+  const { error } = await db.from('spartan_campaign').upsert(
+    {
+      user_id: userId,
+      status: 'active',
+      current_chapter: 1,
+      chapters_cleared: 0,
+      enlisted_at: today,
+      chapter_started_at: today,
+      reenlist_available_on: null,
+      failed_at: null,
+      completed_at: null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id' },
+  );
+  if (error) {
+    console.error('enlist-spartan failed:', error);
+    throw new HttpError(500, 'Failed to enlist in the Spartan Protocol.');
+  }
+
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'spartan_enlisted',
+    title: 'THE SPARTAN PROTOCOL — undertaken.',
+    body: 'A six-month campaign begins: Foundation → Iron Path → Warrior’s Forge → Elite Conditioning. Each chapter has a deadline. Clear it and be rewarded; let it lapse — or desert — and the campaign COLLAPSES, costing you a rank. The System does not promise magic. It promises arithmetic, applied daily.',
+  });
+
+  return { ok: true, spartan: await getSpartanState(ctx) };
+}
+
+// ── attempt-spartan-boss: advance the chapter once every condition is met ────
+async function attemptSpartanBoss(ctx: Ctx) {
+  const { db, userId, today } = ctx;
+  const row = await getSpartanRow(ctx);
+  if (!row || row.status !== 'active') throw new HttpError(409, 'No Spartan Protocol is underway.');
+
+  const chapter = chapterByIndex(row.current_chapter);
+  const metrics = await spartanMetrics(ctx);
+  const conditions = chapterConditions(chapter, metrics);
+  if (!chapterCleared(conditions)) {
+    throw new HttpError(409, `${chapter.bossName} still stands. Every condition must be met to advance.`);
+  }
+
+  const reward = await grantSpartanReward(ctx, chapter);
+  const final = isFinalChapter(chapter.index);
+
+  if (final) {
+    await db
+      .from('spartan_campaign')
+      .update({
+        status: 'completed',
+        chapters_cleared: SPARTAN_FINAL_CHAPTER,
+        completed_at: today,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', userId);
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'spartan_completed',
+      title: 'THE SPARTAN PROTOCOL — CONQUERED.',
+      body: 'Six months. Four chapters. The Demon of the Summit has fallen. You are visibly lean, conditioned, strong — undeniably in shape. The System raises The Spartan as your shadow and forges the Spartan’s Aegis. This campaign cannot be run again. It does not need to be.',
+    });
+  } else {
+    await db
+      .from('spartan_campaign')
+      .update({
+        current_chapter: chapter.index + 1,
+        chapters_cleared: chapter.index,
+        chapter_started_at: today,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', userId);
+    const next = chapterByIndex(chapter.index + 1);
+    await db.from('system_messages').insert({
+      user_id: userId,
+      kind: 'spartan_chapter',
+      title: `SPARTAN PROTOCOL — ${chapter.name} cleared.`,
+      body: `${chapter.bossName} has fallen and the chapter’s rewards are yours. Chapter ${next.index}: ${next.name} begins now — a new deadline is set.`,
+    });
+  }
+
+  return { ok: true, completed: final, reward, spartan: await getSpartanState(ctx) };
+}
+
+// ── abandon-spartan: desert the campaign (accepts the collapse toll) ─────────
+async function abandonSpartan(ctx: Ctx) {
+  const row = await getSpartanRow(ctx);
+  if (!row || row.status !== 'active') throw new HttpError(409, 'No Spartan Protocol is underway.');
+  const penalty = await collapseSpartan(ctx, 'deserted');
+  return { ok: true, collapsed: true, penalty, spartan: await getSpartanState(ctx) };
+}
+
+// Grant a chapter's payout: consumables, and (final chapter) the exclusive
+// permanent artifact + the Monarch "Spartan" shadow.
+async function grantSpartanReward(ctx: Ctx, chapter: SpartanChapter) {
+  const { db, userId } = ctx;
+  const granted: string[] = [];
+
+  for (const item of chapter.reward.items) {
+    const { error } = await db.rpc('grant_item', {
+      p_user: userId,
+      p_item_key: item.key,
+      p_qty: item.qty,
+    });
+    if (error) console.error(`spartan reward grant_item ${item.key} failed:`, error);
+    else granted.push(`${itemDef(item.key)?.name ?? item.key} ×${item.qty}`);
+  }
+
+  if (chapter.reward.gear) {
+    // A permanent artifact: a far-future expiry keeps it out of the daily
+    // gear sweep and always active. Granted once (dedupe on re-runs).
+    const { count } = await db
+      .from('equipment')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('item_key', chapter.reward.gear)
+      .eq('active', true);
+    if ((count ?? 0) === 0) {
+      const { error } = await db.from('equipment').insert({
+        user_id: userId,
+        item_key: chapter.reward.gear,
+        expires_at: '9999-12-31T00:00:00Z',
+        active: true,
+      });
+      if (error) console.error('spartan gear grant failed:', error);
+      else granted.push(itemDef(chapter.reward.gear)?.name ?? chapter.reward.gear);
+    }
+  }
+
+  if (chapter.reward.shadow) {
+    // The exclusive campaign shadow, granted already arisen (a capstone gift,
+    // not a roll). Unique per user via the shadows (user, source, ref) index.
+    const { error } = await db.from('shadows').insert({
+      user_id: userId,
+      source_type: 'campaign',
+      source_ref: 'spartan',
+      name: SPARTAN_SHADOW_NAME,
+      grade: SPARTAN_SHADOW_GRADE,
+      status: 'arisen',
+      arisen_at: new Date().toISOString(),
+    });
+    if (error && error.code !== '23505') console.error('spartan shadow grant failed:', error);
+    else if (!error) granted.push(`${SPARTAN_SHADOW_NAME} (${SPARTAN_SHADOW_GRADE} shadow)`);
+  }
+
+  return { granted };
+}
+
+// Collapse the campaign: demote one rank, forfeit the XP above its floor and
+// all Essence, and bar re-enlistment for the cooldown. Shared by desertion and
+// the deadline-miss path in ensureDailyState.
+async function collapseSpartan(ctx: Ctx, reason: 'deserted' | 'deadline') {
+  const { db, userId, profile, today } = ctx;
+  const p = collapsePenalty(profile.level, Number(profile.xp_total));
+
+  await db
+    .from('profiles')
+    .update({
+      xp_total: p.newXpTotal,
+      level: p.newLevel,
+      rank: p.newRank,
+      essence_stones: 0,
+    })
+    .eq('user_id', userId);
+  profile.xp_total = p.newXpTotal;
+  profile.level = p.newLevel;
+  profile.rank = p.newRank;
+  profile.essence_stones = 0;
+
+  await db
+    .from('spartan_campaign')
+    .update({
+      status: 'failed',
+      failed_at: today,
+      reenlist_available_on: addDays(today, SPARTAN_REENLIST_COOLDOWN_DAYS),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('user_id', userId);
+
+  const cause =
+    reason === 'deserted'
+      ? 'You deserted the Spartan Protocol.'
+      : 'A chapter deadline lapsed. The Spartan Protocol has collapsed.';
+  await db.from('system_messages').insert({
+    user_id: userId,
+    kind: 'spartan_collapsed',
+    title: 'THE SPARTAN PROTOCOL — COLLAPSED.',
+    body: `${cause} The System reclaims what discipline failed to hold: rank ${p.demotedFrom} → ${p.newRank}, ${p.lostXp} XP and all Essence forfeit. Re-enlistment is barred for ${SPARTAN_REENLIST_COOLDOWN_DAYS} days. The System does not forgive. It tests.`,
+    payload: { from: p.demotedFrom, to: p.newRank, lost_xp: p.lostXp },
+  });
+
+  return { from: p.demotedFrom, to: p.newRank, lostXp: p.lostXp };
+}
+
+// Called from ensureDailyState: if the active chapter's deadline has passed,
+// the campaign collapses. Guarded so a not-yet-migrated table is a no-op.
+async function checkSpartanDeadline(ctx: Ctx) {
+  const row = await getSpartanRow(ctx);
+  if (!row || row.status !== 'active') return;
+  const chapter = chapterByIndex(row.current_chapter);
+  if (isChapterOverdue(ctx.today, row.chapter_started_at, chapter)) {
+    await collapseSpartan(ctx, 'deadline');
+  }
 }

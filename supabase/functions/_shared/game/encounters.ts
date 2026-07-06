@@ -12,7 +12,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { hashString, pickWeighted } from './rng.ts';
 import { RANKS, type Rank, type StatKey } from './constants.ts';
-import { DROPPABLE_CONSUMABLE_KEYS, GEAR_KEYS, ITEMS, RARITY_WEIGHT } from './items.ts';
+import { DROPPABLE_CONSUMABLE_KEYS, DROPPABLE_GEAR_KEYS, ITEMS, RARITY_WEIGHT } from './items.ts';
 
 export const EXPLORE_MANA_COST = 10;
 export const EXPLORES_PER_DAY = 3;
@@ -257,7 +257,7 @@ export function rollLoot(rand: () => number, scaling: Scaling, rankIndex: number
   }
   // ~10% a piece of gear.
   if (rand() < 0.1 + scaling.dropBonus) {
-    const key = pickWeighted(rand, GEAR_KEYS, (k) => RARITY_WEIGHT[ITEMS[k].rarity]);
+    const key = pickWeighted(rand, DROPPABLE_GEAR_KEYS, (k) => RARITY_WEIGHT[ITEMS[k].rarity]);
     items.push({ key, qty: 1 });
   }
 
