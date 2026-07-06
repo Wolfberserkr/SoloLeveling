@@ -5,7 +5,7 @@
 // ▸ TO ENABLE D: add her account email below, lowercase, then redeploy.
 //   e.g. export const RESET_EMAILS = ['d@example.com'];
 export const RESET_EMAILS: string[] = [
-  // 'her-email@example.com',
+  'thebeautyroombyd@gmail.com',
 ];
 
 /** True when this email should be routed to the Reset portal. */
