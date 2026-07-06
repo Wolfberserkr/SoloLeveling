@@ -124,8 +124,10 @@ function Calendar({ onOpenSession }: { onOpenSession: (dateKey: string) => void 
     if (sess.length) onOpenSession(sess[sess.length - 1].date);
   }
 
+  // Offset the 1st onto its weekday with grid-column-start rather than padding
+  // with empty cells: an empty aspect-ratio grid item inflates its row's height
+  // (a Chromium quirk), which opened a gap under the first week.
   const cells: React.ReactNode[] = [];
-  for (let i = 0; i < startDow; i++) cells.push(<div key={`e${i}`} className="cal-cell empty" />);
   for (let d = 1; d <= last.getDate(); d++) {
     const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const has = sessionDays.has(iso);
@@ -133,6 +135,7 @@ function Calendar({ onOpenSession }: { onOpenSession: (dateKey: string) => void 
       <div
         key={iso}
         className={`cal-cell ${has ? 'has-session' : ''} ${iso === today ? 'today' : ''}`}
+        style={d === 1 && startDow > 0 ? { gridColumnStart: startDow + 1 } : undefined}
         onClick={has ? () => open(iso) : undefined}
       >
         {d}
