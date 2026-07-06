@@ -9,6 +9,12 @@ import { BottomNav } from '@/components/system/BottomNav';
 import { SystemErrorBoundary } from '@/components/system/ErrorBoundary';
 import { DailyBriefing } from '@/components/system/DailyBriefing';
 import { FocusOverlay } from '@/components/system/FocusOverlay';
+import { isResetAccount } from '@/features/reset/resetAccounts';
+
+// D's Reset portal — lazy so it never weighs on the System bundle.
+const ResetApp = lazy(() =>
+  import('@/features/reset/ResetApp').then((m) => ({ default: m.ResetApp })),
+);
 import { SystemAlertStack } from '@/components/system/SystemAlertStack';
 import { OfflineBanner } from '@/components/system/OfflineBanner';
 import { LevelUpSequence } from '@/components/system/LevelUpSequence';
@@ -227,22 +233,37 @@ export default function App() {
 
   if (!ready) return <BootScreen />;
 
+  // Reset-portal accounts (D) get an entirely separate light-themed workout
+  // app — none of the System overlays, boot, or RPG data ever mount for them.
+  const reset = session != null && isResetAccount(session.user.email);
+
   return (
     <BrowserRouter>
       {/* reducedMotion="user": Framer transforms obey the OS setting, matching
           the CSS media query that already stills keyframe animations. */}
       <MotionConfig reducedMotion="user">
       <SystemErrorBoundary>
-      <AmbientMotes />
-      <OfflineBanner />
-      <SystemAlertStack />
-      <LevelUpSequence />
-      <SystemTakeover />
-      <XpBurstLayer />
-      <Routes>
-        <Route path="/login" element={session ? <Navigate to="/" replace /> : <LoginPage />} />
-        <Route path="/*" element={session ? <AuthedApp /> : <Navigate to="/login" replace />} />
-      </Routes>
+      {reset ? (
+        <Suspense fallback={<BootScreen />}>
+          <Routes>
+            <Route path="/login" element={<Navigate to="/" replace />} />
+            <Route path="/*" element={<ResetApp userId={session!.user.id} />} />
+          </Routes>
+        </Suspense>
+      ) : (
+        <>
+          <AmbientMotes />
+          <OfflineBanner />
+          <SystemAlertStack />
+          <LevelUpSequence />
+          <SystemTakeover />
+          <XpBurstLayer />
+          <Routes>
+            <Route path="/login" element={session ? <Navigate to="/" replace /> : <LoginPage />} />
+            <Route path="/*" element={session ? <AuthedApp /> : <Navigate to="/login" replace />} />
+          </Routes>
+        </>
+      )}
       </SystemErrorBoundary>
       </MotionConfig>
     </BrowserRouter>

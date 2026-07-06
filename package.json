@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
     "@fontsource/rajdhani": "^5.1.0",
     "@fontsource/share-tech-mono": "^5.1.0",
     "@supabase/supabase-js": "^2.45.4",
