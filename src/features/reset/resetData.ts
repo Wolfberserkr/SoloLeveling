@@ -11,15 +11,19 @@ export type Exercise = {
   video: string;
 };
 
-export type Day = { id: string; name: string; focus: string; ex: Exercise[] };
+export type DayKind = 'strength' | 'mobility' | 'rest';
+export type Day = {
+  id: string;
+  name: string;
+  focus: string;
+  ex: Exercise[];
+  dow?: string;
+  kind?: DayKind;
+};
 
-export const WARMUP = [
-  '3 min light cardio: march in place, step side-to-side, or a brisk walk',
-  '20 arm circles each direction · 10 hip circles each side',
-  '10 bodyweight squats · 10 glute bridges',
-  '5 inchworms with a slow push-up',
-  "World's greatest stretch — 3 each side",
-];
+// Lymphatic-drainage flow shown before the strength sessions (replaces the old
+// warm-up checklist). Rendered as an embedded video in DayView.
+export const LYMPH_VIDEO = 'https://youtu.be/hFteQ6JXoN0?si=U_flnlnERvn9dGHN';
 
 export const COOLDOWN = [
   'Standing forward fold — 30 sec · hold and breathe',
@@ -28,9 +32,29 @@ export const COOLDOWN = [
   "Child's pose — 1 min, slow breaths to lower heart rate",
 ];
 
+// Mobility & shadow-jump-rope days (Wed / Sat). A light conditioning + mobility
+// flow — refine freely. Add a demo video per day via the slot in DayView.
+export const MOBILITY = [
+  'Shadow jump rope — 5 rounds of 45 sec, easy bounce, rest 20 sec between',
+  '20 ankle circles each side · 20 hip circles each direction',
+  'Cat–cow — 10 slow reps · thoracic rotations — 8 each side',
+  "World's greatest stretch — 4 each side",
+  '90/90 hip switches — 10 total · deep squat hold — 45 sec',
+  'Finish with 5 slow diaphragmatic breaths',
+];
+
+// Full rest day (Sun). Optional light recovery — nothing to log.
+export const REST_TIPS = [
+  'Gentle 20–30 min walk if you feel like moving',
+  'Light stretching or foam rolling for anything tight',
+  'Hydrate well and aim for an early night',
+  'Let the body absorb the week — rest is where the progress lands',
+];
+
 // Equipment: one 5 kg plate AND one 10 kg plate — only one is used at a time.
+// Ordered as a Mon–Sun week: strength Mon/Tue/Thu/Fri, mobility Wed/Sat, rest Sun.
 export const PLAN: Day[] = [
-  { id: 'lower-a', name: 'Lower A', focus: 'Quads & glutes', ex: [
+  { id: 'lower-a', name: 'Lower A', focus: 'Quads & glutes', dow: 'Monday', kind: 'strength', ex: [
     { id: 'goblet-squat',  name: 'Goblet Squat',       sets: 4, reps: '10–12 reps', load: '10 kg plate · 3-sec lower',          video: 'https://youtu.be/MeIiIdhvXT4' },
     { id: 'reverse-lunge', name: 'Reverse Lunge',      sets: 3, reps: '10 / leg',   load: 'Hold 5 or 10 kg at chest',           video: 'https://youtu.be/RZKXLMxPF_I' },
     { id: 'hip-thrust',    name: 'Glute Bridge',       sets: 3, reps: '15 reps',    load: '10 kg on hips · pause at top',       video: 'https://youtu.be/wPM8icPu6H8' },
@@ -39,7 +63,7 @@ export const PLAN: Day[] = [
     { id: 'plank-a',       name: 'Plank',              sets: 3, reps: '30–45 sec',  load: 'Core · brace tight',                 video: 'https://youtu.be/mH5Sfb_KTGg' },
     { id: 'dead-bug',      name: 'Dead Bug',           sets: 3, reps: '10 / side',  load: 'Core · slow tempo',                  video: 'https://youtu.be/bxn9FBrt4-A' },
   ]},
-  { id: 'upper-a', name: 'Upper A', focus: 'Push & shoulders', ex: [
+  { id: 'upper-a', name: 'Upper A', focus: 'Push & shoulders', dow: 'Tuesday', kind: 'strength', ex: [
     { id: 'pushup',       name: 'Push-up',                   sets: 4, reps: '8–12 reps',    load: 'Knees or incline to scale',         video: 'https://youtu.be/WDIpL0pjun0' },
     { id: 'ohp',          name: 'Overhead Press',            sets: 4, reps: '10–12 reps',   load: '5 kg plate · strict (start light)', video: 'https://youtu.be/BG9ojmx9RyI' },
     { id: 'pike',         name: 'Pike Push-up',              sets: 3, reps: '8–10 reps',    load: 'Hips high, head toward floor',      video: 'https://youtu.be/2b5t0Cu2nQI' },
@@ -48,7 +72,8 @@ export const PLAN: Day[] = [
     { id: 'oh-tri',       name: 'Overhead Triceps Extension', sets: 3, reps: '12 reps',     load: '5 kg, both hands',                  video: 'https://youtu.be/AYqg9S5FrUU' },
     { id: 'side-plank-a', name: 'Side Plank',                sets: 3, reps: '30 sec / side', load: 'Core',                             video: 'https://youtu.be/44ND4bOB-T0' },
   ]},
-  { id: 'lower-b', name: 'Lower B', focus: 'Hinge & posterior chain', ex: [
+  { id: 'mobility-wed', name: 'Mobility & Shadow Jump Rope', focus: 'Mobility & conditioning', dow: 'Wednesday', kind: 'mobility', ex: [] },
+  { id: 'lower-b', name: 'Lower B', focus: 'Hinge & posterior chain', dow: 'Thursday', kind: 'strength', ex: [
     { id: 'rdl',       name: 'Romanian Deadlift',       sets: 4, reps: '12 reps',   load: '10 kg · slow lower',                  video: 'https://youtu.be/aa57T45iFSE' },
     { id: 'bulgarian', name: 'Bulgarian Split Squat',   sets: 3, reps: '10 / leg',  load: 'Rear foot on chair, hold 5 or 10 kg', video: 'https://youtu.be/hiLF_pF3EJM' },
     { id: 'sl-bridge', name: 'Single-leg Glute Bridge', sets: 3, reps: '12 / leg',  load: 'Bodyweight · squeeze top',            video: 'https://youtu.be/HkF61M6StlY' },
@@ -57,7 +82,7 @@ export const PLAN: Day[] = [
     { id: 'hollow',    name: 'Hollow Hold',             sets: 3, reps: '20–30 sec', load: 'Core',                                video: 'https://youtu.be/TNHSgs_orU0' },
     { id: 'bird-dog',  name: 'Bird Dog',                sets: 3, reps: '10 / side', load: 'Core · pause each rep',               video: 'https://youtu.be/ZdAHe9_HeEw' },
   ]},
-  { id: 'upper-b', name: 'Upper B', focus: 'Pull & arms', ex: [
+  { id: 'upper-b', name: 'Upper B', focus: 'Pull & arms', dow: 'Friday', kind: 'strength', ex: [
     { id: 'inv-row',       name: 'Inverted Row',             sets: 4, reps: '8–12 reps', load: 'Under a sturdy table',                    video: 'https://youtu.be/6NTruShwwKk' },
     { id: 'sa-row',        name: 'Single-arm Bent-over Row', sets: 4, reps: '10 / arm',  load: '10 kg · brace on chair',                  video: 'https://youtu.be/pYcpY20QaE8' },
     { id: 'pullover',      name: 'Plate Pullover',           sets: 3, reps: '12 reps',   load: '10 kg, lying on floor',                   video: 'https://youtu.be/Qc4L9I3pHnw' },
@@ -66,6 +91,8 @@ export const PLAN: Day[] = [
     { id: 'reverse-plank', name: 'Reverse Plank',            sets: 3, reps: '20–30 sec', load: 'Posterior chain',                         video: 'https://youtu.be/bnu5b61vqGQ' },
     { id: 'superman',      name: 'Superman',                 sets: 3, reps: '12 reps',   load: 'Lower back · pause at top',               video: 'https://youtu.be/jTNpZIl1qU0' },
   ]},
+  { id: 'mobility-sat', name: 'Mobility & Shadow Jump Rope', focus: 'Mobility & conditioning', dow: 'Saturday', kind: 'mobility', ex: [] },
+  { id: 'rest-sun', name: 'Full Rest Day', focus: 'Recovery', dow: 'Sunday', kind: 'rest', ex: [] },
 ];
 
 export const WEEK_TIPS: Record<number, [string, string]> = {

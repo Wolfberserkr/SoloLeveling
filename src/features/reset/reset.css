@@ -68,6 +68,7 @@
   .day-card:hover{border-color:var(--ink-3)}
   .day-top{display:flex;justify-content:space-between;align-items:center;gap:14px}
   .day-info{flex:1;min-width:0}
+  .day-dow{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--accent-deep);margin-bottom:3px}
   .day-name{font-size:17px;font-weight:700;letter-spacing:-.02em}
   .day-focus{font-size:12px;color:var(--ink-3);margin-top:2px;font-weight:500}
   .day-meta{font-size:12px;color:var(--ink-4);margin-top:10px;display:flex;gap:14px;flex-wrap:wrap;font-weight:500}
