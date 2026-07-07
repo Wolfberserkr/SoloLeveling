@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LYMPH_VIDEO, COOLDOWN, MOBILITY, REST_TIPS, INJURY_FLAGS, dayById, type Exercise } from './resetData';
+import { LYMPH_VIDEO, COOLDOWN, MOBILITY, REST_TIPS, INJURY_FLAGS, dayById, isTimedReps, type Exercise } from './resetData';
 import { dayCount, effectiveVideo, lastDone, resolvedExercise, useResetStore } from './resetStore';
 import { parseVideo } from './resetVideo';
 import { SwapModal } from './SwapModal';
@@ -76,6 +76,7 @@ function ExerciseCard({ dayId, slotId, onSwap }: { dayId: string; slotId: string
   const swapped = e.id !== slotId;
   const flag = INJURY_FLAGS[e.id];
   const lg = s.log[slotId] || { reps: '', weight: '' };
+  const timed = isTimedReps(e.reps);
 
   return (
     <div className={`ex ${done ? 'done' : ''}`}>
@@ -117,9 +118,9 @@ function ExerciseCard({ dayId, slotId, onSwap }: { dayId: string; slotId: string
 
       <div className="logrow">
         <span className="field">
-          Reps
+          {timed ? 'Time' : 'Reps'}
           <input
-            type="text" inputMode="decimal" placeholder="—" defaultValue={lg.reps}
+            type="text" inputMode="decimal" placeholder={timed ? 'sec' : '—'} defaultValue={lg.reps}
             onBlur={(e2) => logVal(slotId, 'reps', e2.target.value)}
           />
         </span>

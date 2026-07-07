@@ -123,6 +123,7 @@ export const useResetStore = create<ResetStore>((set, get) => ({
       return {
         id: e.id, slot_id: origEx.id, name: e.name, focus: d.focus,
         sets_total: e.sets, sets_done: setsDone, reps: lg.reps, weight: lg.weight,
+        prescribe: e.reps,
       };
     });
     const date = new Date().toISOString();

@@ -1,3 +1,4 @@
+import { exerciseById, isTimedReps, formatDuration } from './resetData';
 import { useResetStore } from './resetStore';
 
 /** Read-only detail of one finished session — every exercise, sets, reps, weight. */
@@ -19,19 +20,37 @@ export function SessionDetailView({ dateKey, onBack }: { dateKey: string; onBack
       {sess.exercises.length === 0 ? (
         <p className="muted-line">No detailed snapshot for this session.</p>
       ) : (
-        sess.exercises.map((e, i) => (
-          <div key={i} className="detail-ex">
-            <div className="detail-ex-head">
-              <span className="detail-ex-name">{e.name}</span>
-              <span className="detail-ex-sets">{e.sets_done}/{e.sets_total} sets</span>
+        sess.exercises.map((e, i) => {
+          // Timed moves (planks, wall sits, holds) record a duration, not reps.
+          // Prefer the prescription snapshot; fall back to the plan for sessions
+          // logged before it was stored.
+          const prescribe = e.prescribe ?? exerciseById(e.id)?.reps ?? '';
+          const timed = isTimedReps(prescribe);
+          return (
+            <div key={i} className="detail-ex">
+              <div className="detail-ex-head">
+                <span className="detail-ex-name">{e.name}</span>
+                <span className="detail-ex-sets">{e.sets_done}/{e.sets_total} sets</span>
+              </div>
+              <div className="detail-ex-meta">
+                {timed ? (
+                  e.reps
+                    ? <span>Time held: <b>{formatDuration(e.reps)}</b></span>
+                    : prescribe
+                      ? <span>Target hold: <b>{prescribe}</b></span>
+                      : <span className="muted-line" style={{ padding: 0 }}>No time logged</span>
+                ) : (
+                  <>
+                    {e.reps && <span>Reps logged: <b>{e.reps}</b></span>}
+                    {e.weight && <span>Weight: <b>{e.weight} kg</b></span>}
+                    {!e.reps && !e.weight && <span className="muted-line" style={{ padding: 0 }}>No reps/weight logged</span>}
+                  </>
+                )}
+                {timed && e.weight && <span>Weight: <b>{e.weight} kg</b></span>}
+              </div>
             </div>
-            <div className="detail-ex-meta">
-              {e.reps && <span>Reps logged: <b>{e.reps}</b></span>}
-              {e.weight && <span>Weight: <b>{e.weight} kg</b></span>}
-              {!e.reps && !e.weight && <span className="muted-line" style={{ padding: 0 }}>No reps/weight logged</span>}
-            </div>
-          </div>
-        ))
+          );
+        })
       )}
     </>
   );

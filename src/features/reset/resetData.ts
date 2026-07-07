@@ -174,3 +174,19 @@ export function exerciseById(id: string): Exercise | null {
   }
   return null;
 }
+
+/** A move is "timed" when its prescription is a hold/duration (planks, wall
+ *  sits, hollow holds) rather than a rep count — detected from words like
+ *  "sec" or "min" in the prescription string. Timed moves log a duration, not
+ *  reps, so the UI labels the input "Time" and the history shows "Time held". */
+export function isTimedReps(reps: string): boolean {
+  return /\b(sec|second|min|minute)s?\b/i.test(reps);
+}
+
+/** Format a logged duration for display: a bare number gets a "sec" unit
+ *  ("40" → "40 sec"), while a value the user already qualified ("40 sec",
+ *  "1 min") is shown as-is. */
+export function formatDuration(v: string): string {
+  const t = v.trim();
+  return /^\d+(\.\d+)?$/.test(t) ? `${t} sec` : t;
+}
