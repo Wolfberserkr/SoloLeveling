@@ -32,16 +32,23 @@ export const COOLDOWN = [
   "Child's pose — 1 min, slow breaths to lower heart rate",
 ];
 
-// Mobility & shadow-jump-rope days (Wed / Sat). A light conditioning + mobility
-// flow — refine freely. Add a demo video per day via the slot in DayView.
-export const MOBILITY = [
-  'Shadow jump rope — 5 rounds of 45 sec, easy bounce, rest 20 sec between',
-  '20 ankle circles each side · 20 hip circles each direction',
-  'Cat–cow — 10 slow reps · thoracic rotations — 8 each side',
-  "World's greatest stretch — 4 each side",
-  '90/90 hip switches — 10 total · deep squat hold — 45 sec',
-  'Finish with 5 slow diaphragmatic breaths',
-];
+// Mobility & shadow-jump-rope days (Wed / Sat) — a shared conditioning + joint-
+// prep flow. Built as real exercises (sets, reps/time, a demo video per move)
+// so these days log and track exactly like the strength days. Exercise ids are
+// suffixed per day so Wednesday and Saturday keep independent set progress and
+// rep logs (the log map is keyed by exercise id across the whole program).
+function shadowJumpDay(sfx: string): Exercise[] {
+  return [
+    { id: `jump-rope-${sfx}`,  name: 'Shadow Jump Rope',         sets: 5, reps: '45 sec',         load: 'No rope · light bounce · rest 20 sec between rounds', video: 'https://youtu.be/Fdw--dqQAzA' },
+    { id: `ankle-circ-${sfx}`, name: 'Ankle Circles',            sets: 2, reps: '20 / side',      load: 'Slow, controlled circles both directions',           video: 'https://youtu.be/om1IAdzpKsg' },
+    { id: `hip-circ-${sfx}`,   name: 'Hip Circles',              sets: 2, reps: '20 / direction', load: 'Hands on hips · big smooth circles',                 video: 'https://youtu.be/JYqLwajOGjI' },
+    { id: `cat-cow-${sfx}`,    name: 'Cat–Cow',                  sets: 2, reps: '10 reps',        load: 'Spine · move slowly with the breath',                video: 'https://youtu.be/vuyUwtHl694' },
+    { id: `t-rot-${sfx}`,      name: 'Thoracic Rotations',       sets: 2, reps: '8 / side',       load: 'Quadruped · open the mid-back',                      video: 'https://youtu.be/z2zv526I7M8' },
+    { id: `wgs-${sfx}`,        name: "World's Greatest Stretch", sets: 2, reps: '4 / side',       load: 'Full-body mobility flow',                            video: 'https://youtu.be/-CiWQ2IvY34' },
+    { id: `hip-9090-${sfx}`,   name: '90/90 Hip Switches',       sets: 2, reps: '10 total',       load: 'Tall chest · rotate the hips slowly',                video: 'https://youtu.be/wnFTIPhNySI' },
+    { id: `squat-hold-${sfx}`, name: 'Deep Squat Hold',          sets: 2, reps: '45 sec',         load: 'Sink low · pry the knees out',                       video: 'https://youtu.be/0wzrgyAurT8' },
+  ];
+}
 
 // Full rest day (Sun). Optional light recovery — nothing to log.
 export const REST_TIPS = [
@@ -72,7 +79,7 @@ export const PLAN: Day[] = [
     { id: 'oh-tri',       name: 'Overhead Triceps Extension', sets: 3, reps: '12 reps',     load: '5 kg, both hands',                  video: 'https://youtu.be/AYqg9S5FrUU' },
     { id: 'side-plank-a', name: 'Side Plank',                sets: 3, reps: '30 sec / side', load: 'Core',                             video: 'https://youtu.be/44ND4bOB-T0' },
   ]},
-  { id: 'mobility-wed', name: 'Mobility & Shadow Jump Rope', focus: 'Mobility & conditioning', dow: 'Wednesday', kind: 'mobility', ex: [] },
+  { id: 'mobility-wed', name: 'Mobility & Shadow Jump Rope', focus: 'Mobility & conditioning', dow: 'Wednesday', kind: 'strength', ex: shadowJumpDay('wed') },
   { id: 'lower-b', name: 'Lower B', focus: 'Hinge & posterior chain', dow: 'Thursday', kind: 'strength', ex: [
     { id: 'rdl',       name: 'Romanian Deadlift',       sets: 4, reps: '12 reps',   load: '10 kg · slow lower',                  video: 'https://youtu.be/aa57T45iFSE' },
     { id: 'bulgarian', name: 'Bulgarian Split Squat',   sets: 3, reps: '10 / leg',  load: 'Rear foot on chair, hold 5 or 10 kg', video: 'https://youtu.be/hiLF_pF3EJM' },
@@ -91,7 +98,7 @@ export const PLAN: Day[] = [
     { id: 'reverse-plank', name: 'Reverse Plank',            sets: 3, reps: '20–30 sec', load: 'Posterior chain',                         video: 'https://youtu.be/bnu5b61vqGQ' },
     { id: 'superman',      name: 'Superman',                 sets: 3, reps: '12 reps',   load: 'Lower back · pause at top',               video: 'https://youtu.be/jTNpZIl1qU0' },
   ]},
-  { id: 'mobility-sat', name: 'Mobility & Shadow Jump Rope', focus: 'Mobility & conditioning', dow: 'Saturday', kind: 'mobility', ex: [] },
+  { id: 'mobility-sat', name: 'Mobility & Shadow Jump Rope', focus: 'Mobility & conditioning', dow: 'Saturday', kind: 'strength', ex: shadowJumpDay('sat') },
   { id: 'rest-sun', name: 'Full Rest Day', focus: 'Recovery', dow: 'Sunday', kind: 'rest', ex: [] },
 ];
 
@@ -173,4 +180,20 @@ export function exerciseById(id: string): Exercise | null {
     if (e) return e;
   }
   return null;
+}
+
+/** A move is "timed" when its prescription is a hold/duration (planks, wall
+ *  sits, hollow holds) rather than a rep count — detected from words like
+ *  "sec" or "min" in the prescription string. Timed moves log a duration, not
+ *  reps, so the UI labels the input "Time" and the history shows "Time held". */
+export function isTimedReps(reps: string): boolean {
+  return /\b(sec|second|min|minute)s?\b/i.test(reps);
+}
+
+/** Format a logged duration for display: a bare number gets a "sec" unit
+ *  ("40" → "40 sec"), while a value the user already qualified ("40 sec",
+ *  "1 min") is shown as-is. */
+export function formatDuration(v: string): string {
+  const t = v.trim();
+  return /^\d+(\.\d+)?$/.test(t) ? `${t} sec` : t;
 }

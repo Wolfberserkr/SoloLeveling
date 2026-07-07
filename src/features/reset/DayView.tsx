@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { LYMPH_VIDEO, COOLDOWN, MOBILITY, REST_TIPS, INJURY_FLAGS, dayById, type Exercise } from './resetData';
-import { dayCount, effectiveVideo, lastDone, resolvedExercise, useResetStore } from './resetStore';
+import { LYMPH_VIDEO, COOLDOWN, REST_TIPS, INJURY_FLAGS, dayById, isTimedReps, type Exercise } from './resetData';
+import { dayCount, effectiveVideo, resolvedExercise, useResetStore } from './resetStore';
 import { parseVideo } from './resetVideo';
 import { SwapModal } from './SwapModal';
 
@@ -76,6 +76,7 @@ function ExerciseCard({ dayId, slotId, onSwap }: { dayId: string; slotId: string
   const swapped = e.id !== slotId;
   const flag = INJURY_FLAGS[e.id];
   const lg = s.log[slotId] || { reps: '', weight: '' };
+  const timed = isTimedReps(e.reps);
 
   return (
     <div className={`ex ${done ? 'done' : ''}`}>
@@ -117,9 +118,9 @@ function ExerciseCard({ dayId, slotId, onSwap }: { dayId: string; slotId: string
 
       <div className="logrow">
         <span className="field">
-          Reps
+          {timed ? 'Time' : 'Reps'}
           <input
-            type="text" inputMode="decimal" placeholder="—" defaultValue={lg.reps}
+            type="text" inputMode="decimal" placeholder={timed ? 'sec' : '—'} defaultValue={lg.reps}
             onBlur={(e2) => logVal(slotId, 'reps', e2.target.value)}
           />
         </span>
@@ -134,95 +135,6 @@ function ExerciseCard({ dayId, slotId, onSwap }: { dayId: string; slotId: string
 
       <VideoBlock ex={e} />
     </div>
-  );
-}
-
-/** Embeddable video slot for exercise-less days (mobility). Stores the URL in
- *  the shared `videos` map keyed by the day id — same UX as VideoBlock. */
-function DayVideoSlot({ dayId }: { dayId: string }) {
-  const s = useResetStore((st) => st.s);
-  const saveVideo = useResetStore((st) => st.saveVideo);
-  const [editing, setEditing] = useState(false);
-  const [url, setUrl] = useState('');
-  const [err, setErr] = useState('');
-  const current = (s.videos[dayId] || '').trim();
-  const src = current ? parseVideo(current) : null;
-
-  function save() {
-    if (!parseVideo(url)) { setErr("Couldn't read that. Try a YouTube or Vimeo URL."); return; }
-    saveVideo(dayId, url.trim());
-    setEditing(false);
-    setErr('');
-  }
-
-  return (
-    <div className="vid-wrap open" style={{ marginTop: 0 }}>
-      {src && !editing ? (
-        <>
-          <div className="embed">
-            <iframe
-              loading="lazy" src={src} title="Session demo"
-              allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture"
-              allowFullScreen
-            />
-          </div>
-          <button className="vid-edit" onClick={() => { setEditing(true); setUrl(''); }}>Change video</button>
-        </>
-      ) : (
-        <div className="vid-empty">
-          <p>{err || 'Paste a YouTube or Vimeo link to save a demo for this day.'}</p>
-          <div className="row">
-            <input
-              type="text" placeholder="https://youtu.be/…" value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') save(); }}
-            />
-            <button className="btn-sm" onClick={save}>Save</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Mobility & shadow-jump-rope day — checklist, an optional video slot, and a
- *  single "mark done" action (no per-set tracking). */
-function MobilityDay({
-  dayId, onBack, onComplete,
-}: {
-  dayId: string;
-  onBack: () => void;
-  onComplete: (r: { done: number; total: number; dayName: string; exercisesCompleted: number }) => void;
-}) {
-  const completeSimpleDay = useResetStore((st) => st.completeSimpleDay);
-  const s = useResetStore((st) => st.s);
-  const d = dayById(dayId)!;
-  const done = lastDone(s, dayId);
-
-  return (
-    <>
-      <button className="back" onClick={onBack}>← All sessions</button>
-      <div className="session-head">
-        <h2>{d.name}</h2>
-        <div className="focus">{d.focus} · {done ? 'Last ' + done : 'Not started'}</div>
-      </div>
-
-      <details className="accordion" open>
-        <summary>The flow <span className="ico">▾</span></summary>
-        <div className="body"><ul>{MOBILITY.map((x, i) => <li key={i}>{x}</li>)}</ul></div>
-      </details>
-
-      <details className="accordion">
-        <summary>Demo video <span className="ico">▾</span></summary>
-        <div className="body"><DayVideoSlot dayId={dayId} /></div>
-      </details>
-
-      <div className="finish-bar">
-        <button className="btn primary" onClick={() => onComplete(completeSimpleDay(dayId))}>
-          Mark day complete ✓
-        </button>
-      </div>
-    </>
   );
 }
 
@@ -262,7 +174,6 @@ export function DayView({
 
   const d = dayById(dayId);
   if (!d) { onBack(); return null; }
-  if (d.kind === 'mobility') return <MobilityDay dayId={dayId} onBack={onBack} onComplete={onComplete} />;
   if (d.kind === 'rest') return <RestDay dayId={dayId} onBack={onBack} />;
   const c = dayCount(s, dayId);
 

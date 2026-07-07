@@ -18,6 +18,8 @@ export type SessionExercise = {
   sets_done: number;
   reps: string;
   weight: string;
+  prescribe?: string; // prescription snapshot, e.g. "30 sec / side" — lets the
+                      // history detect timed moves without re-reading the plan
 };
 export type Session = {
   id?: string;
