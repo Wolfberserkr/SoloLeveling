@@ -83,6 +83,21 @@ XP curve: `totalXp(L) = round(425·(L^1.55 − 1))`, repeatables capped at
 300 XP/day → Level 10 ≈ 2 months, Level 50 ≈ 24 months. Verified in
 `tests/xpCurve.test.ts`.
 
+### UI gotcha — calendar grid (don't reintroduce the row gap)
+
+The month calendar (`src/features/reset/ProgressView.tsx` → `Calendar`) uses a
+7-column CSS grid of square (`aspect-ratio: 1`) cells. **Never render empty
+placeholder `<div>`s to pad the days before the 1st.** A placeholder element
+still participates in row sizing, and an `aspect-ratio` cell whose width
+resolves against a stale container width (the portal lives in a
+`position: fixed; overflow-y: auto` scroller) can inflate the row it sits in —
+which showed up as a phantom vertical gap between the first and second week.
+
+Offset the first day with `gridColumnStart: startDow + 1` instead, so **every**
+grid item is a real, identically-sized day cell and no leading placeholder can
+ever make one row taller than the rest. Same rule applies to any future
+calendar/grid: position the first item, don't pad with empty cells.
+
 ## Setup (one time)
 
 1. **Database** — open the Supabase SQL editor for project
