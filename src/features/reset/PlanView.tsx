@@ -29,30 +29,45 @@ export function PlanView({ onOpenDay }: { onOpenDay: (dayId: string) => void }) 
           const last = lastDone(s, d.id);
           const circ = 2 * Math.PI * 15;
           const off = circ * (1 - c.pct / 100);
+          const isStrength = (d.kind ?? 'strength') === 'strength';
+          const meta = d.kind === 'mobility'
+            ? 'Mobility · shadow jump rope'
+            : d.kind === 'rest'
+              ? 'Rest & recover'
+              : `${d.ex.length} exercises`;
           return (
             <button key={d.id} className="day-card" onClick={() => onOpenDay(d.id)}>
               <div className="day-top">
                 <div className="day-info">
+                  {d.dow && <div className="day-dow">{d.dow}</div>}
                   <div className="day-name">{d.name}</div>
                   <div className="day-focus">{d.focus}</div>
                   <div className="day-meta">
-                    <span>{d.ex.length} exercises</span>
-                    <span className="dot">·</span>
-                    <span>{last ? 'Last ' + last : 'Not started'}</span>
+                    <span>{meta}</span>
+                    {d.kind !== 'rest' && (
+                      <>
+                        <span className="dot">·</span>
+                        <span>{last ? 'Last ' + last : 'Not started'}</span>
+                      </>
+                    )}
                   </div>
                 </div>
-                <div className={`ring ${c.pct === 100 ? 'complete' : ''}`}>
-                  <svg width="38" height="38">
-                    <circle cx="19" cy="19" r="15" fill="none" stroke="var(--line)" strokeWidth="3" />
-                    <circle
-                      cx="19" cy="19" r="15" fill="none"
-                      stroke={c.pct === 100 ? 'var(--accent)' : 'var(--ink)'}
-                      strokeWidth="3" strokeDasharray={circ} strokeDashoffset={off} strokeLinecap="round"
-                      style={{ transition: 'stroke-dashoffset .4s var(--ease)' }}
-                    />
-                  </svg>
-                  <span className="pct">{c.pct}%</span>
-                </div>
+                {isStrength ? (
+                  <div className={`ring ${c.pct === 100 ? 'complete' : ''}`}>
+                    <svg width="38" height="38">
+                      <circle cx="19" cy="19" r="15" fill="none" stroke="var(--line)" strokeWidth="3" />
+                      <circle
+                        cx="19" cy="19" r="15" fill="none"
+                        stroke={c.pct === 100 ? 'var(--accent)' : 'var(--ink)'}
+                        strokeWidth="3" strokeDasharray={circ} strokeDashoffset={off} strokeLinecap="round"
+                        style={{ transition: 'stroke-dashoffset .4s var(--ease)' }}
+                      />
+                    </svg>
+                    <span className="pct">{c.pct}%</span>
+                  </div>
+                ) : d.kind === 'mobility' && last === 'today' ? (
+                  <div className="ring complete"><span className="pct">✓</span></div>
+                ) : null}
               </div>
             </button>
           );

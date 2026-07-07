@@ -44,7 +44,7 @@ export function ResetApp({ userId }: { userId: string }) {
         <header>
           <div className="brand">
             <span className="logo"><span className="mark" />Reset</span>
-            <span className="tagline">Home · 4 days</span>
+            <span className="tagline">Home · 7-day week</span>
           </div>
           <p className="sub">Bodyweight + 5 kg or 10 kg plate · 45–60 min · Fat loss focus</p>
           <nav>
