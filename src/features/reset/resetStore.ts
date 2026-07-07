@@ -15,7 +15,6 @@ type ResetStore = {
   toggleSet: (dayId: string, slotId: string, i: number) => void;
   logVal: (slotId: string, k: 'reps' | 'weight', v: string) => void;
   finishSession: (dayId: string) => { done: number; total: number; dayName: string; exercisesCompleted: number };
-  completeSimpleDay: (dayId: string) => { done: number; total: number; dayName: string; exercisesCompleted: number };
   resetDay: (dayId: string) => void;
   confirmSwap: (dayId: string, slotId: string, altId: string) => void;
   restoreSwap: (dayId: string, slotId: string) => void;
@@ -148,30 +147,6 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     }
     set({ s: next });
     return { done, total, dayName: d.name, exercisesCompleted: exercises.filter((e) => e.sets_done === e.sets_total).length };
-  },
-
-  // Log a lightweight completion for exercise-less days (mobility). No sets to
-  // track — record a single-unit session so it shows in Progress and last-done.
-  completeSimpleDay: (dayId) => {
-    const { uid, s } = get();
-    const d = dayById(dayId)!;
-    const date = new Date().toISOString();
-    const entry: Session = { dayId, name: d.name, date, done: 1, total: 1, exercises: [] };
-    const next: ResetState = {
-      ...s,
-      history: [...s.history, entry],
-      sessions: [entry, ...s.sessions],
-    };
-    if (uid) {
-      saveCache(uid, next);
-      void upsertAppState(uid, next);
-      void insertSession(uid, {
-        day_id: dayId, day_name: d.name, completed_at: date,
-        done_sets: 1, total_sets: 1, exercises: [],
-      });
-    }
-    set({ s: next });
-    return { done: 1, total: 1, dayName: d.name, exercisesCompleted: 1 };
   },
 
   resetDay: (dayId) => {
