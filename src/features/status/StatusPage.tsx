@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
 import { usePlayerStore } from '@/stores/playerStore';
 import { SystemWindow } from '@/components/system/SystemWindow';
@@ -9,12 +8,13 @@ import { GlitchText } from '@/components/system/GlitchText';
 import { TickingNumber } from '@/components/system/TickingNumber';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { formatDistance } from '@/lib/units';
+import { AttributesCard } from './AttributesCard';
 import { ClassPanel } from './ClassPanel';
 import { NextObjectivesPanel } from './NextObjectivesPanel';
 import { InventoryPanel } from './InventoryPanel';
 import { SystemAssessmentPanel } from './SystemAssessmentPanel';
 import { levelProgress } from '@game/xpCurve.ts';
-import { STAT_GROUPS, STAT_LABELS, RANK_TITLES, type Rank } from '@game/constants.ts';
+import { RANK_TITLES, type Rank } from '@game/constants.ts';
 import { classDef } from '@game/progression.ts';
 
 export function StatusPage() {
@@ -99,37 +99,8 @@ export function StatusPage() {
       {/* ── Nearest unlocks — always a next reward in sight ── */}
       <NextObjectivesPanel />
 
-      {/* ── 9 stats ── */}
-      <SystemWindow title="Attributes" delay={0.08}>
-        <div className="flex flex-col gap-3">
-          {STAT_GROUPS.map((group, gi) => (
-            <div key={group.name}>
-              <div className="mb-1 font-sys text-[0.6rem] uppercase tracking-[0.25em] text-slate-400">
-                {group.name}
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {group.stats.map((key, si) => (
-                  <motion.div
-                    key={key}
-                    className="border border-accent-cyan/20 bg-bg-base/40 p-2 text-center"
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.15 + gi * 0.08 + si * 0.04 }}
-                    title={STAT_LABELS[key]}
-                  >
-                    <div className="font-sys text-[0.65rem] uppercase tracking-widest text-accent-cyan">
-                      {key}
-                    </div>
-                    <div className="font-sys text-lg text-white">
-                      {statMap[key] ?? 10}
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </SystemWindow>
+      {/* ── 9 stats — tap the card to flip it into a radar graph ── */}
+      <AttributesCard stats={statMap} delay={0.08} />
 
       {/* ── AI System Coach: weekly assessment ── */}
       <SystemAssessmentPanel />
