@@ -155,6 +155,58 @@ export const SWAPS: Record<string, string[]> = {
   superman:        ['bird-dog', 'dead-bug', 'reverse-plank'],
 };
 
+// Reserve pool — alternative mobility & conditioning moves that are NOT shown
+// in any day by default. They exist only as swap targets, so the shadow-jump
+// days can be re-shaped if a move doesn't suit her. Resolved via exerciseById
+// like any other exercise; each carries its own demo video.
+export const RESERVE: Exercise[] = [
+  { id: 'high-knees',        name: 'High Knees',        sets: 5, reps: '45 sec',    load: 'Drive knees to hip height · fast, light feet', video: 'https://youtu.be/D0GwAezTvtg' },
+  { id: 'jumping-jacks',     name: 'Jumping Jacks',     sets: 5, reps: '45 sec',    load: 'Full range · soft, quiet landings',            video: 'https://youtu.be/7L-5wpilwv4' },
+  { id: 'mountain-climbers', name: 'Mountain Climbers', sets: 5, reps: '45 sec',    load: 'Plank · brace the core · quick knee drive',    video: 'https://youtu.be/hq_0YlyfqGM' },
+  { id: 'calf-raises',       name: 'Calf Raises',       sets: 2, reps: '15 reps',   load: 'Full range · slow and controlled',             video: 'https://youtu.be/k8ipHzKeAkQ' },
+  { id: 'ankle-rockers',     name: 'Ankle Rockers',     sets: 2, reps: '10 / side', load: 'Half-kneel · knee over toe, heel down',         video: 'https://youtu.be/Hm_Iu72bJJg' },
+  { id: 'leg-swings',        name: 'Leg Swings',        sets: 2, reps: '12 / side', load: 'Front-to-back · relaxed, controlled swing',     video: 'https://youtu.be/0XvKtEZ4i38' },
+  { id: 'fire-hydrants',     name: 'Fire Hydrants',     sets: 2, reps: '12 / side', load: 'Quadruped · lift the knee out, hips square',    video: 'https://youtu.be/1zjVNfeKvyI' },
+  { id: 'thread-needle',     name: 'Thread the Needle', sets: 2, reps: '8 / side',  load: 'Quadruped · reach an arm under, rotate',        video: 'https://youtu.be/MfUx9FCOb1E' },
+  { id: 'open-book',         name: 'Open Book',         sets: 2, reps: '8 / side',  load: 'Side-lying · open the top arm and follow it',  video: 'https://youtu.be/rDviWORCWEw' },
+  { id: 'cossack-squat',     name: 'Cossack Squat',     sets: 2, reps: '6 / side',  load: 'Shift side to side · heel down, chest tall',    video: 'https://youtu.be/tpczTeSkHz0' },
+  { id: 'frog-stretch',      name: 'Frog Stretch',      sets: 2, reps: '30 sec',    load: 'Knees wide · rock the hips back gently',        video: 'https://youtu.be/NHEPdNlHF2c' },
+];
+
+// Swap options for each shadow-jump move, keyed by the unsuffixed base id.
+// Alternatives mix the reserve pool with a few fitting strength/core moves that
+// already live in the plan. Expanded below onto the real per-day ids.
+const SHADOW_SWAPS: Record<string, string[]> = {
+  'jump-rope':  ['high-knees', 'jumping-jacks', 'mountain-climbers'],
+  'ankle-circ': ['calf-raises', 'ankle-rockers'],
+  'hip-circ':   ['leg-swings', 'fire-hydrants', 'bird-dog'],
+  'cat-cow':    ['thread-needle', 'open-book', 'bird-dog'],
+  't-rot':      ['open-book', 'thread-needle'],
+  'wgs':        ['cossack-squat', 'reverse-lunge', 'frog-stretch'],
+  'hip-9090':   ['frog-stretch', 'fire-hydrants', 'leg-swings'],
+  'squat-hold': ['wall-sit', 'goblet-squat', 'cossack-squat'],
+};
+for (const [base, alts] of Object.entries(SHADOW_SWAPS)) {
+  SWAPS[`${base}-wed`] = alts;
+  SWAPS[`${base}-sat`] = alts;
+}
+
+// Once a reserve move is swapped in it becomes the "current" exercise, so it
+// needs its own alternatives to stay swappable (same as every plan move does).
+Object.assign(SWAPS, {
+  'high-knees':        ['jumping-jacks', 'mountain-climbers'],
+  'jumping-jacks':     ['high-knees', 'mountain-climbers'],
+  'mountain-climbers': ['high-knees', 'jumping-jacks'],
+  'calf-raises':       ['ankle-rockers'],
+  'ankle-rockers':     ['calf-raises'],
+  'leg-swings':        ['fire-hydrants', 'frog-stretch'],
+  'fire-hydrants':     ['leg-swings', 'frog-stretch'],
+  'frog-stretch':      ['fire-hydrants', 'leg-swings'],
+  'thread-needle':     ['open-book', 'bird-dog'],
+  'open-book':         ['thread-needle', 'bird-dog'],
+  'cossack-squat':     ['wall-sit', 'goblet-squat', 'reverse-lunge'],
+} satisfies Record<string, string[]>);
+
 export const FINISH_MSGS = [
   'Done. Every session counts. Every single one.',
   'Another one in the bank. Keep stacking.',
@@ -179,7 +231,7 @@ export function exerciseById(id: string): Exercise | null {
     const e = d.ex.find((x) => x.id === id);
     if (e) return e;
   }
-  return null;
+  return RESERVE.find((x) => x.id === id) ?? null;
 }
 
 /** A move is "timed" when its prescription is a hold/duration (planks, wall
