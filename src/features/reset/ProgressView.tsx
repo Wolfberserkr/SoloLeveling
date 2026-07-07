@@ -124,8 +124,13 @@ function Calendar({ onOpenSession }: { onOpenSession: (dateKey: string) => void 
     if (sess.length) onOpenSession(sess[sess.length - 1].date);
   }
 
+  // Offset the first day with grid-column-start instead of rendering leading
+  // placeholder cells. Empty <div>s participate in row sizing, and an aspect-ratio
+  // cell that resolves against a stale width can inflate the row it sits in — the
+  // cause of the phantom gap between the first and second week. With zero
+  // placeholder elements every grid item is a real, identically-sized day, so no
+  // row can ever be taller than the others. See README "Calendar grid" note.
   const cells: React.ReactNode[] = [];
-  for (let i = 0; i < startDow; i++) cells.push(<div key={`e${i}`} className="cal-cell empty" />);
   for (let d = 1; d <= last.getDate(); d++) {
     const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const has = sessionDays.has(iso);
@@ -133,6 +138,7 @@ function Calendar({ onOpenSession }: { onOpenSession: (dateKey: string) => void 
       <div
         key={iso}
         className={`cal-cell ${has ? 'has-session' : ''} ${iso === today ? 'today' : ''}`}
+        style={d === 1 ? { gridColumnStart: startDow + 1 } : undefined}
         onClick={has ? () => open(iso) : undefined}
       >
         {d}
