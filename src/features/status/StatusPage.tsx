@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { usePlayerStore } from '@/stores/playerStore';
 import { SystemWindow } from '@/components/system/SystemWindow';
@@ -94,6 +95,13 @@ export function StatusPage() {
             <div className="text-slate-500">Potions</div>
           </div>
         </div>
+
+        <Link
+          to="/progress"
+          className="mt-3 flex items-center justify-center gap-1 border border-accent-cyan/30 bg-bg-base/40 py-2 font-sys text-[0.65rem] uppercase tracking-widest text-accent-cyan/90 transition-colors active:text-accent-cyan"
+        >
+          View Progress <span aria-hidden>↗</span>
+        </Link>
       </SystemWindow>
 
       {/* ── Nearest unlocks — always a next reward in sight ── */}

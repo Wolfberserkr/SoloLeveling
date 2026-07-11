@@ -43,6 +43,9 @@ const ShadowArmyPage = lazy(() =>
 const MorePage = lazy(() =>
   import('@/features/more/MorePage').then((m) => ({ default: m.MorePage })),
 );
+const ProgressPage = lazy(() =>
+  import('@/features/progress/ProgressPage').then((m) => ({ default: m.ProgressPage })),
+);
 
 /** Manual re-sync — the only universal escape hatch for stale data. */
 function SyncButton() {
@@ -205,6 +208,7 @@ function AuthedApp() {
           <Route path="/books" element={<LibraryPage />} />
           <Route path="/skills" element={<SkillsPage />} />
           <Route path="/army" element={<ShadowArmyPage />} />
+          <Route path="/progress" element={<ProgressPage />} />
           <Route path="/more" element={<MorePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
