@@ -8,6 +8,7 @@ const TABS = [
   { to: '/books', label: 'Library', icon: '✦' },
   { to: '/skills', label: 'Skills', icon: '✶' },
   { to: '/army', label: 'Army', icon: '♞' },
+  { to: '/progress', label: 'Progress', icon: '↗' },
   { to: '/more', label: 'System', icon: '☰' },
 ];
 
