@@ -104,7 +104,12 @@ function WeightSection() {
   );
 }
 
-function Calendar({ onOpenSession }: { onOpenSession: (dateKey: string) => void }) {
+function Calendar({
+  onOpenSession, onAddPast,
+}: {
+  onOpenSession: (dateKey: string) => void;
+  onAddPast: (dateISO: string) => void;
+}) {
   const s = useResetStore((st) => st.s);
   const setCalMonth = useResetStore((st) => st.setCalMonth);
   const monthStr = s.calMonth || todayISO().slice(0, 7);
@@ -134,12 +139,14 @@ function Calendar({ onOpenSession }: { onOpenSession: (dateKey: string) => void 
   for (let d = 1; d <= last.getDate(); d++) {
     const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
     const has = sessionDays.has(iso);
+    // A blank day that isn't in the future can take a retro-logged workout.
+    const canAdd = !has && iso <= today;
     cells.push(
       <div
         key={iso}
-        className={`cal-cell ${has ? 'has-session' : ''} ${iso === today ? 'today' : ''}`}
+        className={`cal-cell ${has ? 'has-session' : ''} ${canAdd ? 'can-add' : ''} ${iso === today ? 'today' : ''}`}
         style={d === 1 ? { gridColumnStart: startDow + 1 } : undefined}
-        onClick={has ? () => open(iso) : undefined}
+        onClick={has ? () => open(iso) : canAdd ? () => onAddPast(iso) : undefined}
       >
         {d}
       </div>,
@@ -159,8 +166,36 @@ function Calendar({ onOpenSession }: { onOpenSession: (dateKey: string) => void 
   );
 }
 
-/** Progress tab — nutrition, weigh-in, stats, PRs, calendar, session history. */
-export function ProgressView({ onOpenSession }: { onOpenSession: (dateKey: string) => void }) {
+/** Collapsible Progress card — header click toggles; state is remembered in
+ *  the cached store slice so it survives navigation and reloads. */
+function CollapseCard({
+  k, title, count, children,
+}: {
+  k: 'prs' | 'hist';
+  title: string;
+  count: number;
+  children: React.ReactNode;
+}) {
+  const collapsed = useResetStore((st) => st.s.collapsed?.[k] ?? false);
+  const toggleSection = useResetStore((st) => st.toggleSection);
+  return (
+    <div className="collapse-card">
+      <button className="collapse-head" onClick={() => toggleSection(k)}>
+        <span>{title}{count > 0 && <span className="collapse-count">{count}</span>}</span>
+        <span className={`ico ${collapsed ? 'closed' : ''}`}>▾</span>
+      </button>
+      {!collapsed && <div className="collapse-body">{children}</div>}
+    </div>
+  );
+}
+
+/** Progress tab — calendar, nutrition, weigh-in, stats, PRs, session history. */
+export function ProgressView({
+  onOpenSession, onAddPast,
+}: {
+  onOpenSession: (dateKey: string) => void;
+  onAddPast: (dateISO: string) => void;
+}) {
   const s = useResetStore((st) => st.s);
   const total = s.history.length;
   const thisWeek = s.history.filter((x) => Date.now() - +new Date(x.date) < 7 * 86400000).length;
@@ -170,6 +205,10 @@ export function ProgressView({ onOpenSession }: { onOpenSession: (dateKey: strin
 
   return (
     <>
+      <div className="section-head">Calendar</div>
+      <Calendar onOpenSession={onOpenSession} onAddPast={onAddPast} />
+      <p className="cal-hint">Tap a blank day to log a workout that didn't get saved.</p>
+
       <NutritionSection />
 
       <div className="section-head">Weekly weigh-in</div>
@@ -186,47 +225,47 @@ export function ProgressView({ onOpenSession }: { onOpenSession: (dateKey: strin
         </>
       )}
 
-      <div className="section-head">Personal records</div>
-      {prs.length === 0 ? (
-        <p className="muted-line">Log reps and weight on an exercise to start tracking PRs.</p>
-      ) : (
-        <div className="pr-grid">
-          {prs.map(([exId, pr]) => {
-            const ex = exerciseById(exId);
-            if (!ex) return null;
-            const when = pr.date ? new Date(pr.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'current';
-            return (
-              <div key={exId} className="pr-item">
-                <div><div className="pr-name">{ex.name}</div><div className="pr-date">{when}</div></div>
-                <span className="pr-val">{pr.weight} kg × {pr.reps}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="section-head">Calendar</div>
-      <Calendar onOpenSession={onOpenSession} />
-
-      <div className="section-head">Past sessions</div>
-      {recent.length === 0 ? (
-        <div className="empty">
-          <div className="big">Nothing logged yet</div>
-          <div className="small">Finish a session and it'll show up here.</div>
-        </div>
-      ) : (
-        recent.map((x) => (
-          <div key={x.date} className="hist-item" onClick={() => onOpenSession(x.date)}>
-            <div>
-              <div className="name">{x.name}</div>
-              <div className="when">
-                {new Date(x.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · {new Date(x.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-              </div>
-            </div>
-            <span className="tag">{x.done}/{x.total} sets</span>
+      <div className="section-head">History</div>
+      <CollapseCard k="prs" title="Personal records" count={prs.length}>
+        {prs.length === 0 ? (
+          <p className="muted-line">Log reps and weight on an exercise to start tracking PRs.</p>
+        ) : (
+          <div className="pr-grid">
+            {prs.map(([exId, pr]) => {
+              const ex = exerciseById(exId);
+              if (!ex) return null;
+              const when = pr.date ? new Date(pr.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'current';
+              return (
+                <div key={exId} className="pr-item">
+                  <div><div className="pr-name">{ex.name}</div><div className="pr-date">{when}</div></div>
+                  <span className="pr-val">{pr.weight} kg × {pr.reps}</span>
+                </div>
+              );
+            })}
           </div>
-        ))
-      )}
+        )}
+      </CollapseCard>
+
+      <CollapseCard k="hist" title="Past sessions" count={total}>
+        {recent.length === 0 ? (
+          <div className="empty">
+            <div className="big">Nothing logged yet</div>
+            <div className="small">Finish a session and it'll show up here.</div>
+          </div>
+        ) : (
+          recent.map((x) => (
+            <div key={x.date} className="hist-item" onClick={() => onOpenSession(x.date)}>
+              <div>
+                <div className="name">{x.name}</div>
+                <div className="when">
+                  {new Date(x.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · {new Date(x.date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                </div>
+              </div>
+              <span className="tag">{x.done}/{x.total} sets</span>
+            </div>
+          ))
+        )}
+      </CollapseCard>
     </>
   );
 }

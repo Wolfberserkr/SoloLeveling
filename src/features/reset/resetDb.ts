@@ -46,6 +46,9 @@ export type ResetState = {
   nutrition: Nutrition[];
   cloudLogs: CloudLog[];
   calMonth?: string;
+  // Collapsed/expanded state of the Progress cards — remembered across visits
+  // (cache-only, like calMonth; true = collapsed).
+  collapsed?: { prs?: boolean; hist?: boolean };
 };
 
 export function defaultState(): ResetState {

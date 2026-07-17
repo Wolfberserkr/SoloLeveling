@@ -17,6 +17,8 @@ type ResetStore = {
   logVal: (slotId: string, k: 'reps' | 'weight', v: string) => void;
   finishSession: (dayId: string) => { done: number; total: number; dayName: string; exercisesCompleted: number };
   updateSession: (dateKey: string, exercises: SessionExercise[]) => void;
+  addSession: (dayId: string, dateISO: string, exercises: SessionExercise[]) => string | null;
+  toggleSection: (key: 'prs' | 'hist') => void;
   resetDay: (dayId: string) => void;
   confirmSwap: (dayId: string, slotId: string, altId: string) => void;
   restoreSwap: (dayId: string, slotId: string) => void;
@@ -175,6 +177,37 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     set({ s: next });
   },
 
+  addSession: (dayId, dateISO, exercises) => {
+    const { uid, s } = get();
+    if (!uid) return null;
+    const entry = buildRetroSession(dayId, dateISO, exercises);
+    if (!entry) return null;
+    const next: ResetState = {
+      ...s,
+      history: [...s.history, entry].sort((a, b) => +new Date(a.date) - +new Date(b.date)),
+      sessions: [entry, ...s.sessions].sort((a, b) => +new Date(b.date) - +new Date(a.date)),
+    };
+    saveCache(uid, next);
+    void insertSession(uid, {
+      day_id: entry.dayId, day_name: entry.name, completed_at: entry.date,
+      done_sets: entry.done, total_sets: entry.total, exercises,
+    });
+    exercises.forEach((e) => {
+      const w = parseFloat(e.weight);
+      if (e.reps && !isNaN(w)) void insertExerciseLog(uid, { exercise_id: e.id, reps: e.reps, weight: w });
+    });
+    set({ s: next });
+    return entry.date;
+  },
+
+  toggleSection: (key) => {
+    const { uid, s } = get();
+    const collapsed = { ...(s.collapsed || {}), [key]: !s.collapsed?.[key] };
+    const next = { ...s, collapsed };
+    if (uid) saveCache(uid, next);
+    set({ s: next });
+  },
+
   resetDay: (dayId) => {
     const { uid, s } = get();
     if (!uid) return;
@@ -256,6 +289,22 @@ export function applySessionEdit(orig: Session, exercises: SessionExercise[]): S
     exercises,
     done: hadSnapshot ? sumDone : Math.max(orig.done, sumDone),
     total: hadSnapshot ? sumTotal : Math.max(orig.total, sumTotal),
+  };
+}
+
+/** Build a session logged in retrospect for a blank calendar day — a workout
+ *  that happened but never got saved. Anchored to local noon of the picked day
+ *  so the entry can't drift into a neighbouring date in any timezone. */
+export function buildRetroSession(dayId: string, dateISO: string, exercises: SessionExercise[]): Session | null {
+  const d = dayById(dayId);
+  if (!d) return null;
+  return {
+    dayId,
+    name: d.name,
+    date: new Date(`${dateISO}T12:00:00`).toISOString(),
+    done: exercises.reduce((a, e) => a + e.sets_done, 0),
+    total: exercises.reduce((a, e) => a + e.sets_total, 0),
+    exercises,
   };
 }
 

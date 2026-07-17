@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applySessionEdit } from '../src/features/reset/resetStore';
+import { applySessionEdit, buildRetroSession } from '../src/features/reset/resetStore';
 import type { Session, SessionExercise } from '../src/features/reset/resetDb';
 
 function ex(over: Partial<SessionExercise> = {}): SessionExercise {
@@ -64,5 +64,29 @@ describe('applySessionEdit', () => {
     ]);
     expect(edited.done).toBe(6);
     expect(edited.total).toBe(7);
+  });
+});
+
+describe('buildRetroSession', () => {
+  it('builds a session for the picked day with recomputed counts', () => {
+    const built = buildRetroSession('lower-a', '2026-07-14', [ex(), ex({ id: 'plank-a', slot_id: 'plank-a', name: 'Plank', sets_total: 3, sets_done: 2 })]);
+    expect(built).not.toBeNull();
+    expect(built!.dayId).toBe('lower-a');
+    expect(built!.name).toBe('Lower A');
+    expect(built!.done).toBe(6);
+    expect(built!.total).toBe(7);
+    expect(built!.exercises).toHaveLength(2);
+  });
+
+  it('anchors the date to the picked calendar day (local noon)', () => {
+    const built = buildRetroSession('upper-a', '2026-07-14', [ex()]);
+    const d = new Date(built!.date);
+    expect(d.getFullYear()).toBe(2026);
+    expect(d.getMonth()).toBe(6);
+    expect(d.getDate()).toBe(14);
+  });
+
+  it('rejects an unknown day id', () => {
+    expect(buildRetroSession('nope', '2026-07-14', [ex()])).toBeNull();
   });
 });
