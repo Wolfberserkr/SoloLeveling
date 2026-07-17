@@ -12,6 +12,7 @@ import { DayView } from './DayView';
 import { CompleteView } from './CompleteView';
 import { ProgressView } from './ProgressView';
 import { SessionDetailView } from './SessionDetailView';
+import { LogPastView } from './LogPastView';
 import { RestTimer } from './RestTimer';
 
 type CompleteSummary = { done: number; total: number; dayName: string; exercisesCompleted: number };
@@ -20,7 +21,8 @@ type View =
   | { name: 'day'; dayId: string }
   | { name: 'complete'; summary: CompleteSummary }
   | { name: 'progress' }
-  | { name: 'session'; dateKey: string };
+  | { name: 'session'; dateKey: string }
+  | { name: 'logpast'; dateISO: string };
 
 /** The phone's back button/gesture walks up this hierarchy one step at a
  *  time instead of leaving the app. Plan is the root: back there does
@@ -83,7 +85,7 @@ export function ResetApp({ userId }: { userId: string }) {
           <p className="sub">Bodyweight + 5 kg or 10 kg plate · 45–60 min · Fat loss focus</p>
           <nav>
             <button className={planActive ? 'active' : ''} onClick={() => go({ name: 'plan' })}>Plan</button>
-            <button className={view.name === 'progress' || view.name === 'session' ? 'active' : ''} onClick={() => go({ name: 'progress' })}>Progress</button>
+            <button className={view.name === 'progress' || view.name === 'session' || view.name === 'logpast' ? 'active' : ''} onClick={() => go({ name: 'progress' })}>Progress</button>
           </nav>
         </header>
 
@@ -105,7 +107,16 @@ export function ResetApp({ userId }: { userId: string }) {
               onProgress={() => go({ name: 'progress' })}
             />
           ) : view.name === 'progress' ? (
-            <ProgressView onOpenSession={(dateKey) => go({ name: 'session', dateKey })} />
+            <ProgressView
+              onOpenSession={(dateKey) => go({ name: 'session', dateKey })}
+              onAddPast={(dateISO) => go({ name: 'logpast', dateISO })}
+            />
+          ) : view.name === 'logpast' ? (
+            <LogPastView
+              dateISO={view.dateISO}
+              onBack={() => go({ name: 'progress' })}
+              onLogged={(dateKey) => go({ name: 'session', dateKey })}
+            />
           ) : (
             <SessionDetailView dateKey={view.dateKey} onBack={() => go({ name: 'progress' })} />
           )}
