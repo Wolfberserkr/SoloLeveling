@@ -178,6 +178,16 @@
   .detail-ex-meta{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-2)}
   .detail-ex-meta b{color:var(--ink);font-weight:700}
 
+  .edit-bar{display:flex;gap:8px;margin:-6px 0 14px}
+  .edit-note{font-size:12.5px;color:var(--ink-3);margin:-6px 0 14px;line-height:1.5}
+  .ed-sets{display:inline-flex;align-items:center;gap:8px;flex-shrink:0}
+  .ed-count{font-size:13px;font-weight:700;min-width:34px;text-align:center;font-variant-numeric:tabular-nums}
+  .add-ex-row{display:flex;gap:8px;margin:12px 0 4px}
+  .add-ex-row select{flex:1;min-width:0;font:inherit;font-size:13px;font-weight:500;border:1px solid var(--line-2);border-radius:6px;padding:9px 11px;background:var(--surface);color:var(--ink)}
+  .add-ex-row select:focus{outline:none;border-color:var(--ink)}
+  .btn-sm:disabled{opacity:.35;cursor:not-allowed}
+  .btn-sm:disabled:hover{background:var(--ink)}
+
   .weight-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;margin-bottom:8px}
   .weight-form{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
   .weight-form input{width:90px;font:inherit;font-size:15px;font-weight:600;text-align:center;border:1px solid var(--line-2);border-radius:6px;padding:8px 6px;color:var(--ink);background:var(--bg)}

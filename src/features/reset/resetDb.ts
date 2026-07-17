@@ -81,7 +81,8 @@ export function saveCache(uid: string, state: ResetState) {
 // ── Offline write queue ──────────────────────────────────────────────────────
 type Op =
   | { kind: 'upsert'; table: string; data: Record<string, unknown>; onConflict: string }
-  | { kind: 'insert'; table: string; data: Record<string, unknown> };
+  | { kind: 'insert'; table: string; data: Record<string, unknown> }
+  | { kind: 'update'; table: string; data: Record<string, unknown>; match: Record<string, unknown> };
 
 function loadQueue(uid: string): Op[] {
   try {
@@ -101,6 +102,13 @@ function saveQueue(uid: string, q: Op[]) {
 async function runOp(op: Op): Promise<void> {
   if (op.kind === 'upsert') {
     const { error } = await supabase.from(op.table).upsert(op.data, { onConflict: op.onConflict });
+    if (error) throw error;
+  } else if (op.kind === 'update') {
+    const query = Object.entries(op.match).reduce(
+      (q, [k, v]) => q.eq(k, v as string),
+      supabase.from(op.table).update(op.data),
+    );
+    const { error } = await query;
     if (error) throw error;
   } else {
     const { error } = await supabase.from(op.table).insert(op.data);
@@ -171,6 +179,18 @@ export async function insertSession(uid: string, session: {
     saveQueue(uid, q);
     return null;
   }
+}
+
+/** Update an edited session in place. Rows synced from the cloud carry an id;
+ *  a session finished offline (still queued) is matched by its completed_at
+ *  timestamp instead — the queue replays in order, so the insert lands first. */
+export function updateSessionRow(uid: string, sess: Session) {
+  return pushOp(uid, {
+    kind: 'update',
+    table: 'reset_sessions',
+    data: { done_sets: sess.done, total_sets: sess.total, exercises: sess.exercises },
+    match: sess.id ? { id: sess.id, user_id: uid } : { user_id: uid, completed_at: sess.date },
+  });
 }
 
 export function insertExerciseLog(uid: string, row: { exercise_id: string; reps: string; weight: number }) {

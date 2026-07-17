@@ -3,7 +3,8 @@ import { dayById, exerciseById, type Exercise } from './resetData';
 import {
   defaultState, loadCache, saveCache, flushQueue, fetchAll,
   upsertAppState, insertSession, insertExerciseLog, upsertWeight, upsertNutrition,
-  type ResetState, type Session,
+  updateSessionRow,
+  type ResetState, type Session, type SessionExercise,
 } from './resetDb';
 
 type ResetStore = {
@@ -15,6 +16,7 @@ type ResetStore = {
   toggleSet: (dayId: string, slotId: string, i: number) => void;
   logVal: (slotId: string, k: 'reps' | 'weight', v: string) => void;
   finishSession: (dayId: string) => { done: number; total: number; dayName: string; exercisesCompleted: number };
+  updateSession: (dateKey: string, exercises: SessionExercise[]) => void;
   resetDay: (dayId: string) => void;
   confirmSwap: (dayId: string, slotId: string, altId: string) => void;
   restoreSwap: (dayId: string, slotId: string) => void;
@@ -149,6 +151,30 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     return { done, total, dayName: d.name, exercisesCompleted: exercises.filter((e) => e.sets_done === e.sets_total).length };
   },
 
+  updateSession: (dateKey, exercises) => {
+    const { uid, s } = get();
+    if (!uid) return;
+    const orig = s.history.find((x) => x.date === dateKey);
+    if (!orig) return;
+    const updated = applySessionEdit(orig, exercises);
+    const next: ResetState = {
+      ...s,
+      history: s.history.map((x) => (x.date === dateKey ? updated : x)),
+      sessions: s.sessions.map((x) => (x.date === dateKey ? updated : x)),
+    };
+    saveCache(uid, next);
+    void updateSessionRow(uid, updated);
+    // Keep PRs in sync: a newly filled-in (or corrected) reps + weight gets a
+    // log row, same as logging it live would have.
+    exercises.forEach((e) => {
+      const before = orig.exercises.find((o) => o.slot_id === e.slot_id);
+      const changed = !before || before.reps !== e.reps || before.weight !== e.weight;
+      const w = parseFloat(e.weight);
+      if (changed && e.reps && !isNaN(w)) void insertExerciseLog(uid, { exercise_id: e.id, reps: e.reps, weight: w });
+    });
+    set({ s: next });
+  },
+
   resetDay: (dayId) => {
     const { uid, s } = get();
     if (!uid) return;
@@ -216,6 +242,22 @@ export const useResetStore = create<ResetStore>((set, get) => ({
 
   setCalMonth: (m) => set((st) => ({ s: { ...st.s, calMonth: m } })),
 }));
+
+/** Merge an edited exercise list into a finished session. Counts are recomputed
+ *  from the list; for a legacy session with no per-exercise snapshot the stored
+ *  totals are the only record of the workout, so they can only grow — an edit
+ *  never erases sets that were already banked. Date, day, and id are kept. */
+export function applySessionEdit(orig: Session, exercises: SessionExercise[]): Session {
+  const sumDone = exercises.reduce((a, e) => a + e.sets_done, 0);
+  const sumTotal = exercises.reduce((a, e) => a + e.sets_total, 0);
+  const hadSnapshot = orig.exercises.length > 0;
+  return {
+    ...orig,
+    exercises,
+    done: hadSnapshot ? sumDone : Math.max(orig.done, sumDone),
+    total: hadSnapshot ? sumTotal : Math.max(orig.total, sumTotal),
+  };
+}
 
 // ── Pure selectors (take the state slice) ────────────────────────────────────
 export function resolvedExercise(s: ResetState, dayId: string, exId: string): Exercise {
