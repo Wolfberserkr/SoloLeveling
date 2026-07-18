@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import '@fontsource/inter/400.css';
 import '@fontsource/inter/500.css';
 import '@fontsource/inter/600.css';
@@ -22,16 +22,50 @@ type View =
   | { name: 'progress' }
   | { name: 'session'; dateKey: string };
 
+/** The phone's back button/gesture walks up this hierarchy one step at a
+ *  time instead of leaving the app. Plan is the root: back there does
+ *  nothing, so only Home or the app switcher exits. Complete goes to Plan
+ *  (not back into the finished workout). */
+export function parentOf(v: View): View | null {
+  switch (v.name) {
+    case 'plan': return null;
+    case 'session': return { name: 'progress' };
+    default: return { name: 'plan' };
+  }
+}
+
 /** D's "Reset" home-training portal — the light workout tracker, role-routed
  *  for her account. Entirely separate from the dark System RPG. */
 export function ResetApp({ userId }: { userId: string }) {
   const init = useResetStore((s) => s.init);
   const ready = useResetStore((s) => s.ready);
   const [view, setView] = useState<View>({ name: 'plan' });
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   useEffect(() => {
     void init(userId);
   }, [init, userId]);
+
+  useEffect(() => {
+    // Arm a sentinel history entry so pressing back fires popstate here
+    // instead of leaving the app. The handler re-arms it on every pop, so
+    // the trap holds no matter how many times back is pressed. (Skip the
+    // push when already armed — StrictMode mounts effects twice in dev.)
+    if (!window.history.state?.resetBackGuard) {
+      window.history.pushState({ ...window.history.state, resetBackGuard: true }, '');
+    }
+    function onPop() {
+      window.history.pushState({ ...window.history.state, resetBackGuard: true }, '');
+      const parent = parentOf(viewRef.current);
+      if (parent) {
+        setView(parent);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   const planActive = view.name === 'plan' || view.name === 'day' || view.name === 'complete';
 
