@@ -32,6 +32,7 @@ export function parentOf(v: View): View | null {
   switch (v.name) {
     case 'plan': return null;
     case 'session': return { name: 'progress' };
+    case 'logpast': return { name: 'progress' };
     default: return { name: 'plan' };
   }
 }

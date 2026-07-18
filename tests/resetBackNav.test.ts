@@ -12,6 +12,10 @@ describe('parentOf — Reset back-button hierarchy', () => {
     });
   });
 
+  it('logging a missed workout backs out to the Progress calendar', () => {
+    expect(parentOf({ name: 'logpast', dateISO: '2026-07-15' })).toEqual({ name: 'progress' });
+  });
+
   it('day, progress, and complete all back out to the plan', () => {
     expect(parentOf({ name: 'day', dayId: 'lower-a' })).toEqual({ name: 'plan' });
     expect(parentOf({ name: 'progress' })).toEqual({ name: 'plan' });
