@@ -1,5 +1,8 @@
 import { useState } from 'react';
-import { LYMPH_VIDEO, COOLDOWN, REST_TIPS, INJURY_FLAGS, dayById, isTimedReps, type Exercise } from './resetData';
+import {
+  LYMPH_VIDEO, WARMUP, COOLDOWN, REST_TIPS, INJURY_FLAGS,
+  dayById, isTimedReps, videoSearchUrl, type Exercise,
+} from './resetData';
 import { dayCount, effectiveVideo, resolvedExercise, useResetStore } from './resetStore';
 import { parseVideo } from './resetVideo';
 import { SwapModal } from './SwapModal';
@@ -48,7 +51,7 @@ function VideoBlock({ ex }: { ex: Exercise }) {
             </>
           ) : showForm ? (
             <div className="vid-empty">
-              <p>{err || 'Paste a YouTube or Vimeo link to save a demo for this exercise.'}</p>
+              <p>{err || 'No demo saved for this one yet. Search it, then paste the link here to keep it.'}</p>
               <div className="row">
                 <input
                   type="text" placeholder="https://youtu.be/…" value={url}
@@ -57,6 +60,14 @@ function VideoBlock({ ex }: { ex: Exercise }) {
                 />
                 <button className="btn-sm" onClick={save}>Save</button>
               </div>
+              <a
+                className="vid-search"
+                href={videoSearchUrl(ex.name)}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Search YouTube for “{ex.name}” ↗
+              </a>
             </div>
           ) : null}
         </div>
@@ -138,6 +149,25 @@ function ExerciseCard({ dayId, slotId, onSwap }: { dayId: string; slotId: string
   );
 }
 
+/** Lymphatic-drainage flow — carried over from the home program. It has no
+ *  place mid-gym-floor, so it lives on the mobility days and the rest day. */
+function LymphBlock() {
+  return (
+    <details className="accordion">
+      <summary>Lymphatic drainage <span className="ico">▾</span></summary>
+      <div className="body">
+        <div className="embed">
+          <iframe
+            loading="lazy" src={parseVideo(LYMPH_VIDEO) ?? undefined} title="Lymphatic drainage"
+            allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture"
+            allowFullScreen
+          />
+        </div>
+      </div>
+    </details>
+  );
+}
+
 /** Full rest day — recovery suggestions only, nothing to log. */
 function RestDay({ dayId, onBack }: { dayId: string; onBack: () => void }) {
   const d = dayById(dayId)!;
@@ -154,12 +184,15 @@ function RestDay({ dayId, onBack }: { dayId: string; onBack: () => void }) {
         <div className="body"><ul>{REST_TIPS.map((x, i) => <li key={i}>{x}</li>)}</ul></div>
       </details>
 
+      <LymphBlock />
+
       <p className="muted-line" style={{ paddingTop: 8 }}>Enjoy the rest — you earned it.</p>
     </>
   );
 }
 
-/** Day view — the workout: lymphatic drainage, exercises, cool-down, finish. */
+/** Day view — the session: warm-up (mobility days get the lymphatic-drainage
+ *  flow instead), exercises, cool-down, finish. */
 export function DayView({
   dayId, onBack, onComplete,
 }: {
@@ -176,27 +209,27 @@ export function DayView({
   if (!d) { onBack(); return null; }
   if (d.kind === 'rest') return <RestDay dayId={dayId} onBack={onBack} />;
   const c = dayCount(s, dayId);
+  const mobility = d.kind === 'mobility';
 
   return (
     <>
       <button className="back" onClick={onBack}>← All sessions</button>
       <div className="session-head">
         <h2>{d.name}</h2>
-        <div className="focus">{d.focus} · {d.ex.length} exercises · Rest 60 sec</div>
+        <div className="focus">
+          {d.focus} · {d.ex.length} exercises · {mobility ? 'easy pace' : 'rest 45–60 sec'}
+          {d.estMin ? ` · ≈ ${d.estMin} min` : ''}
+        </div>
       </div>
 
-      <details className="accordion">
-        <summary>Lymphatic drainage <span className="ico">▾</span></summary>
-        <div className="body">
-          <div className="embed">
-            <iframe
-              loading="lazy" src={parseVideo(LYMPH_VIDEO) ?? undefined} title="Lymphatic drainage"
-              allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture"
-              allowFullScreen
-            />
-          </div>
-        </div>
-      </details>
+      {mobility ? (
+        <LymphBlock />
+      ) : (
+        <details className="accordion">
+          <summary>Warm-up · 6 min <span className="ico">▾</span></summary>
+          <div className="body"><ul>{WARMUP.map((x, i) => <li key={i}>{x}</li>)}</ul></div>
+        </details>
+      )}
 
       <div>
         {d.ex.map((origEx) => (

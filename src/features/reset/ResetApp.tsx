@@ -37,8 +37,9 @@ export function parentOf(v: View): View | null {
   }
 }
 
-/** D's "Reset" home-training portal — the light workout tracker, role-routed
- *  for her account. Entirely separate from the dark System RPG. */
+/** D's "Reset" gym portal — the light workout tracker for her machine-based
+ *  4-day fat-loss program, role-routed for her account. Entirely separate
+ *  from the dark System RPG. */
 export function ResetApp({ userId }: { userId: string }) {
   const init = useResetStore((s) => s.init);
   const ready = useResetStore((s) => s.ready);
@@ -81,9 +82,9 @@ export function ResetApp({ userId }: { userId: string }) {
         <header>
           <div className="brand">
             <span className="logo"><span className="mark" />Reset</span>
-            <span className="tagline">Home · 7-day week</span>
+            <span className="tagline">Gym · 7-day week</span>
           </div>
-          <p className="sub">Bodyweight + 5 kg or 10 kg plate · 45–60 min · Fat loss focus</p>
+          <p className="sub">Machine circuits + squat finisher · under 60 min · Fat loss focus</p>
           <nav>
             <button className={planActive ? 'active' : ''} onClick={() => go({ name: 'plan' })}>Plan</button>
             <button className={view.name === 'progress' || view.name === 'session' || view.name === 'logpast' ? 'active' : ''} onClick={() => go({ name: 'progress' })}>Progress</button>

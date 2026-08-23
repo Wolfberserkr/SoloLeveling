@@ -83,6 +83,28 @@ XP curve: `totalXp(L) = round(425·(L^1.55 − 1))`, repeatables capped at
 300 XP/day → Level 10 ≈ 2 months, Level 50 ≈ 24 months. Verified in
 `tests/xpCurve.test.ts`.
 
+### The "Reset" portal (D's side)
+
+A second, light-themed app lives under `src/features/reset/` and is reached by
+role routing in `src/App.tsx` — a standalone workout tracker, not part of the
+RPG. It runs a **4-day machine-based gym program built for fat loss**
+(Mon/Tue/Thu/Fri strength, Wed/Sat mobility, Sun rest), with 45–60 sec rests,
+paired supersets, interval conditioning on the upper days, and a barbell squat
+finisher on every strength day that alternates back → front across the week.
+
+The whole program is pure data in `src/features/reset/resetData.ts`: the week
+`PLAN` (day ids are frozen — logged history keys off them), the per-day time
+budget (each session is costed to stay under 60 min; the arithmetic is in the
+file header and surfaced as `Day.estMin` in the UI), `WARMUP` / `COOLDOWN`,
+the 8-week `WEEK_TIPS` progression, `INJURY_FLAGS` (lower back / tennis
+elbow), and `SWAPS` + `RESERVE` so a busy machine always has an alternative.
+`tests/resetPlan.test.ts` locks the week shape, the squat finishers, the time
+cap, and id uniqueness; `tests/resetSwaps.test.ts` locks the swap graph.
+
+Demo videos are per-exercise and user-editable — new gym movements ship with
+an empty `video` on purpose (a guessed YouTube id is a dead embed), and the
+day view offers a "Search YouTube" link next to the paste-a-link field.
+
 ### UI gotcha — calendar grid (don't reintroduce the row gap)
 
 The month calendar (`src/features/reset/ProgressView.tsx` → `Calendar`) uses a

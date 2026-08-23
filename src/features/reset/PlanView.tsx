@@ -1,7 +1,8 @@
 import { PLAN, tipForWeek } from './resetData';
 import { dayCount, lastDone, useResetStore } from './resetStore';
 
-/** Plan tab — program-week bar + the four day cards with completion rings. */
+/** Plan tab — program-week bar + the seven day cards: focus, exercise
+ *  count, estimated session length, and a completion ring. */
 export function PlanView({ onOpenDay }: { onOpenDay: (dayId: string) => void }) {
   const s = useResetStore((st) => st.s);
   const bumpWeek = useResetStore((st) => st.bumpWeek);
@@ -29,7 +30,9 @@ export function PlanView({ onOpenDay }: { onOpenDay: (dayId: string) => void }) 
           const last = lastDone(s, d.id);
           const circ = 2 * Math.PI * 15;
           const off = circ * (1 - c.pct / 100);
-          const isStrength = (d.kind ?? 'strength') === 'strength';
+          // Everything but the rest day tracks sets, so everything but the
+          // rest day gets a completion ring.
+          const tracked = d.kind !== 'rest';
           const meta = d.kind === 'mobility'
             ? 'Mobility · shadow jump rope'
             : d.kind === 'rest'
@@ -44,6 +47,12 @@ export function PlanView({ onOpenDay }: { onOpenDay: (dayId: string) => void }) 
                   <div className="day-focus">{d.focus}</div>
                   <div className="day-meta">
                     <span>{meta}</span>
+                    {d.estMin != null && (
+                      <>
+                        <span className="dot">·</span>
+                        <span>≈ {d.estMin} min</span>
+                      </>
+                    )}
                     {d.kind !== 'rest' && (
                       <>
                         <span className="dot">·</span>
@@ -52,7 +61,7 @@ export function PlanView({ onOpenDay }: { onOpenDay: (dayId: string) => void }) 
                     )}
                   </div>
                 </div>
-                {isStrength ? (
+                {tracked ? (
                   <div className={`ring ${c.pct === 100 ? 'complete' : ''}`}>
                     <svg width="38" height="38">
                       <circle cx="19" cy="19" r="15" fill="none" stroke="var(--line)" strokeWidth="3" />
@@ -65,8 +74,6 @@ export function PlanView({ onOpenDay }: { onOpenDay: (dayId: string) => void }) 
                     </svg>
                     <span className="pct">{c.pct}%</span>
                   </div>
-                ) : d.kind === 'mobility' && last === 'today' ? (
-                  <div className="ring complete"><span className="pct">✓</span></div>
                 ) : null}
               </div>
             </button>
