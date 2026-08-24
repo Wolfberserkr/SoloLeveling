@@ -154,3 +154,17 @@ describe('swapping mid-session keeps the sets she already did', () => {
     expect(resizing).toBeGreaterThan(20);
   });
 });
+
+describe('a corrupt cached progress entry cannot fake ticked sets', () => {
+  it('treats anything that is not a boolean[] as untouched', () => {
+    // localStorage round-trips through JSON.parse; the types are not a promise.
+    expect(setsArray('ab' as unknown as boolean[], 3)).toEqual([false, false, false]);
+    expect(setsArray(null as unknown as boolean[], 2)).toEqual([false, false]);
+    expect(setsArray([1, 'x', true] as unknown as boolean[], 3)).toEqual([false, false, true]);
+  });
+
+  it('keeps the ring in step with the boxes when state is junk', () => {
+    const s = stateWith({}, { 'lower-a': { 'leg-press': 'abcd' as unknown as boolean[] } });
+    expect(dayCount(s, 'lower-a').done).toBe(0);
+  });
+});

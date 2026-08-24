@@ -32,7 +32,10 @@ type ResetStore = {
  *  Shared with the day view so the boxes she sees and the boxes stored are
  *  always the same length. */
 export function setsArray(stored: boolean[] | undefined, n: number): boolean[] {
-  return Array.from({ length: n }, (_, i) => stored?.[i] ?? false);
+  // The types say this is always a boolean[]; JSON.parse of a corrupt cache
+  // says otherwise, and indexing a string would render truthy junk as ticks.
+  const a = Array.isArray(stored) ? stored : undefined;
+  return Array.from({ length: n }, (_, i) => a?.[i] === true);
 }
 
 /** Ensure per-set boolean arrays exist for every slot of a day, sized from the
@@ -372,9 +375,11 @@ export function dayCount(s: ResetState, dayId: string): { done: number; total: n
   let total = 0;
   d.ex.forEach((slot) => {
     const e = resolvedExercise(s, dayId, slot.id);
-    const a = s.progress[dayId]?.[slot.id] || new Array(e.sets).fill(false);
+    // Same normalisation the day view renders with, so the ring can never
+    // count a set the boxes don't show.
+    const a = setsArray(s.progress[dayId]?.[slot.id], e.sets);
     total += e.sets;
-    done += Math.min(a.filter(Boolean).length, e.sets);
+    done += a.filter(Boolean).length;
   });
   return { done, total, pct: total ? Math.round((done / total) * 100) : 0 };
 }
