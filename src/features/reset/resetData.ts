@@ -87,8 +87,19 @@ export type Day = {
 //   • mobility days swap the warm-up for the 8-min lymphatic-drainage flow,
 //     which DayView renders at the top of the page, so it is priced in.
 //
-// Current output (see the estimate test for the live values):
-//   Mon 57 · Tue 57 · Thu 58 · Fri 58 · Wed/Sat 40 — all inside the hour.
+// Current output (the estimate test holds the live values to the cap):
+//   Mon 58 · Tue 58 · Thu 59 · Fri 59 · Wed/Sat 40 — all inside the hour.
+//
+// THE TRADE THIS BUYS — stated, not hidden. Weekly set tally is roughly
+// quads 19 · glutes 16 · hamstrings 10 · core 9 · lats 7 · upper back 6 ·
+// chest 4 · delts 3 · triceps 3 · biceps 3 — i.e. about 51 lower to 26 upper.
+// That is forced arithmetic, not sloppiness: four squat finishers plus a hard
+// hour leaves the upper days roughly three resistance blocks each after the
+// interval slot (re-pairing the pec deck into Tuesday puts that day at 61 min
+// and fails the cap test). Upper-body volume is therefore deliberately the
+// minimum that holds muscle while the squat pattern and the fat-loss density
+// work get the minutes. If a session ever finishes early, the pec deck and
+// the calf raises in RESERVE are the first two things to add back.
 export const TIME_MODEL = {
   warmupSec: 480,
   cooldownSec: 300,
@@ -101,8 +112,12 @@ export const TIME_MODEL = {
   transferSec: 15,
   defaultTempo: 3,
   defaultRest: 60,
+  /** Unrack, walk out, re-rack — a barbell set is not a leg-extension set. */
+  barbellHandlingSec: 15,
   /** Weeks 6+ pull superset rests down to this (see WEEK_TIPS). */
   densityRestSec: 45,
+  /** Week 5 deload: at most this many sets per exercise (see WEEK_TIPS). */
+  deloadSets: 2,
   /** Weeks 7–8 intervals: more rounds bought with shorter recoveries. */
   peakIntervalRounds: 6,
   peakIntervalWorkSec: 40,
@@ -127,7 +142,9 @@ export function setSeconds(ex: Exercise): number {
     const top = nums ? Math.max(...nums.map(Number)) : 30;
     return /\bmin/i.test(ex.reps) ? top * 60 : top;
   }
-  return (repCount(ex.reps) ?? 10) * (ex.tempo ?? TIME_MODEL.defaultTempo);
+  const reps = (repCount(ex.reps) ?? 10) * (ex.tempo ?? TIME_MODEL.defaultTempo);
+  // A barbell set also costs the unrack, the walk-out and the re-rack.
+  return reps + (ex.rack ? TIME_MODEL.barbellHandlingSec : 0);
 }
 
 export type EstimateOpts = {
@@ -142,6 +159,7 @@ function weekView(ex: Exercise, week: number): { sets: number; work: number; res
   let work = setSeconds(ex);
   let rest = ex.rest ?? TIME_MODEL.defaultRest;
   if (week <= 1) sets = Math.max(1, Math.ceil(sets / 2));          // week 1 ramp-in
+  if (week === 5) sets = Math.min(sets, TIME_MODEL.deloadSets);    // week 5 deload
   if (week >= 6 && ex.pair) rest = Math.min(rest, TIME_MODEL.densityRestSec);
   if (week >= 7 && ex.conditioning) {
     sets = TIME_MODEL.peakIntervalRounds;
@@ -173,7 +191,9 @@ export function estimateSeconds(day: Day, opts: EstimateOpts = {}): number {
   for (const block of blocksOf(day)) {
     const views = block.map((ex) => weekView(ex, week));
     const rounds = Math.max(...views.map((v) => v.sets));
-    const rest = Math.min(...views.map((v) => v.rest));
+    // The pair rests as long as its most demanding member asks for — taking
+    // the minimum would silently under-count a 45/90 pairing.
+    const rest = Math.max(...views.map((v) => v.rest));
     const setup = block[0].setup
       ?? (block[0].rack ? T.rackSec : block.length > 1 ? T.supersetStationSec : T.stationSec);
     const perRound =
@@ -206,6 +226,7 @@ export const TRIM_ORDER = [
   'Running behind? Skip the phone between sets first — most lost time is there.',
   'Then drop the last accessory block (the core / isolation pair).',
   'Then take the supersets from 3 rounds down to 2, keeping the load.',
+  'Rack queued at 7 am? Do not wait and do not skip it — swap the finisher to the Smith machine squat (⇄ on the exercise) and keep the day intact.',
   'Never cut: the warm-up, the first machine of the day, or the squat finisher.',
 ];
 
@@ -228,6 +249,7 @@ export const MOBILITY_COOLDOWN = [
   'Figure-4 glute stretch — 45 sec each side',
   'Seated butterfly or straddle — 1 min, breathe into the hips',
   "Child's pose — 1 min, slow nasal breathing",
+  'Legs up the wall — 1 min, let the heart rate settle',
 ];
 
 // Mobility & shadow-jump-rope days (Wed / Sat) — a shared conditioning + joint-
@@ -281,7 +303,7 @@ const PLAN_SPEC: Day[] = [
     { id: 'back-squat-mon',  name: 'Barbell Back Squat', sets: 4, reps: '6–8 reps',   tempo: 4,   rest: 90, rack: true, ramp: true, load: 'FINISHER · set 1 is a ramp at ~50% · then 3 working sets at RPE 7 — leave 3 reps in the tank · brace before every rep · rest 90 sec', video: '' },
   ]},
   { id: 'upper-a', name: 'Upper A', focus: 'Push, shoulders & intervals', dow: 'Tuesday', kind: 'strength', ex: [
-    { id: 'chest-press',     name: 'Chest Press Machine',     sets: 4, reps: '10–12 reps', tempo: 3, rest: 60, load: 'Handles level with mid-chest · press without slamming the elbows straight · last set close to failure · rest 60 sec', video: '' },
+    { id: 'chest-press',     name: 'Chest Press Machine',     sets: 4, reps: '10–12 reps', tempo: 3, rest: 60, load: 'Handles level with mid-chest · press without slamming the elbows straight · last set close to failure · rest 60 sec · add the pec deck after this one if a day runs short', video: '' },
     { id: 'stair-intervals', name: 'Stair Climber Intervals', sets: 5, reps: '40 sec',     rest: 40, conditioning: true, load: 'CONDITIONING · 40 sec brisk / 40 sec easy · effort 7/10 — short sentences only · rower or bike works the same', video: '' },
     { id: 'shoulder-press',  name: 'Shoulder Press Machine',  sets: 3, reps: '10–12 reps', tempo: 3, rest: 60, pair: 'A', load: 'SUPERSET A1 (press) · seat high enough that the handles start at ear level · ribs down',                   video: '' },
     { id: 'rear-delt-fly',   name: 'Rear-Delt Fly Machine',   sets: 3, reps: '12–15 reps', tempo: 3, rest: 60, pair: 'A', load: 'SUPERSET A2 (pull) · pairs against the press so nothing is pre-fatigued · lead with the elbows, pause at the back', video: '' },
@@ -321,8 +343,8 @@ export const PLAN: Day[] = PLAN_SPEC.map((d) =>
 export const WEEK_TIPS: Record<number, [string, string]> = {
   1: ['Weeks 1–2', 'Week 1 is a ramp-in: <b>half the sets</b> (two per exercise, ramp + one working set on the squat) while you learn the machines — write down every seat height and pin. Week 2: full sets, 2–3 reps in reserve.'],
   3: ['Weeks 3–4', '<b>Add load.</b> Hit the top of the rep range on every set and the pin moves one notch deeper next session. Last set of each main machine goes close to failure — the squat stays at RPE 7.'],
-  5: ['Weeks 5–6', '<b>Week 5 is a deload</b>: two sets per exercise, same loads, stop 3 reps short. Week 6 raises density instead of volume — superset rests down to <b>45 sec</b> at the loads you deloaded from.'],
-  7: ['Weeks 7–8', 'Intervals go to <b>6 × 40 sec hard / 30 sec easy</b> — intensity bought with shorter recoveries, not extra rounds, so the session still fits the hour. Squat stays at three working sets; in week 8, re-test your week-1 loads.'],
+  5: ['Weeks 5–6', '<b>Week 5 is a deload</b>: 2 sets per exercise, same loads, stop 3 reps short — the plan card will show the shorter session. Week 6 raises density instead of volume: superset rests down to <b>45 sec</b> at the loads you deloaded from.'],
+  7: ['Weeks 7–8', 'Intervals go to <b>6 rounds of 40 sec hard / 30 sec easy</b> — intensity bought with shorter recoveries, not extra rounds, so the session still fits the hour. Squat stays at three working sets; in week 8, re-test your week-1 loads.'],
 };
 export function tipForWeek(w: number): [string, string] {
   let key = 1;

@@ -28,16 +28,30 @@ type ResetStore = {
   setCalMonth: (m: string) => void;
 };
 
-/** Ensure per-set boolean arrays exist for every exercise of a day. */
-function ensureDay(progress: ResetState['progress'], dayId: string): ResetState['progress'] {
+/** Ensure per-set boolean arrays exist for every slot of a day, sized from the
+ *  exercise she will actually perform — the swapped-in alternative when there
+ *  is one. Sizing from the plan while counting the resolved exercise is how a
+ *  4-box / 3-set session ends up reporting more sets done than it prescribed,
+ *  so there is exactly one source of truth: resolvedExercise().sets. */
+function ensureDay(s: ResetState, dayId: string): ResetState['progress'] {
   const d = dayById(dayId);
-  if (!d) return progress;
-  const next = { ...progress, [dayId]: { ...(progress[dayId] || {}) } };
-  d.ex.forEach((e) => {
-    const a = next[dayId][e.id];
-    if (!Array.isArray(a) || a.length !== e.sets) next[dayId][e.id] = new Array(e.sets).fill(false);
+  if (!d) return s.progress;
+  const next = { ...s.progress, [dayId]: { ...(s.progress[dayId] || {}) } };
+  d.ex.forEach((slot) => {
+    const e = resolvedExercise(s, dayId, slot.id);
+    const a = next[dayId][slot.id];
+    if (!Array.isArray(a) || a.length !== e.sets) next[dayId][slot.id] = new Array(e.sets).fill(false);
   });
   return next;
+}
+
+/** Blank per-set arrays for a day, sized like ensureDay. */
+function clearedDay(s: ResetState, dayId: string): Record<string, boolean[]> {
+  const out: Record<string, boolean[]> = {};
+  (dayById(dayId)?.ex ?? []).forEach((slot) => {
+    out[slot.id] = new Array(resolvedExercise(s, dayId, slot.id).sets).fill(false);
+  });
+  return out;
 }
 
 export const useResetStore = create<ResetStore>((set, get) => ({
@@ -86,7 +100,7 @@ export const useResetStore = create<ResetStore>((set, get) => ({
   toggleSet: (dayId, slotId, i) => {
     const { uid, s } = get();
     if (!uid) return;
-    const progress = ensureDay(s.progress, dayId);
+    const progress = ensureDay(s, dayId);
     const arr = [...progress[dayId][slotId]];
     arr[i] = !arr[i];
     progress[dayId] = { ...progress[dayId], [slotId]: arr };
@@ -117,28 +131,11 @@ export const useResetStore = create<ResetStore>((set, get) => ({
   finishSession: (dayId) => {
     const { uid, s } = get();
     const d = dayById(dayId)!;
-    const progress = ensureDay(s.progress, dayId);
-    let done = 0;
-    let total = 0;
-    const exercises = d.ex.map((origEx) => {
-      const e = resolvedExercise(s, dayId, origEx.id);
-      const a = progress[dayId][origEx.id];
-      const lg = s.log[origEx.id] || { reps: '', weight: '' };
-      const setsDone = a.filter(Boolean).length;
-      done += setsDone;
-      total += e.sets;
-      return {
-        id: e.id, slot_id: origEx.id, name: e.name, focus: d.focus,
-        sets_total: e.sets, sets_done: setsDone, reps: lg.reps, weight: lg.weight,
-        prescribe: e.reps,
-      };
-    });
+    const { exercises, done, total, progress } = sessionTally(s, dayId);
     const date = new Date().toISOString();
     const entry: Session = { dayId, name: d.name, date, done, total, exercises };
     // Reset that day's set progress.
-    const clearedDay: Record<string, boolean[]> = {};
-    d.ex.forEach((e) => { clearedDay[e.id] = new Array(e.sets).fill(false); });
-    const nextProgress = { ...progress, [dayId]: clearedDay };
+    const nextProgress = { ...progress, [dayId]: clearedDay(s, dayId) };
     const next: ResetState = {
       ...s,
       progress: nextProgress,
@@ -215,11 +212,8 @@ export const useResetStore = create<ResetStore>((set, get) => ({
   resetDay: (dayId) => {
     const { uid, s } = get();
     if (!uid) return;
-    const d = dayById(dayId)!;
-    const progress = ensureDay(s.progress, dayId);
-    const clearedDay: Record<string, boolean[]> = {};
-    d.ex.forEach((e) => { clearedDay[e.id] = new Array(e.sets).fill(false); });
-    const next = { ...s, progress: { ...progress, [dayId]: clearedDay } };
+    const progress = ensureDay(s, dayId);
+    const next = { ...s, progress: { ...progress, [dayId]: clearedDay(s, dayId) } };
     saveCache(uid, next);
     void upsertAppState(uid, next);
     set({ s: next });
@@ -317,9 +311,41 @@ export function resolvedExercise(s: ResetState, dayId: string, exId: string): Ex
   const altId = s.swaps?.[dayId]?.[exId];
   if (altId) {
     const alt = exerciseById(altId);
-    if (alt) return alt;
+    // A swap saved against the old home program can point at a movement this
+    // program retired. exerciseById resolves those to a name-only stub so old
+    // logs still read — but a stub has no sets and no prescription, so it must
+    // never become the exercise of the day. Fall back to the plan slot.
+    if (alt && !alt.retired) return alt;
   }
   return exerciseById(exId)!;
+}
+
+/** Everything a finished session records, computed from state alone: the
+ *  per-exercise snapshot plus the set tallies. Pure, so the arithmetic that
+ *  reaches the cloud is testable without touching the network. Sets done are
+ *  clamped to sets prescribed, so `done <= total` always holds. */
+export function sessionTally(s: ResetState, dayId: string): {
+  exercises: SessionExercise[]; done: number; total: number; progress: ResetState['progress'];
+} {
+  const d = dayById(dayId);
+  if (!d) return { exercises: [], done: 0, total: 0, progress: s.progress };
+  const progress = ensureDay(s, dayId);
+  let done = 0;
+  let total = 0;
+  const exercises = d.ex.map((slot) => {
+    const e = resolvedExercise(s, dayId, slot.id);
+    const arr = progress[dayId][slot.id] ?? [];
+    const setsDone = Math.min(arr.filter(Boolean).length, e.sets);
+    const lg = s.log[slot.id] || { reps: '', weight: '' };
+    done += setsDone;
+    total += e.sets;
+    return {
+      id: e.id, slot_id: slot.id, name: e.name, focus: d.focus,
+      sets_total: e.sets, sets_done: setsDone, reps: lg.reps, weight: lg.weight,
+      prescribe: e.reps,
+    };
+  });
+  return { exercises, done, total, progress };
 }
 
 export function dayCount(s: ResetState, dayId: string): { done: number; total: number; pct: number } {
@@ -327,10 +353,11 @@ export function dayCount(s: ResetState, dayId: string): { done: number; total: n
   if (!d) return { done: 0, total: 0, pct: 0 };
   let done = 0;
   let total = 0;
-  d.ex.forEach((e) => {
-    const a = s.progress[dayId]?.[e.id] || new Array(e.sets).fill(false);
+  d.ex.forEach((slot) => {
+    const e = resolvedExercise(s, dayId, slot.id);
+    const a = s.progress[dayId]?.[slot.id] || new Array(e.sets).fill(false);
     total += e.sets;
-    done += a.filter(Boolean).length;
+    done += Math.min(a.filter(Boolean).length, e.sets);
   });
   return { done, total, pct: total ? Math.round((done / total) * 100) : 0 };
 }

@@ -128,6 +128,13 @@ describe('reset gym plan — the one-hour cap is computed, not asserted', () => 
     }
   });
 
+  it('models the ramp-in and the deload as genuinely shorter sessions', () => {
+    for (const d of strengthDays) {
+      expect(estimateMinutes(d, { week: 1 }), `${d.id} week 1`).toBeLessThan(estimateMinutes(d, { week: 2 }));
+      expect(estimateMinutes(d, { week: 5 }), `${d.id} week 5 deload`).toBeLessThan(estimateMinutes(d, { week: 4 }));
+    }
+  });
+
   it('would fail if the plan grew — the estimate tracks the data', () => {
     const bloated: Day = {
       ...strengthDays[0],
@@ -147,14 +154,36 @@ describe('reset gym plan — the one-hour cap is computed, not asserted', () => 
     expect(setSeconds({ id: 'x', name: 'x', sets: 5, reps: '40 sec', load: '', video: '' })).toBe(40);
   });
 
-  it('prices warm-up, cool-down, logging and contingency into every session', () => {
+  it('holds the cost coefficients to real floors, not just "greater than zero"', () => {
     const fixed = TIME_MODEL.warmupSec + TIME_MODEL.cooldownSec + TIME_MODEL.contingencySec;
     expect(estimateSeconds(strengthDays[0])).toBeGreaterThan(fixed);
-    // Logging is priced apart from contingency: this is a logging app.
-    expect(TIME_MODEL.logSecPerSet).toBeGreaterThan(0);
-    expect(TIME_MODEL.contingencySec).toBeGreaterThan(0);
-    // The rack costs more than a machine station (J-hooks, pins, loading).
-    expect(TIME_MODEL.rackSec).toBeGreaterThan(TIME_MODEL.stationSec);
+    // Cheapening a coefficient is the easy way to fake the hour, so each one
+    // is pinned at the value the model was argued for.
+    expect(TIME_MODEL.warmupSec).toBeGreaterThanOrEqual(480);
+    expect(TIME_MODEL.cooldownSec).toBeGreaterThanOrEqual(300);
+    expect(TIME_MODEL.contingencySec).toBeGreaterThanOrEqual(180);
+    expect(TIME_MODEL.logSecPerSet).toBeGreaterThanOrEqual(8);
+    expect(TIME_MODEL.stationSec).toBeGreaterThanOrEqual(60);
+    expect(TIME_MODEL.supersetStationSec).toBeGreaterThanOrEqual(90);
+    expect(TIME_MODEL.rackSec).toBeGreaterThanOrEqual(300);
+    expect(TIME_MODEL.barbellHandlingSec).toBeGreaterThanOrEqual(15);
+    expect(TIME_MODEL.lymphSec).toBeGreaterThanOrEqual(480);
+  });
+
+  it('prices the unrack and walkout into a barbell set', () => {
+    const bar = { id: 'x', name: 'x', sets: 3, reps: '8 reps', tempo: 4, load: '', video: '' };
+    expect(setSeconds({ ...bar, rack: true }) - setSeconds(bar)).toBe(TIME_MODEL.barbellHandlingSec);
+  });
+
+  it('rests a superset for its most demanding member', () => {
+    const day: Day = {
+      id: 'x', name: 'x', focus: 'x', kind: 'strength', ex: [
+        { id: 'a', name: 'a', sets: 2, reps: '10 reps', rest: 45, pair: 'P', load: '', video: '' },
+        { id: 'b', name: 'b', sets: 2, reps: '10 reps', rest: 90, pair: 'P', load: '', video: '' },
+      ],
+    };
+    const shorter: Day = { ...day, ex: day.ex.map((e) => ({ ...e, rest: 45 })) };
+    expect(estimateSeconds(day) - estimateSeconds(shorter)).toBe(45);
   });
 
   it('gives the rest day no session length at all', () => {
@@ -311,6 +340,13 @@ describe('reset gym plan — fat-loss programming', () => {
     expect(tipForWeek(12)).toBe(WEEK_TIPS[7]);
     expect(WEEK_TIPS[1][1]).toMatch(/half the sets/i);   // week 1 ramp-in
     expect(WEEK_TIPS[5][1]).toMatch(/deload/i);          // a real deload week
+    // The tip and the model must not drift apart: the numbers she reads are
+    // the numbers estimateMinutes() plans for.
+    const peak = WEEK_TIPS[7][1];
+    expect(peak).toContain(`${TIME_MODEL.peakIntervalRounds} rounds`);
+    expect(peak).toContain(`${TIME_MODEL.peakIntervalWorkSec} sec hard`);
+    expect(peak).toContain(`${TIME_MODEL.peakIntervalRestSec} sec easy`);
+    expect(WEEK_TIPS[5][1]).toContain(`${TIME_MODEL.deloadSets} sets per exercise`);
     // Weeks 7–8 must not make the session longer than the full-volume weeks.
     for (const d of strengthDays) {
       expect(estimateSeconds(d, { week: 8 })).toBeLessThanOrEqual(estimateSeconds(d, { week: 2 }) + 60);

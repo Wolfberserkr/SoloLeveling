@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   LYMPH_VIDEO, WARMUP, COOLDOWN, MOBILITY_COOLDOWN, TRIM_ORDER, REST_TIPS, INJURY_FLAGS,
-  dayById, isTimedReps, videoSearchUrl, type Exercise,
+  dayById, estimateMinutes, isTimedReps, videoSearchUrl, type Exercise,
 } from './resetData';
 import { dayCount, effectiveVideo, resolvedExercise, useResetStore } from './resetStore';
 import { parseVideo } from './resetVideo';
@@ -219,6 +219,9 @@ export function DayView({
   const restLabel = rests.length
     ? `rest ${Math.min(...rests)}–${Math.max(...rests)} sec`
     : 'easy pace';
+  // Length for the week she is in, not a fixed baseline (week 1 is a ramp-in,
+  // week 5 a deload — both genuinely shorter).
+  const estMin = estimateMinutes(d, { week: s.week });
 
   return (
     <>
@@ -227,7 +230,7 @@ export function DayView({
         <h2>{d.name}</h2>
         <div className="focus">
           {d.focus} · {d.ex.length} exercises · {mobility ? 'easy pace' : restLabel}
-          {d.estMin ? ` · ≈ ${d.estMin} min` : ''}
+          {estMin ? ` · ≈ ${estMin} min` : ''}
         </div>
       </div>
 

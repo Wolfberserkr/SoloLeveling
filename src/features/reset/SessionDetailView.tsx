@@ -55,13 +55,16 @@ export function SessionDetailView({ dateKey, onBack }: { dateKey: string; onBack
               // Timed moves (planks, wall sits, holds) record a duration, not reps.
               // Prefer the prescription snapshot; fall back to the plan for sessions
               // logged before it was stored.
-              const prescribe = e.prescribe ?? exerciseById(e.id)?.reps ?? '';
+              const planEx = exerciseById(e.id);
+              const prescribe = e.prescribe ?? planEx?.reps ?? '';
               const timed = isTimedReps(prescribe);
               return (
                 <div key={i} className="detail-ex">
                   <div className="detail-ex-head">
                     <span className="detail-ex-name">{e.name}</span>
-                    <span className="detail-ex-sets">{e.sets_done}/{e.sets_total} sets</span>
+                    <span className="detail-ex-sets">
+                      {e.sets_done}/{e.sets_total} sets{planEx?.ramp ? ' (incl. ramp)' : ''}
+                    </span>
                   </div>
                   <div className="detail-ex-meta">
                     {timed ? (

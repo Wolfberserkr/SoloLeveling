@@ -1,4 +1,4 @@
-import { PLAN, tipForWeek } from './resetData';
+import { PLAN, estimateMinutes, tipForWeek } from './resetData';
 import { dayCount, lastDone, useResetStore } from './resetStore';
 
 /** Plan tab — program-week bar + the seven day cards: focus, exercise
@@ -33,6 +33,9 @@ export function PlanView({ onOpenDay }: { onOpenDay: (dayId: string) => void }) 
           // Everything but the rest day tracks sets, so everything but the
           // rest day gets a completion ring.
           const tracked = d.kind !== 'rest';
+          // Estimated length for the week she is actually in — the week-1
+          // ramp-in and the week-5 deload are genuinely shorter sessions.
+          const estMin = d.kind === 'rest' ? undefined : estimateMinutes(d, { week: s.week });
           const meta = d.kind === 'mobility'
             ? 'Mobility · shadow jump rope'
             : d.kind === 'rest'
@@ -47,10 +50,10 @@ export function PlanView({ onOpenDay }: { onOpenDay: (dayId: string) => void }) 
                   <div className="day-focus">{d.focus}</div>
                   <div className="day-meta">
                     <span>{meta}</span>
-                    {d.estMin != null && (
+                    {estMin != null && (
                       <>
                         <span className="dot">·</span>
-                        <span>≈ {d.estMin} min</span>
+                        <span>≈ {estMin} min</span>
                       </>
                     )}
                     {d.kind !== 'rest' && (

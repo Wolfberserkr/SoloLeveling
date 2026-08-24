@@ -20,7 +20,8 @@ function EditableExercise({
   added: boolean;
   onChange: (patch: Partial<SessionExercise>) => void;
 }) {
-  const prescribe = e.prescribe ?? exerciseById(e.id)?.reps ?? '';
+  const planEx = exerciseById(e.id);
+  const prescribe = e.prescribe ?? planEx?.reps ?? '';
   const timed = isTimedReps(prescribe);
   return (
     <div className="detail-ex">
@@ -35,9 +36,10 @@ function EditableExercise({
           <button className="step" onClick={() => onChange({ sets_done: Math.min(e.sets_total, e.sets_done + 1) })}>+</button>
         </span>
       </div>
-      {prescribe && (
+      {(prescribe || planEx?.ramp) && (
         <div className="detail-ex-meta" style={{ marginBottom: 8 }}>
-          <span>Target: <b>{prescribe}</b></span>
+          {prescribe && <span>Target: <b>{prescribe}</b></span>}
+          {planEx?.ramp && <span>Set 1 is a ramp set</span>}
         </div>
       )}
       <div className="logrow">
@@ -93,7 +95,9 @@ export function SessionEditor({
   function addExercise() {
     if (!addId) return;
     const ex = exerciseById(addId);
-    if (!ex || draft.some((e) => e.slot_id === ex.id)) return;
+    // `retired` stubs exist only so old logs resolve to a name — they carry no
+    // sets or prescription and must never be added to a session.
+    if (!ex || ex.retired || draft.some((e) => e.slot_id === ex.id)) return;
     setDraft([...draft, {
       id: ex.id, slot_id: ex.id, name: ex.name, focus: dayById(dayId)?.focus ?? '',
       // Forgot-to-log is the common case, so an added exercise starts fully done.
