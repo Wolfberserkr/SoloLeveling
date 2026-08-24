@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 
-const PRESETS = [45, 60, 90];
+// Matches the program's prescribed rests: 45 s density work, 60 s main
+// machines, 75 s the light front-squat sets, 90 s the back-squat finisher.
+const PRESETS = [45, 60, 75, 90];
 
 function fmt(s: number): string {
   const m = Math.floor(s / 60);
@@ -29,7 +31,7 @@ function beep() {
   if (navigator.vibrate) navigator.vibrate([200, 80, 200]);
 }
 
-/** Floating rest timer (45/60/90s) with audio + vibration, matching DWorkout. */
+/** Floating rest timer (45/60/75/90s) with audio + vibration. */
 export function RestTimer() {
   const [open, setOpen] = useState(false);
   const [dur, setDur] = useState(60);
@@ -87,7 +89,7 @@ export function RestTimer() {
           <div className="presets">
             {PRESETS.map((s) => (
               <button key={s} className={`preset ${s === dur ? 'sel' : ''}`} onClick={() => pick(s)}>
-                {s < 60 ? s + 's' : s / 60 + 'm'}
+                {s < 60 ? s + 's' : fmt(s)}
               </button>
             ))}
           </div>

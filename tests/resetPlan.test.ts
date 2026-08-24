@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
-  PLAN, RESERVE, SWAPS, INJURY_FLAGS, WEEK_TIPS,
+  PLAN, RESERVE, RETIRED, SWAPS, INJURY_FLAGS, WEEK_TIPS, TIME_MODEL,
+  estimateMinutes, estimateSeconds, setSeconds, repCount,
   exerciseById, isTimedReps, videoSearchUrl, tipForWeek,
   type Day,
 } from '../src/features/reset/resetData';
 
 const strengthDays = PLAN.filter((d) => d.kind === 'strength');
+const trainingDays = PLAN.filter((d) => d.kind !== 'rest');
 const lastEx = (d: Day) => d.ex[d.ex.length - 1];
 
 describe('reset gym plan — week shape', () => {
@@ -28,7 +30,7 @@ describe('reset gym plan — week shape', () => {
   });
 
   it('gives every training day exercises and the rest day none', () => {
-    for (const d of PLAN.filter((x) => x.kind !== 'rest')) {
+    for (const d of trainingDays) {
       expect(d.ex.length, `${d.id} should have exercises`).toBeGreaterThan(0);
     }
     expect(PLAN.find((d) => d.id === 'rest-sun')!.ex).toHaveLength(0);
@@ -52,39 +54,111 @@ describe('reset gym plan — squat finisher', () => {
     ]);
   });
 
-  it('programs the lower-day squats heavier than the upper-day technique squats', () => {
+  it('keeps both back-squat days moderate and both front-squat days light', () => {
     const [mon, tue, thu, fri] = strengthDays.map(lastEx);
-    // Lower days: low reps, heavy intent. Upper days: light, explicitly technique.
-    expect(mon.load).toMatch(/heavy/i);
-    expect(thu.load).toMatch(/heav/i);
-    expect(tue.load).toMatch(/technique/i);
-    expect(fri.load).toMatch(/technique/i);
-    expect(tue.load).toMatch(/light/i);
-    expect(fri.load).toMatch(/light/i);
+    // Four squat sessions a week only work if none of them is a max effort.
+    for (const back of [mon, thu]) {
+      expect(back.reps).toBe('6–8 reps');
+      expect(back.load).toMatch(/RPE 7/);
+      expect(back.load).toMatch(/leave 3 reps/i);
+      expect(back.load, 'no "heaviest of the week" framing on a flagged back').not.toMatch(/heaviest/i);
+    }
+    for (const front of [tue, fri]) {
+      expect(front.load).toMatch(/technique/i);
+      expect(front.load).toMatch(/light/i);
+    }
+  });
+
+  it('makes the ramp set real: counted in sets and flagged for the UI', () => {
+    for (const d of strengthDays) {
+      const squat = lastEx(d);
+      expect(squat.ramp, `${squat.id} should declare its ramp set`).toBe(true);
+      // 1 ramp + 3 working sets — the checkbox count matches the coaching text.
+      expect(squat.sets).toBe(4);
+      expect(squat.load).toMatch(/ramp/i);
+    }
+  });
+
+  it('only ever swaps a squat finisher for another squat pattern', () => {
+    for (const d of strengthDays) {
+      const alts = SWAPS[lastEx(d).id] ?? [];
+      expect(alts.length, `${lastEx(d).id} needs alternatives`).toBeGreaterThan(0);
+      for (const altId of alts) {
+        // A leg press would silently break the "every day ends on a squat" rule.
+        expect(exerciseById(altId)!.name, `${altId} is not a squat`).toMatch(/squat/i);
+      }
+    }
   });
 
   it('keeps the four squat slots on distinct ids so their logs stay separate', () => {
-    const ids = strengthDays.map((d) => lastEx(d).id);
-    expect(new Set(ids).size).toBe(4);
+    expect(new Set(strengthDays.map((d) => lastEx(d).id)).size).toBe(4);
+  });
+
+  it('never finishes on conditioning — the squat is preceded by resistance work', () => {
+    for (const d of strengthDays) {
+      const beforeSquat = d.ex[d.ex.length - 2];
+      expect(beforeSquat.conditioning, `${d.id} must not run intervals into the squat`).toBeFalsy();
+    }
   });
 });
 
-describe('reset gym plan — one-hour cap', () => {
-  it('gives every training day an estimated duration inside the hour', () => {
-    for (const d of PLAN.filter((x) => x.kind !== 'rest')) {
-      expect(d.estMin, `${d.id} needs an estimate`).toBeGreaterThan(0);
-      expect(d.estMin!, `${d.id} must fit inside an hour`).toBeLessThanOrEqual(60);
+describe('reset gym plan — the one-hour cap is computed, not asserted', () => {
+  it('derives every estMin from estimateMinutes', () => {
+    for (const d of trainingDays) expect(d.estMin).toBe(estimateMinutes(d));
+    expect(PLAN.find((x) => x.id === 'rest-sun')!.estMin).toBeUndefined();
+  });
+
+  it('fits every training day inside the hour at full volume', () => {
+    for (const d of trainingDays) {
+      expect(estimateMinutes(d), `${d.id} must fit inside an hour`).toBeLessThanOrEqual(60);
     }
   });
 
-  it('caps every strength day at 60 minutes', () => {
-    for (const d of strengthDays) {
-      expect(d.estMin!, `${d.id} must fit inside an hour`).toBeLessThanOrEqual(60);
+  it('still fits at week 8, when the progression is at its longest', () => {
+    for (const d of trainingDays) {
+      expect(estimateMinutes(d, { week: 8 }), `${d.id} at week 8`).toBeLessThanOrEqual(60);
     }
   });
 
-  it('leaves the rest day without a duration', () => {
-    expect(PLAN.find((d) => d.id === 'rest-sun')!.estMin).toBeUndefined();
+  it('fits in every week of the eight-week progression', () => {
+    for (let week = 1; week <= 8; week++) {
+      for (const d of trainingDays) {
+        expect(estimateMinutes(d, { week }), `${d.id} at week ${week}`).toBeLessThanOrEqual(60);
+      }
+    }
+  });
+
+  it('would fail if the plan grew — the estimate tracks the data', () => {
+    const bloated: Day = {
+      ...strengthDays[0],
+      ex: strengthDays[0].ex.map((e) => ({ ...e, sets: e.sets + 4 })),
+    };
+    expect(estimateMinutes(bloated)).toBeGreaterThan(60);
+  });
+
+  it('prices a set from its reps and tempo, not a flat constant', () => {
+    // 15 reps at "2-sec lower, 1-sec squeeze" is a 60-second set, not 45.
+    expect(setSeconds({ id: 'x', name: 'x', sets: 3, reps: '12–15 reps', tempo: 4, load: '', video: '' })).toBe(60);
+    // Per-side work counts both sides.
+    expect(repCount('10 / side')).toBe(20);
+    expect(repCount('12–15 reps')).toBe(15);
+    expect(repCount('10 total')).toBe(10);
+    // A timed prescription runs for its own duration.
+    expect(setSeconds({ id: 'x', name: 'x', sets: 5, reps: '40 sec', load: '', video: '' })).toBe(40);
+  });
+
+  it('prices warm-up, cool-down, logging and contingency into every session', () => {
+    const fixed = TIME_MODEL.warmupSec + TIME_MODEL.cooldownSec + TIME_MODEL.contingencySec;
+    expect(estimateSeconds(strengthDays[0])).toBeGreaterThan(fixed);
+    // Logging is priced apart from contingency: this is a logging app.
+    expect(TIME_MODEL.logSecPerSet).toBeGreaterThan(0);
+    expect(TIME_MODEL.contingencySec).toBeGreaterThan(0);
+    // The rack costs more than a machine station (J-hooks, pins, loading).
+    expect(TIME_MODEL.rackSec).toBeGreaterThan(TIME_MODEL.stationSec);
+  });
+
+  it('gives the rest day no session length at all', () => {
+    expect(estimateSeconds(PLAN.find((d) => d.id === 'rest-sun')!)).toBe(0);
   });
 });
 
@@ -121,6 +195,17 @@ describe('reset gym plan — exercise catalog', () => {
     }
   });
 
+  it('never swaps a move for something already on the same day', () => {
+    for (const d of PLAN) {
+      const onDay = new Set(d.ex.map((e) => e.id));
+      for (const e of d.ex) {
+        for (const altId of SWAPS[e.id] ?? []) {
+          expect(onDay.has(altId), `${d.id}: ${e.id} → ${altId} is already in the day`).toBe(false);
+        }
+      }
+    }
+  });
+
   it('ships no invented video urls — only verified ones or an empty string', () => {
     // YouTube is unverifiable from CI, so new gym moves carry '' and the UI
     // offers a search link instead of embedding a guess.
@@ -136,9 +221,41 @@ describe('reset gym plan — exercise catalog', () => {
   });
 
   it('marks interval and hold work as timed so it logs a duration', () => {
-    const conditioning = planEx.filter((e) => /intervals/i.test(e.name));
+    const conditioning = planEx.filter((e) => e.conditioning);
     expect(conditioning.length).toBeGreaterThan(0);
     for (const e of conditioning) expect(isTimedReps(e.reps), `${e.id} should log time`).toBe(true);
+  });
+});
+
+describe('reset gym plan — retired home-program ids', () => {
+  it('still resolves a retired id to a named exercise', () => {
+    const ex = exerciseById('rdl');
+    expect(ex).not.toBeNull();
+    expect(ex!.name).toBe('Romanian Deadlift');
+    expect(ex!.retired).toBe(true);
+  });
+
+  it('resolves every retired id — old PRs and logs must not vanish', () => {
+    for (const id of Object.keys(RETIRED)) {
+      expect(exerciseById(id)?.retired, `${id} should resolve as retired`).toBe(true);
+    }
+    // The ids the home program used and this one dropped.
+    expect(Object.keys(RETIRED).length).toBeGreaterThanOrEqual(20);
+  });
+
+  it('keeps retired moves out of the plan, the reserve pool and the swap menu', () => {
+    const live = new Set([...PLAN.flatMap((d) => d.ex.map((e) => e.id)), ...RESERVE.map((r) => r.id)]);
+    for (const id of Object.keys(RETIRED)) {
+      expect(live.has(id), `${id} must not be programmable`).toBe(false);
+      expect(SWAPS[id], `${id} must not offer swaps`).toBeUndefined();
+    }
+    for (const alts of Object.values(SWAPS)) {
+      for (const altId of alts) expect(RETIRED[altId], `${altId} is retired`).toBeUndefined();
+    }
+  });
+
+  it('leaves an unknown id unresolved', () => {
+    expect(exerciseById('not-a-real-exercise')).toBeNull();
   });
 });
 
@@ -147,22 +264,57 @@ describe('reset gym plan — fat-loss programming', () => {
     for (const d of strengthDays) {
       for (const e of d.ex) {
         if (isTimedReps(e.reps)) continue;
-        const top = Math.max(...(e.reps.match(/\d+/g) ?? ['0']).map(Number));
-        expect(top, `${e.id} reps too low for this goal`).toBeGreaterThanOrEqual(6);
+        expect(repCount(e.reps)!, `${e.id} reps too low for this goal`).toBeGreaterThanOrEqual(6);
       }
     }
   });
 
-  it('puts a conditioning element in the week', () => {
-    const conditioning = PLAN.flatMap((d) => d.ex).filter((e) => /intervals|jump rope/i.test(e.name));
-    expect(conditioning.length).toBeGreaterThanOrEqual(3);
+  it('keeps rest short everywhere except the flagged hinge and the squats', () => {
+    for (const d of strengthDays) {
+      for (const e of d.ex) {
+        const rest = e.rest ?? TIME_MODEL.defaultRest;
+        if (e.rack || e.id === 'smith-rdl') expect(rest).toBeGreaterThanOrEqual(75);
+        else expect(rest, `${e.id} rest`).toBeLessThanOrEqual(60);
+      }
+    }
   });
 
-  it('runs an eight-week progression of week tips', () => {
+  it('puts a conditioning element in the week, never as the finisher', () => {
+    const conditioning = PLAN.flatMap((d) => d.ex).filter((e) => e.conditioning || /jump rope/i.test(e.name));
+    expect(conditioning.length).toBeGreaterThanOrEqual(3);
+    // Intervals sit straight after the first main machine, not before a squat.
+    for (const d of strengthDays) {
+      const i = d.ex.findIndex((e) => e.conditioning);
+      if (i >= 0) expect(i, `${d.id} runs intervals too late`).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('programs anti-extension core on the lower-body days', () => {
+    const coreIds = ['dead-bug', 'bird-dog'];
+    const lowerDays = ['lower-a', 'lower-b'];
+    for (const id of lowerDays) {
+      const day = PLAN.find((d) => d.id === id)!;
+      expect(day.ex.some((e) => coreIds.includes(e.id)), `${id} needs core work`).toBe(true);
+    }
+  });
+
+  it('leaves the flagged hinge on straight sets with full rest', () => {
+    const rdl = PLAN.find((d) => d.id === 'lower-b')!.ex.find((e) => e.id === 'smith-rdl')!;
+    expect(rdl.pair, 'the hinge must not sit in a density superset').toBeUndefined();
+    expect(rdl.rest).toBeGreaterThanOrEqual(90);
+  });
+
+  it('runs an eight-week progression that never buys volume with time', () => {
     expect(Object.keys(WEEK_TIPS)).toEqual(['1', '3', '5', '7']);
     expect(tipForWeek(2)).toBe(WEEK_TIPS[1]);
     expect(tipForWeek(8)).toBe(WEEK_TIPS[7]);
     expect(tipForWeek(12)).toBe(WEEK_TIPS[7]);
+    expect(WEEK_TIPS[1][1]).toMatch(/half the sets/i);   // week 1 ramp-in
+    expect(WEEK_TIPS[5][1]).toMatch(/deload/i);          // a real deload week
+    // Weeks 7–8 must not make the session longer than the full-volume weeks.
+    for (const d of strengthDays) {
+      expect(estimateSeconds(d, { week: 8 })).toBeLessThanOrEqual(estimateSeconds(d, { week: 2 }) + 60);
+    }
   });
 });
 
@@ -173,13 +325,14 @@ describe('reset gym plan — injury flags', () => {
     }
   });
 
-  it('flags every barbell squat and the hinge for the lower back', () => {
+  it('flags every barbell squat, the hinge and the back extension for the lower back', () => {
     const backFlagged = Object.entries(INJURY_FLAGS)
       .filter(([, f]) => f.type === 'back')
       .map(([id]) => id);
     for (const d of strengthDays) expect(backFlagged).toContain(lastEx(d).id);
     expect(backFlagged).toContain('smith-rdl');
     expect(backFlagged).toContain('back-extension');
+    expect(backFlagged).toContain('cable-woodchop');
   });
 
   it('flags the elbow-tendon movements', () => {

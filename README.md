@@ -88,18 +88,31 @@ XP curve: `totalXp(L) = round(425·(L^1.55 − 1))`, repeatables capped at
 A second, light-themed app lives under `src/features/reset/` and is reached by
 role routing in `src/App.tsx` — a standalone workout tracker, not part of the
 RPG. It runs a **4-day machine-based gym program built for fat loss**
-(Mon/Tue/Thu/Fri strength, Wed/Sat mobility, Sun rest), with 45–60 sec rests,
-paired supersets, interval conditioning on the upper days, and a barbell squat
-finisher on every strength day that alternates back → front across the week.
+(Mon/Tue/Thu/Fri strength, Wed/Sat mobility, Sun rest): short rests (45–60 sec
+on the machines, 90 sec on the hinge and the squat), paired supersets for
+density, interval conditioning on the upper days, and a barbell squat finisher
+on every strength day that alternates back → front across the week.
 
 The whole program is pure data in `src/features/reset/resetData.ts`: the week
-`PLAN` (day ids are frozen — logged history keys off them), the per-day time
-budget (each session is costed to stay under 60 min; the arithmetic is in the
-file header and surfaced as `Day.estMin` in the UI), `WARMUP` / `COOLDOWN`,
-the 8-week `WEEK_TIPS` progression, `INJURY_FLAGS` (lower back / tennis
-elbow), and `SWAPS` + `RESERVE` so a busy machine always has an alternative.
-`tests/resetPlan.test.ts` locks the week shape, the squat finishers, the time
-cap, and id uniqueness; `tests/resetSwaps.test.ts` locks the swap graph.
+`PLAN` (day ids are frozen — logged history keys off them), `WARMUP` /
+`COOLDOWN`, the 8-week `WEEK_TIPS` progression, `INJURY_FLAGS` (lower back /
+tennis elbow), and `SWAPS` + `RESERVE` so a busy machine always has an
+alternative.
+
+**The one-hour cap is executable, not a comment.** `estimateMinutes(day, opts)`
+costs a session out of its own exercise data — work sets priced as reps ×
+tempo, rest, station changes, the squat rack, per-set logging time, warm-up,
+cool-down and a contingency buffer — and every `Day.estMin` is derived from it
+(then surfaced in the plan cards and the day header). `tests/resetPlan.test.ts`
+asserts the *function's* output stays ≤ 60 min in every week of the
+progression, so adding sets fails the build instead of silently blowing the
+hour. It also locks the week shape, the alternating squat finishers (including
+that a squat only ever swaps for another squat), the retired-id fallback, and
+id uniqueness; `tests/resetSwaps.test.ts` locks the swap graph.
+
+Retired movements from the old home program live in `RETIRED` — never
+programmable, but `exerciseById` resolves them so old logs and personal
+records still render with a real name.
 
 Demo videos are per-exercise and user-editable — new gym movements ship with
 an empty `video` on purpose (a guessed YouTube id is a dead embed), and the

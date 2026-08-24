@@ -237,7 +237,10 @@ export function ProgressView({
               const when = pr.date ? new Date(pr.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'current';
               return (
                 <div key={exId} className="pr-item">
-                  <div><div className="pr-name">{ex.name}</div><div className="pr-date">{when}</div></div>
+                  <div>
+                    <div className="pr-name">{ex.name}</div>
+                    <div className="pr-date">{ex.retired ? 'past program · ' : ''}{when}</div>
+                  </div>
                   <span className="pr-val">{pr.weight} kg × {pr.reps}</span>
                 </div>
               );

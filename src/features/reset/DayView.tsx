@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import {
-  LYMPH_VIDEO, WARMUP, COOLDOWN, REST_TIPS, INJURY_FLAGS,
+  LYMPH_VIDEO, WARMUP, COOLDOWN, MOBILITY_COOLDOWN, TRIM_ORDER, REST_TIPS, INJURY_FLAGS,
   dayById, isTimedReps, videoSearchUrl, type Exercise,
 } from './resetData';
 import { dayCount, effectiveVideo, resolvedExercise, useResetStore } from './resetStore';
@@ -122,7 +122,9 @@ function ExerciseCard({ dayId, slotId, onSwap }: { dayId: string; slotId: string
         {arr.map((on, si) => (
           <span key={si} className={`set ${on ? 'on' : ''}`} onClick={() => toggleSet(dayId, slotId, si)}>
             <span className="box"><Check /></span>
-            Set {si + 1}
+            {/* A ramp set is a real set in the data, so it gets a real box —
+                labelled so she never mistakes it for a working set. */}
+            {e.ramp ? (si === 0 ? 'Ramp' : `Set ${si}`) : `Set ${si + 1}`}
           </span>
         ))}
       </div>
@@ -132,14 +134,14 @@ function ExerciseCard({ dayId, slotId, onSwap }: { dayId: string; slotId: string
           {timed ? 'Time' : 'Reps'}
           <input
             type="text" inputMode="decimal" placeholder={timed ? 'sec' : '—'} defaultValue={lg.reps}
-            onBlur={(e2) => logVal(slotId, 'reps', e2.target.value)}
+            onBlur={(e2) => logVal(dayId, slotId, 'reps', e2.target.value)}
           />
         </span>
         <span className="field">
           Wt
           <input
             type="text" inputMode="decimal" placeholder="kg" defaultValue={lg.weight}
-            onBlur={(e2) => logVal(slotId, 'weight', e2.target.value)}
+            onBlur={(e2) => logVal(dayId, slotId, 'weight', e2.target.value)}
           />
         </span>
       </div>
@@ -210,6 +212,13 @@ export function DayView({
   if (d.kind === 'rest') return <RestDay dayId={dayId} onBack={onBack} />;
   const c = dayCount(s, dayId);
   const mobility = d.kind === 'mobility';
+  // Rest range comes from the plan data (conditioning rounds excluded — their
+  // recovery is part of the prescription), so the header can never drift from
+  // what the exercises actually say.
+  const rests = d.ex.filter((e) => !e.conditioning).map((e) => e.rest ?? 60);
+  const restLabel = rests.length
+    ? `rest ${Math.min(...rests)}–${Math.max(...rests)} sec`
+    : 'easy pace';
 
   return (
     <>
@@ -217,7 +226,7 @@ export function DayView({
       <div className="session-head">
         <h2>{d.name}</h2>
         <div className="focus">
-          {d.focus} · {d.ex.length} exercises · {mobility ? 'easy pace' : 'rest 45–60 sec'}
+          {d.focus} · {d.ex.length} exercises · {mobility ? 'easy pace' : restLabel}
           {d.estMin ? ` · ≈ ${d.estMin} min` : ''}
         </div>
       </div>
@@ -225,8 +234,8 @@ export function DayView({
       {mobility ? (
         <LymphBlock />
       ) : (
-        <details className="accordion">
-          <summary>Warm-up · 6 min <span className="ico">▾</span></summary>
+        <details className="accordion" open>
+          <summary>Warm-up · 8 min <span className="ico">▾</span></summary>
           <div className="body"><ul>{WARMUP.map((x, i) => <li key={i}>{x}</li>)}</ul></div>
         </details>
       )}
@@ -239,8 +248,17 @@ export function DayView({
 
       <details className="accordion" style={{ marginTop: 10 }}>
         <summary>Cool-down · 5 min <span className="ico">▾</span></summary>
-        <div className="body"><ul>{COOLDOWN.map((x, i) => <li key={i}>{x}</li>)}</ul></div>
+        <div className="body">
+          <ul>{(mobility ? MOBILITY_COOLDOWN : COOLDOWN).map((x, i) => <li key={i}>{x}</li>)}</ul>
+        </div>
       </details>
+
+      {!mobility && (
+        <details className="accordion">
+          <summary>Running late? What to cut <span className="ico">▾</span></summary>
+          <div className="body"><ul>{TRIM_ORDER.map((x, i) => <li key={i}>{x}</li>)}</ul></div>
+        </details>
+      )}
 
       <div className="finish-bar">
         <button

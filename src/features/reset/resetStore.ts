@@ -14,7 +14,7 @@ type ResetStore = {
   init: (uid: string) => Promise<void>;
   bumpWeek: (n: number) => void;
   toggleSet: (dayId: string, slotId: string, i: number) => void;
-  logVal: (slotId: string, k: 'reps' | 'weight', v: string) => void;
+  logVal: (dayId: string, slotId: string, k: 'reps' | 'weight', v: string) => void;
   finishSession: (dayId: string) => { done: number; total: number; dayName: string; exercisesCompleted: number };
   updateSession: (dateKey: string, exercises: SessionExercise[]) => void;
   addSession: (dayId: string, dateISO: string, exercises: SessionExercise[]) => string | null;
@@ -96,7 +96,7 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     set({ s: next });
   },
 
-  logVal: (slotId, k, v) => {
+  logVal: (dayId, slotId, k, v) => {
     const { uid, s } = get();
     if (!uid) return;
     const cur = s.log[slotId] || { reps: '', weight: '' };
@@ -106,8 +106,12 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     saveCache(uid, next);
     set({ s: next });
     // Persist a log row once both reps and a parseable weight are present.
+    // The row is credited to the exercise she actually did — after a swap
+    // (an occupied machine) that is the alternative, not the plan slot.
+    // Matches updateSession, which already logs the resolved id.
     const w = parseFloat(entry.weight);
-    if (entry.reps && !isNaN(w)) void insertExerciseLog(uid, { exercise_id: slotId, reps: entry.reps, weight: w });
+    const exId = resolvedExercise(s, dayId, slotId).id;
+    if (entry.reps && !isNaN(w)) void insertExerciseLog(uid, { exercise_id: exId, reps: entry.reps, weight: w });
   },
 
   finishSession: (dayId) => {
