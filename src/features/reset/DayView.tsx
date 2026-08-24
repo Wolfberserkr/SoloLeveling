@@ -3,7 +3,7 @@ import {
   LYMPH_VIDEO, WARMUP, COOLDOWN, MOBILITY_COOLDOWN, TRIM_ORDER, REST_TIPS, INJURY_FLAGS,
   dayById, estimateMinutes, isTimedReps, videoSearchUrl, type Exercise,
 } from './resetData';
-import { dayCount, effectiveVideo, resolvedExercise, useResetStore } from './resetStore';
+import { dayCount, effectiveVideo, resolvedExercise, setsArray, useResetStore } from './resetStore';
 import { parseVideo } from './resetVideo';
 import { SwapModal } from './SwapModal';
 
@@ -82,7 +82,9 @@ function ExerciseCard({ dayId, slotId, onSwap }: { dayId: string; slotId: string
   const logVal = useResetStore((st) => st.logVal);
 
   const e = resolvedExercise(s, dayId, slotId);
-  const arr = s.progress[dayId]?.[slotId] ?? new Array(e.sets).fill(false);
+  // Always render the resolved exercise's set count — never the stored
+  // length, which can still be the pre-swap size until the store resizes it.
+  const arr = setsArray(s.progress[dayId]?.[slotId], e.sets);
   const done = arr.every(Boolean);
   const swapped = e.id !== slotId;
   const flag = INJURY_FLAGS[e.id];

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { PLAN, RETIRED, SWAPS, exerciseById, dayById } from '../src/features/reset/resetData';
-import { dayCount, resolvedExercise, sessionTally } from '../src/features/reset/resetStore';
+import { dayCount, resolvedExercise, sessionTally, setsArray } from '../src/features/reset/resetStore';
 import { defaultState, type ResetState } from '../src/features/reset/resetDb';
 
 function stateWith(swaps: ResetState['swaps'], progress: ResetState['progress'] = {}): ResetState {
@@ -105,5 +105,52 @@ describe('a live swap that changes the set count', () => {
         expect(tally.done, `${d.id} tally done <= total`).toBeLessThanOrEqual(tally.total);
       }
     }
+  });
+});
+
+describe('swapping mid-session keeps the sets she already did', () => {
+  const dayId = 'lower-a';
+  const slotId = 'leg-press';   // 4 sets
+  const altId = 'hack-squat';   // 3 sets
+
+  it('carries ticks across a shrink, and never renders a stale box count', () => {
+    // Three sets in, the machine is taken — she swaps. (setsArray is what both
+    // the store and the day view size the boxes with.)
+    const stored = [true, true, true, false];
+    const resized = setsArray(stored, exerciseById(altId)!.sets);
+    expect(resized).toEqual([true, true, true]);
+
+    const s = stateWith({ [dayId]: { [slotId]: altId } }, { [dayId]: { [slotId]: stored } });
+    const row = sessionTally(s, dayId).exercises.find((e) => e.slot_id === slotId)!;
+    expect(row.sets_done).toBe(3);
+    expect(row.sets_total).toBe(3);
+  });
+
+  it('carries ticks across a grow, leaving the new sets untouched', () => {
+    expect(setsArray([true, true, true], 4)).toEqual([true, true, true, false]);
+    expect(setsArray(undefined, 3)).toEqual([false, false, false]);
+  });
+
+  it('holds for every swap option that changes the set count', () => {
+    // 27 of the strength-day options resize the array; each must preserve ticks.
+    let resizing = 0;
+    for (const d of PLAN) {
+      for (const slot of d.ex) {
+        for (const altId of SWAPS[slot.id] ?? []) {
+          const alt = exerciseById(altId);
+          if (!alt || alt.sets === slot.sets) continue;
+          resizing += 1;
+          const stored = new Array(slot.sets).fill(true);
+          const resized = setsArray(stored, alt.sets);
+          expect(resized.length, `${slot.id} → ${altId} sizes to the alt`).toBe(alt.sets);
+          // Nothing is lost that still fits, and nothing is invented.
+          expect(resized.filter(Boolean).length).toBe(Math.min(slot.sets, alt.sets));
+          const s = stateWith({ [d.id]: { [slot.id]: altId } }, { [d.id]: { [slot.id]: stored } });
+          const c = dayCount(s, d.id);
+          expect(c.done, `${slot.id} → ${altId} done <= total`).toBeLessThanOrEqual(c.total);
+        }
+      }
+    }
+    expect(resizing).toBeGreaterThan(20);
   });
 });

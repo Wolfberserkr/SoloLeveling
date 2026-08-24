@@ -168,6 +168,26 @@ describe('reset gym plan — the one-hour cap is computed, not asserted', () => 
     expect(TIME_MODEL.rackSec).toBeGreaterThanOrEqual(300);
     expect(TIME_MODEL.barbellHandlingSec).toBeGreaterThanOrEqual(15);
     expect(TIME_MODEL.lymphSec).toBeGreaterThanOrEqual(480);
+    expect(TIME_MODEL.transferSec).toBeGreaterThanOrEqual(15);
+    expect(TIME_MODEL.densityRestSec).toBeGreaterThanOrEqual(45);
+    expect(TIME_MODEL.defaultTempo).toBeGreaterThanOrEqual(3);
+    expect(TIME_MODEL.defaultRest).toBeGreaterThanOrEqual(60);
+    // The density weeks promise the rest that densityRestSec actually models.
+    expect(WEEK_TIPS[5][1]).toContain(`${TIME_MODEL.densityRestSec} sec`);
+  });
+
+  it('lets no exercise undercut the station cost with a per-row setup override', () => {
+    // `setup` bypasses stationSec entirely, so the floors above mean nothing
+    // if a strength move can declare its own cheaper number.
+    for (const d of strengthDays) {
+      for (const ex of d.ex) {
+        if (ex.setup == null) continue;
+        const floor = ex.rack ? TIME_MODEL.rackSec
+          : ex.pair ? TIME_MODEL.supersetStationSec
+          : TIME_MODEL.stationSec;
+        expect(ex.setup, `${ex.id} setup must not undercut its station cost`).toBeGreaterThanOrEqual(floor);
+      }
+    }
   });
 
   it('prices the unrack and walkout into a barbell set', () => {

@@ -28,11 +28,23 @@ type ResetStore = {
   setCalMonth: (m: string) => void;
 };
 
+/** Re-length a per-set array to `n`, carrying over the sets already ticked.
+ *  Shared with the day view so the boxes she sees and the boxes stored are
+ *  always the same length. */
+export function setsArray(stored: boolean[] | undefined, n: number): boolean[] {
+  return Array.from({ length: n }, (_, i) => stored?.[i] ?? false);
+}
+
 /** Ensure per-set boolean arrays exist for every slot of a day, sized from the
  *  exercise she will actually perform — the swapped-in alternative when there
  *  is one. Sizing from the plan while counting the resolved exercise is how a
  *  4-box / 3-set session ends up reporting more sets done than it prescribed,
- *  so there is exactly one source of truth: resolvedExercise().sets. */
+ *  so there is exactly one source of truth: resolvedExercise().sets.
+ *
+ *  A resize keeps the ticks it can. Swapping mid-session is the whole point of
+ *  the feature (the machine is taken, the rack is queued), and 27 of the swap
+ *  options change the set count — blanking the array would throw away sets she
+ *  has already done, every time she takes the app's own busy-gym advice. */
 function ensureDay(s: ResetState, dayId: string): ResetState['progress'] {
   const d = dayById(dayId);
   if (!d) return s.progress;
@@ -40,7 +52,8 @@ function ensureDay(s: ResetState, dayId: string): ResetState['progress'] {
   d.ex.forEach((slot) => {
     const e = resolvedExercise(s, dayId, slot.id);
     const a = next[dayId][slot.id];
-    if (!Array.isArray(a) || a.length !== e.sets) next[dayId][slot.id] = new Array(e.sets).fill(false);
+    if (!Array.isArray(a)) next[dayId][slot.id] = new Array(e.sets).fill(false);
+    else if (a.length !== e.sets) next[dayId][slot.id] = setsArray(a, e.sets);
   });
   return next;
 }
@@ -223,7 +236,10 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     const { uid, s } = get();
     if (!uid) return;
     const swaps = { ...s.swaps, [dayId]: { ...(s.swaps[dayId] || {}), [slotId]: altId } };
+    // Resize now, so the stored array matches the new exercise from the moment
+    // the swap is confirmed rather than on her next tap.
     const next = { ...s, swaps };
+    next.progress = ensureDay(next, dayId);
     saveCache(uid, next);
     void upsertAppState(uid, next);
     set({ s: next });
@@ -235,6 +251,7 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     const dayMap = { ...s.swaps[dayId] };
     delete dayMap[slotId];
     const next = { ...s, swaps: { ...s.swaps, [dayId]: dayMap } };
+    next.progress = ensureDay(next, dayId);
     saveCache(uid, next);
     void upsertAppState(uid, next);
     set({ s: next });
