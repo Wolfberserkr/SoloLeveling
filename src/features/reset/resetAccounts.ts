@@ -2,10 +2,17 @@
 // RPG. Hardcoded allowlist, matched against the logged-in email (the Supabase
 // session already carries it — no DB flag or query needed).
 //
-// ▸ TO ENABLE D: add her account email below, lowercase, then redeploy.
-//   e.g. export const RESET_EMAILS = ['d@example.com'];
+// ▸ TO ADD SOMEONE: append their account email below, lowercase, then
+//   redeploy. The account itself is a normal Supabase Auth user — they sign
+//   up through the login page like anyone else; this list only decides which
+//   UI they land in. Never put credentials in this file.
+//
+// Each entry gets its own independent copy of the program: all Reset state
+// (progress, swaps, logged sessions, weights) is keyed by the Supabase user
+// id, so two Reset accounts never see or overwrite each other's training.
 export const RESET_EMAILS: string[] = [
   'thebeautyroombyd@gmail.com',
+  'ulrich0886@gmail.com',
 ];
 
 /** True when this email should be routed to the Reset portal. */
