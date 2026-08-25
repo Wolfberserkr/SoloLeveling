@@ -283,11 +283,13 @@ export const REST_TIPS = [
 // strength Mon/Tue/Thu/Fri, mobility Wed/Sat, rest Sun. Day ids are frozen —
 // logged history and the navigation tests key off them.
 //
-// NOTE ON VIDEOS: brand-new machine movements ship with video: '' on purpose.
-// A guessed YouTube id is a dead embed, which is worse than none — DayView
-// offers a one-tap "Search YouTube" link plus a paste-and-save field, so she
-// can attach a demo in ten seconds at the machine. Only URLs already verified
-// in the home program are carried over.
+// NOTE ON VIDEOS: every movement carries a demo. The machine moves were
+// sourced from real YouTube search results — never a guessed id, because a
+// guessed id is a dead embed and worse than none. The home program's own
+// verified URLs are carried over for the moves that survived (the mobility
+// flow, planks, holds). Embedding is the uploader's choice, so if one refuses
+// to play inline, DayView still offers the "Search YouTube" link and a
+// paste-and-save field to replace it permanently.
 //
 // NOTE ON WHAT'S NOT HERE: calf raises, pec deck, hack squat, ab crunch and
 // the assisted pull-up all live in RESERVE rather than in a day. The hour is
@@ -295,37 +297,37 @@ export const REST_TIPS = [
 // program spends its minutes on last. They are one tap away in the swap menu.
 const PLAN_SPEC: Day[] = [
   { id: 'lower-a', name: 'Lower A', focus: 'Legs, glutes & core · back-squat finisher', dow: 'Monday', kind: 'strength', ex: [
-    { id: 'leg-press',       name: 'Leg Press',          sets: 4, reps: '12–15 reps', tempo: 3,   rest: 60, load: 'Feet mid-platform, hip-width · lower to 90°, no lumbar tuck · 2 reps in reserve, last set all-out · rest 60 sec',   video: '' },
-    { id: 'leg-curl-seated', name: 'Seated Leg Curl',    sets: 3, reps: '12–15 reps', tempo: 3.5, rest: 60, pair: 'A', load: 'SUPERSET A1 · knee joint on the machine pivot · 2-sec lower, no swinging',                                  video: '' },
-    { id: 'leg-extension',   name: 'Leg Extension',      sets: 3, reps: '12–15 reps', tempo: 3,   rest: 60, pair: 'A', load: 'SUPERSET A2 · 1-sec squeeze at the top · rest 45–60 sec after the pair, then straight back to A1',          video: '' },
-    { id: 'glute-drive',     name: 'Hip Thrust Machine', sets: 3, reps: '12–15 reps', tempo: 3.5, rest: 60, pair: 'B', load: 'SUPERSET B1 · pad low on the hips · drive through the heels, 1-sec squeeze at lockout',                     video: '' },
+    { id: 'leg-press',       name: 'Leg Press',          sets: 4, reps: '12–15 reps', tempo: 3,   rest: 60, load: 'Feet mid-platform, hip-width · lower to 90°, no lumbar tuck · 2 reps in reserve, last set all-out · rest 60 sec',   video: 'https://youtu.be/K5n2vg3oZa4' },
+    { id: 'leg-curl-seated', name: 'Seated Leg Curl',    sets: 3, reps: '12–15 reps', tempo: 3.5, rest: 60, pair: 'A', load: 'SUPERSET A1 · knee joint on the machine pivot · 2-sec lower, no swinging',                                  video: 'https://youtu.be/Wy1SwoY2aaQ' },
+    { id: 'leg-extension',   name: 'Leg Extension',      sets: 3, reps: '12–15 reps', tempo: 3,   rest: 60, pair: 'A', load: 'SUPERSET A2 · 1-sec squeeze at the top · rest 45–60 sec after the pair, then straight back to A1',          video: 'https://youtu.be/3zWKiW9BBpo' },
+    { id: 'glute-drive',     name: 'Hip Thrust Machine', sets: 3, reps: '12–15 reps', tempo: 3.5, rest: 60, pair: 'B', load: 'SUPERSET B1 · pad low on the hips · drive through the heels, 1-sec squeeze at lockout',                     video: 'https://youtu.be/tztHvSLdXLA' },
     { id: 'dead-bug',        name: 'Dead Bug',           sets: 3, reps: '8 / side',   tempo: 3,   rest: 60, pair: 'B', load: 'SUPERSET B2 · anti-extension core — lower back glued to the mat, exhale as the leg lowers · this is the back insurance', video: 'https://youtu.be/bxn9FBrt4-A' },
-    { id: 'back-squat-mon',  name: 'Barbell Back Squat', sets: 4, reps: '6–8 reps',   tempo: 4,   rest: 90, rack: true, ramp: true, load: 'FINISHER · set 1 is a ramp at ~50% · then 3 working sets at RPE 7 — leave 3 reps in the tank · brace before every rep · rest 90 sec', video: '' },
+    { id: 'back-squat-mon',  name: 'Barbell Back Squat', sets: 4, reps: '6–8 reps',   tempo: 4,   rest: 90, rack: true, ramp: true, load: 'FINISHER · set 1 is a ramp at ~50% · then 3 working sets at RPE 7 — leave 3 reps in the tank · brace before every rep · rest 90 sec', video: 'https://youtu.be/f-KL4VNN96E' },
   ]},
   { id: 'upper-a', name: 'Upper A', focus: 'Push, shoulders & intervals', dow: 'Tuesday', kind: 'strength', ex: [
-    { id: 'chest-press',     name: 'Chest Press Machine',     sets: 4, reps: '10–12 reps', tempo: 3, rest: 60, load: 'Handles level with mid-chest · press without slamming the elbows straight · last set close to failure · rest 60 sec · add the pec deck after this one if a day runs short', video: '' },
-    { id: 'stair-intervals', name: 'Stair Climber Intervals', sets: 5, reps: '40 sec',     rest: 40, conditioning: true, load: 'CONDITIONING · 40 sec brisk / 40 sec easy · effort 7/10 — short sentences only · rower or bike works the same', video: '' },
-    { id: 'shoulder-press',  name: 'Shoulder Press Machine',  sets: 3, reps: '10–12 reps', tempo: 3, rest: 60, pair: 'A', load: 'SUPERSET A1 (press) · seat high enough that the handles start at ear level · ribs down',                   video: '' },
-    { id: 'rear-delt-fly',   name: 'Rear-Delt Fly Machine',   sets: 3, reps: '12–15 reps', tempo: 3, rest: 60, pair: 'A', load: 'SUPERSET A2 (pull) · pairs against the press so nothing is pre-fatigued · lead with the elbows, pause at the back', video: '' },
-    { id: 'tri-pushdown',    name: 'Cable Triceps Pushdown',  sets: 3, reps: '12–15 reps', tempo: 3, rest: 45, load: 'ROPE, neutral grip — kinder on the elbow than a straight bar · elbows pinned to the ribs · rest 45 sec',              video: '' },
-    { id: 'front-squat-tue', name: 'Barbell Front Squat',     sets: 4, reps: '8 reps',     tempo: 4, rest: 75, rack: true, ramp: true, load: 'FINISHER · technique day: set 1 is an empty-bar ramp, then 3 LIGHT sets · elbows high, 3-sec lower · quality, never a grind · rest 75 sec', video: '' },
+    { id: 'chest-press',     name: 'Chest Press Machine',     sets: 4, reps: '10–12 reps', tempo: 3, rest: 60, load: 'Handles level with mid-chest · press without slamming the elbows straight · last set close to failure · rest 60 sec · add the pec deck after this one if a day runs short', video: 'https://youtu.be/gNBU7hmW2EU' },
+    { id: 'stair-intervals', name: 'Stair Climber Intervals', sets: 5, reps: '40 sec',     rest: 40, conditioning: true, load: 'CONDITIONING · 40 sec brisk / 40 sec easy · effort 7/10 — short sentences only · rower or bike works the same', video: 'https://youtu.be/SZU9Rm0sNOo' },
+    { id: 'shoulder-press',  name: 'Shoulder Press Machine',  sets: 3, reps: '10–12 reps', tempo: 3, rest: 60, pair: 'A', load: 'SUPERSET A1 (press) · seat high enough that the handles start at ear level · ribs down',                   video: 'https://youtu.be/BAZkFGeUy5U' },
+    { id: 'rear-delt-fly',   name: 'Rear-Delt Fly Machine',   sets: 3, reps: '12–15 reps', tempo: 3, rest: 60, pair: 'A', load: 'SUPERSET A2 (pull) · pairs against the press so nothing is pre-fatigued · lead with the elbows, pause at the back', video: 'https://youtu.be/v0rJuhEa59c' },
+    { id: 'tri-pushdown',    name: 'Cable Triceps Pushdown',  sets: 3, reps: '12–15 reps', tempo: 3, rest: 45, load: 'ROPE, neutral grip — kinder on the elbow than a straight bar · elbows pinned to the ribs · rest 45 sec',              video: 'https://youtu.be/vPeQu_L-1n0' },
+    { id: 'front-squat-tue', name: 'Barbell Front Squat',     sets: 4, reps: '8 reps',     tempo: 4, rest: 75, rack: true, ramp: true, load: 'FINISHER · technique day: set 1 is an empty-bar ramp, then 3 LIGHT sets · elbows high, 3-sec lower · quality, never a grind · rest 75 sec', video: 'https://youtu.be/GaZmLWUP85Q' },
   ]},
   { id: 'mobility-wed', name: 'Mobility & Shadow Jump Rope', focus: 'Mobility & conditioning', dow: 'Wednesday', kind: 'mobility', ex: shadowJumpDay('wed') },
   { id: 'lower-b', name: 'Lower B', focus: 'Hinge, hips & core · back-squat finisher', dow: 'Thursday', kind: 'strength', ex: [
-    { id: 'leg-curl-lying', name: 'Lying Leg Curl',        sets: 4, reps: '10–12 reps', tempo: 3.5, rest: 60, load: 'Hips flat on the pad · 2-sec lower · last set close to failure · rest 60 sec',                                          video: '' },
-    { id: 'smith-rdl',      name: 'Smith Machine RDL',     sets: 3, reps: '10–12 reps', tempo: 4,   rest: 90, load: 'STRAIGHT SETS, full 90-sec rest — the one hinge in the week is never rushed · bar grazing the legs, hips back, flat back · stop at mid-shin', video: '' },
-    { id: 'hip-adduction',  name: 'Hip Adduction Machine', sets: 3, reps: '12–15 reps', tempo: 3,   rest: 60, pair: 'A', load: 'SUPERSET A1 · controlled squeeze, never bounce out of the stretch',                                          video: '' },
-    { id: 'hip-abduction',  name: 'Hip Abduction Machine', sets: 3, reps: '12–15 reps', tempo: 3,   rest: 60, pair: 'A', load: 'SUPERSET A2 · same seat, opposite job · lean the torso slightly forward · rest 45–60 sec after the pair',    video: '' },
+    { id: 'leg-curl-lying', name: 'Lying Leg Curl',        sets: 4, reps: '10–12 reps', tempo: 3.5, rest: 60, load: 'Hips flat on the pad · 2-sec lower · last set close to failure · rest 60 sec',                                          video: 'https://youtu.be/i6m3Vp9H40Y' },
+    { id: 'smith-rdl',      name: 'Smith Machine RDL',     sets: 3, reps: '10–12 reps', tempo: 4,   rest: 90, load: 'STRAIGHT SETS, full 90-sec rest — the one hinge in the week is never rushed · bar grazing the legs, hips back, flat back · stop at mid-shin', video: 'https://youtu.be/nmGzbW15qYo' },
+    { id: 'hip-adduction',  name: 'Hip Adduction Machine', sets: 3, reps: '12–15 reps', tempo: 3,   rest: 60, pair: 'A', load: 'SUPERSET A1 · controlled squeeze, never bounce out of the stretch',                                          video: 'https://youtu.be/CjAVezAggkI' },
+    { id: 'hip-abduction',  name: 'Hip Abduction Machine', sets: 3, reps: '12–15 reps', tempo: 3,   rest: 60, pair: 'A', load: 'SUPERSET A2 · same seat, opposite job · lean the torso slightly forward · rest 45–60 sec after the pair',    video: 'https://youtu.be/OjI5OpV6IWA' },
     { id: 'bird-dog',       name: 'Bird Dog',              sets: 3, reps: '8 / side',   tempo: 3,   rest: 45, load: 'Anti-extension core · pause each rep, hips level, no rotation · rest 45 sec',                                           video: 'https://youtu.be/ZdAHe9_HeEw' },
-    { id: 'back-squat-thu', name: 'Barbell Back Squat',    sets: 4, reps: '6–8 reps',   tempo: 4,   rest: 90, rack: true, ramp: true, load: 'FINISHER · set 1 is a ramp at ~50% · then 3 working sets at RPE 7 — leave 3 reps in the tank · same weight as Monday, no hero sets after the hinge · rest 90 sec', video: '' },
+    { id: 'back-squat-thu', name: 'Barbell Back Squat',    sets: 4, reps: '6–8 reps',   tempo: 4,   rest: 90, rack: true, ramp: true, load: 'FINISHER · set 1 is a ramp at ~50% · then 3 working sets at RPE 7 — leave 3 reps in the tank · same weight as Monday, no hero sets after the hinge · rest 90 sec', video: 'https://youtu.be/f-KL4VNN96E' },
   ]},
   { id: 'upper-b', name: 'Upper B', focus: 'Pull, arms & intervals', dow: 'Friday', kind: 'strength', ex: [
-    { id: 'lat-pulldown',   name: 'Lat Pulldown',            sets: 4, reps: '10–12 reps', tempo: 3,   rest: 60, load: 'Neutral / V-handle if the elbow is grumpy · pull to the collarbone, chest tall, no leaning back · rest 60 sec', video: '' },
-    { id: 'row-intervals',  name: 'Rowing Machine Intervals', sets: 5, reps: '40 sec',    rest: 40, conditioning: true, load: 'CONDITIONING · 40 sec hard / 40 sec easy · legs → hips → arms, in that order · stair climber or bike is fine', video: '' },
-    { id: 'cable-row',      name: 'Seated Cable Row',        sets: 3, reps: '10–12 reps', tempo: 3.5, rest: 60, pair: 'A', load: 'SUPERSET A1 · pull to the belly button, shoulders down and back · 1-sec squeeze',                     video: '' },
-    { id: 'cable-woodchop', name: 'Cable Woodchop',          sets: 3, reps: '10 / side',  tempo: 2.5, rest: 60, pair: 'A', load: 'SUPERSET A2 (core) · high-to-low · turn from the ribcage, hips square · light · rest 45–60 sec after the pair', video: '' },
-    { id: 'cable-curl',     name: 'Cable Biceps Curl',       sets: 3, reps: '12 reps',    tempo: 3,   rest: 45, load: 'Rope or EZ attachment, never a straight bar · elbows still at the ribs · rest 45 sec',                          video: '' },
-    { id: 'front-squat-fri', name: 'Barbell Front Squat',    sets: 4, reps: '8 reps',     tempo: 4,   rest: 75, rack: true, ramp: true, load: 'FINISHER · technique day: set 1 is an empty-bar ramp, then 3 LIGHT sets · cross-arm grip if the front rack hurts · 3-sec lower · rest 75 sec', video: '' },
+    { id: 'lat-pulldown',   name: 'Lat Pulldown',            sets: 4, reps: '10–12 reps', tempo: 3,   rest: 60, load: 'Neutral / V-handle if the elbow is grumpy · pull to the collarbone, chest tall, no leaning back · rest 60 sec', video: 'https://youtu.be/CAwf7n6Luuc' },
+    { id: 'row-intervals',  name: 'Rowing Machine Intervals', sets: 5, reps: '40 sec',    rest: 40, conditioning: true, load: 'CONDITIONING · 40 sec hard / 40 sec easy · legs → hips → arms, in that order · stair climber or bike is fine', video: 'https://youtu.be/4zWu1yuJ0_g' },
+    { id: 'cable-row',      name: 'Seated Cable Row',        sets: 3, reps: '10–12 reps', tempo: 3.5, rest: 60, pair: 'A', load: 'SUPERSET A1 · pull to the belly button, shoulders down and back · 1-sec squeeze',                     video: 'https://youtu.be/OeLb503NZHk' },
+    { id: 'cable-woodchop', name: 'Cable Woodchop',          sets: 3, reps: '10 / side',  tempo: 2.5, rest: 60, pair: 'A', load: 'SUPERSET A2 (core) · high-to-low · turn from the ribcage, hips square · light · rest 45–60 sec after the pair', video: 'https://youtu.be/Gwcf4TOj1hc' },
+    { id: 'cable-curl',     name: 'Cable Biceps Curl',       sets: 3, reps: '12 reps',    tempo: 3,   rest: 45, load: 'Rope or EZ attachment, never a straight bar · elbows still at the ribs · rest 45 sec',                          video: 'https://youtu.be/5jxkRHU4spk' },
+    { id: 'front-squat-fri', name: 'Barbell Front Squat',    sets: 4, reps: '8 reps',     tempo: 4,   rest: 75, rack: true, ramp: true, load: 'FINISHER · technique day: set 1 is an empty-bar ramp, then 3 LIGHT sets · cross-arm grip if the front rack hurts · 3-sec lower · rest 75 sec', video: 'https://youtu.be/GaZmLWUP85Q' },
   ]},
   { id: 'mobility-sat', name: 'Mobility & Shadow Jump Rope', focus: 'Mobility & conditioning', dow: 'Saturday', kind: 'mobility', ex: shadowJumpDay('sat') },
   { id: 'rest-sun', name: 'Full Rest Day', focus: 'Recovery', dow: 'Sunday', kind: 'rest', ex: [] },
@@ -413,43 +415,43 @@ export const SWAPS: Record<string, string[]> = {
 // above PLAN) and DayView's "Search YouTube" link fills the gap in seconds.
 export const RESERVE: Exercise[] = [
   // Squat / leg alternates — the busy-rack answers
-  { id: 'smith-squat',      name: 'Smith Machine Squat',  sets: 3, reps: '8–10 reps',   tempo: 4,   load: 'Rack busy? Feet slightly forward, brace, controlled lower · fixed path is easier on the back',  video: '' },
+  { id: 'smith-squat',      name: 'Smith Machine Squat',  sets: 3, reps: '8–10 reps',   tempo: 4,   load: 'Rack busy? Feet slightly forward, brace, controlled lower · fixed path is easier on the back',  video: 'https://youtu.be/3PpzYOubZ5A' },
   { id: 'goblet-squat',     name: 'Goblet Squat',         sets: 3, reps: '10–12 reps',  tempo: 3.5, load: 'Dumbbell or kettlebell at the chest · 3-sec lower · the always-available squat',                 video: 'https://youtu.be/MeIiIdhvXT4' },
-  { id: 'hack-squat',       name: 'Hack Squat',           sets: 3, reps: '10–12 reps',  tempo: 3.5, load: 'Feet mid-platform · down to parallel, no deeper · back flat on the pad',                          video: '' },
-  { id: 'leg-press-single', name: 'Single-leg Leg Press', sets: 3, reps: '10 / leg',    tempo: 3,   load: 'Foot centred on the platform · half the load, twice the glute · slow, hips level',                video: '' },
-  { id: 'glute-kickback',   name: 'Cable Glute Kickback', sets: 3, reps: '12–15 / leg', tempo: 2.5, load: 'Ankle strap · push back and up, no arching the lower back',                                       video: '' },
-  { id: 'back-extension',   name: '45° Back Extension',   sets: 3, reps: '12–15 reps',  tempo: 3,   load: 'Bodyweight only · rise to a straight line and stop — do not arch past it',                        video: '' },
+  { id: 'hack-squat',       name: 'Hack Squat',           sets: 3, reps: '10–12 reps',  tempo: 3.5, load: 'Feet mid-platform · down to parallel, no deeper · back flat on the pad',                          video: 'https://youtu.be/-lAnEGH2blE' },
+  { id: 'leg-press-single', name: 'Single-leg Leg Press', sets: 3, reps: '10 / leg',    tempo: 3,   load: 'Foot centred on the platform · half the load, twice the glute · slow, hips level',                video: 'https://youtu.be/FU7FqGTtCMk' },
+  { id: 'glute-kickback',   name: 'Cable Glute Kickback', sets: 3, reps: '12–15 / leg', tempo: 2.5, load: 'Ankle strap · push back and up, no arching the lower back',                                       video: 'https://youtu.be/5jJNfIlKTmg' },
+  { id: 'back-extension',   name: '45° Back Extension',   sets: 3, reps: '12–15 reps',  tempo: 3,   load: 'Bodyweight only · rise to a straight line and stop — do not arch past it',                        video: 'https://youtu.be/1TAbsYDMZS4' },
   { id: 'wall-sit',         name: 'Wall Sit',             sets: 3, reps: '30–45 sec',   load: 'Thighs parallel · hold a plate on the lap to progress',                                                       video: 'https://youtu.be/JaZNYM3zAP0' },
-  { id: 'calf-standing',    name: 'Standing Calf Raise',  sets: 3, reps: '12–15 reps',  tempo: 4,   load: 'Full stretch at the bottom, 1-sec hold at the top · the first thing to add if a day runs short',  video: '' },
-  { id: 'calf-seated',      name: 'Seated Calf Raise',    sets: 3, reps: '12–15 reps',  tempo: 4,   load: '2-sec lower, 1-sec squeeze · soleus work, easy on everything else',                               video: '' },
+  { id: 'calf-standing',    name: 'Standing Calf Raise',  sets: 3, reps: '12–15 reps',  tempo: 4,   load: 'Full stretch at the bottom, 1-sec hold at the top · the first thing to add if a day runs short',  video: 'https://youtu.be/SVtg-1loH4c' },
+  { id: 'calf-seated',      name: 'Seated Calf Raise',    sets: 3, reps: '12–15 reps',  tempo: 4,   load: '2-sec lower, 1-sec squeeze · soleus work, easy on everything else',                               video: 'https://youtu.be/I1uQtobaNRQ' },
   // Push alternates
-  { id: 'pec-deck',              name: 'Pec Deck',                    sets: 3, reps: '12–15 reps', tempo: 3,   load: 'Soft elbows, 1-sec squeeze · the low-fatigue chest option',                       video: '' },
-  { id: 'incline-press-machine', name: 'Incline Chest Press Machine', sets: 3, reps: '10–12 reps', tempo: 3,   load: 'Upper-chest bias · handles at collarbone height · 1-sec pause off the chest',     video: '' },
-  { id: 'db-flat-press',         name: 'Dumbbell Bench Press',        sets: 3, reps: '10–12 reps', tempo: 3,   load: 'When every press machine is taken · elbows ~45°, control the lower',              video: '' },
-  { id: 'cable-fly',             name: 'Cable Chest Fly',             sets: 3, reps: '12–15 reps', tempo: 3,   load: 'Soft elbows, hug a barrel · 1-sec squeeze in front of the sternum',               video: '' },
+  { id: 'pec-deck',              name: 'Pec Deck',                    sets: 3, reps: '12–15 reps', tempo: 3,   load: 'Soft elbows, 1-sec squeeze · the low-fatigue chest option',                       video: 'https://youtu.be/mEBBK9_vuJg' },
+  { id: 'incline-press-machine', name: 'Incline Chest Press Machine', sets: 3, reps: '10–12 reps', tempo: 3,   load: 'Upper-chest bias · handles at collarbone height · 1-sec pause off the chest',     video: 'https://youtu.be/LiDArz1R2NU' },
+  { id: 'db-flat-press',         name: 'Dumbbell Bench Press',        sets: 3, reps: '10–12 reps', tempo: 3,   load: 'When every press machine is taken · elbows ~45°, control the lower',              video: 'https://youtu.be/5Y3VZsLb1Ys' },
+  { id: 'cable-fly',             name: 'Cable Chest Fly',             sets: 3, reps: '12–15 reps', tempo: 3,   load: 'Soft elbows, hug a barrel · 1-sec squeeze in front of the sternum',               video: 'https://youtu.be/ovFc-5YdcXw' },
   { id: 'pushup',                name: 'Push-up',                     sets: 3, reps: '8–12 reps',  tempo: 3,   load: 'Zero-equipment fallback · hands on a bench to scale · body in one line',          video: 'https://youtu.be/WDIpL0pjun0' },
-  { id: 'db-shoulder-press',     name: 'Dumbbell Shoulder Press',     sets: 3, reps: '10–12 reps', tempo: 3,   load: 'Seated with back support · ribs down, press to just short of lockout',            video: '' },
-  { id: 'cable-lateral-raise',   name: 'Cable Lateral Raise',         sets: 3, reps: '12–15 / side', tempo: 2.5, load: 'Light · lead with the elbow to shoulder height, no shrugging',                  video: '' },
-  { id: 'face-pull',             name: 'Cable Face Pull',             sets: 3, reps: '15–20 reps', tempo: 2.5, load: 'Rope at eye height · pull to the forehead, thumbs back · great posture work',     video: '' },
-  { id: 'oh-cable-triceps',      name: 'Overhead Cable Triceps Extension', sets: 3, reps: '12–15 reps', tempo: 3, load: 'Rope, facing away · elbows high and still · stop short of a hard lockout',     video: '' },
-  { id: 'dip-machine',           name: 'Assisted Dip Machine',        sets: 3, reps: '8–12 reps',  tempo: 3,   load: 'Torso upright for triceps · set the assist so the last rep is hard but clean',    video: '' },
+  { id: 'db-shoulder-press',     name: 'Dumbbell Shoulder Press',     sets: 3, reps: '10–12 reps', tempo: 3,   load: 'Seated with back support · ribs down, press to just short of lockout',            video: 'https://youtu.be/vlFGTI5JzjI' },
+  { id: 'cable-lateral-raise',   name: 'Cable Lateral Raise',         sets: 3, reps: '12–15 / side', tempo: 2.5, load: 'Light · lead with the elbow to shoulder height, no shrugging',                  video: 'https://youtu.be/zpbm-xRHB6k' },
+  { id: 'face-pull',             name: 'Cable Face Pull',             sets: 3, reps: '15–20 reps', tempo: 2.5, load: 'Rope at eye height · pull to the forehead, thumbs back · great posture work',     video: 'https://youtu.be/eTCBSFlCJ_s' },
+  { id: 'oh-cable-triceps',      name: 'Overhead Cable Triceps Extension', sets: 3, reps: '12–15 reps', tempo: 3, load: 'Rope, facing away · elbows high and still · stop short of a hard lockout',     video: 'https://youtu.be/l4i7iDLiMXs' },
+  { id: 'dip-machine',           name: 'Assisted Dip Machine',        sets: 3, reps: '8–12 reps',  tempo: 3,   load: 'Torso upright for triceps · set the assist so the last rep is hard but clean',    video: 'https://youtu.be/D8RIzFsK8gA' },
   // Pull alternates
-  { id: 'assisted-pullup',       name: 'Assisted Pull-up',      sets: 3, reps: '6–8 reps',   tempo: 3.5, load: 'Fresh only — never after rows · neutral handles · set the assist so the last rep is clean', video: '' },
-  { id: 'machine-row',           name: 'Chest-Supported Row Machine', sets: 3, reps: '10–12 reps', tempo: 3, load: 'Chest on the pad — takes the lower back out entirely · squeeze the shoulder blades',    video: '' },
+  { id: 'assisted-pullup',       name: 'Assisted Pull-up',      sets: 3, reps: '6–8 reps',   tempo: 3.5, load: 'Fresh only — never after rows · neutral handles · set the assist so the last rep is clean', video: 'https://youtu.be/fnHeovkmkkk' },
+  { id: 'machine-row',           name: 'Chest-Supported Row Machine', sets: 3, reps: '10–12 reps', tempo: 3, load: 'Chest on the pad — takes the lower back out entirely · squeeze the shoulder blades',    video: 'https://youtu.be/FU6YQawma2Q' },
   { id: 'db-row',                name: 'Single-arm Dumbbell Row', sets: 3, reps: '10 / arm', tempo: 3,   load: 'Brace a hand on the bench · flat back, pull to the hip',                                    video: 'https://youtu.be/pYcpY20QaE8' },
-  { id: 'straight-arm-pushdown', name: 'Straight-arm Pulldown', sets: 3, reps: '12–15 reps', tempo: 2.5, load: 'Rope, soft elbows · lats only, no elbow bend · light',                                      video: '' },
-  { id: 'hammer-curl',           name: 'Dumbbell Hammer Curl',  sets: 3, reps: '12 / arm',   tempo: 3,   load: 'Neutral grip — the most elbow-friendly curl there is · no swinging',                        video: '' },
-  { id: 'preacher-machine',      name: 'Machine Preacher Curl', sets: 3, reps: '12–15 reps', tempo: 3,   load: 'Armpits on the pad · light, slow lower, stop before the elbow complains',                   video: '' },
+  { id: 'straight-arm-pushdown', name: 'Straight-arm Pulldown', sets: 3, reps: '12–15 reps', tempo: 2.5, load: 'Rope, soft elbows · lats only, no elbow bend · light',                                      video: 'https://youtu.be/eKJUJ2eFPUY' },
+  { id: 'hammer-curl',           name: 'Dumbbell Hammer Curl',  sets: 3, reps: '12 / arm',   tempo: 3,   load: 'Neutral grip — the most elbow-friendly curl there is · no swinging',                        video: 'https://youtu.be/8XLxfXROrTo' },
+  { id: 'preacher-machine',      name: 'Machine Preacher Curl', sets: 3, reps: '12–15 reps', tempo: 3,   load: 'Armpits on the pad · light, slow lower, stop before the elbow complains',                   video: 'https://youtu.be/to3m8zws1n8' },
   // Core alternates
-  { id: 'ab-crunch',    name: 'Ab Crunch Machine', sets: 3, reps: '12–15 reps', tempo: 3, load: 'Curl the ribs toward the hips — do not just fold at the hip · exhale at the bottom',    video: '' },
-  { id: 'cable-crunch', name: 'Cable Crunch',      sets: 3, reps: '12–15 reps', tempo: 3, load: 'Kneeling, rope at the ears · curl the ribs down, hips stay put',                        video: '' },
-  { id: 'pallof-press', name: 'Pallof Press',      sets: 3, reps: '8 / side',   tempo: 3, load: 'Anti-rotation · press the handle straight out and resist the twist',                    video: '' },
+  { id: 'ab-crunch',    name: 'Ab Crunch Machine', sets: 3, reps: '12–15 reps', tempo: 3, load: 'Curl the ribs toward the hips — do not just fold at the hip · exhale at the bottom',    video: 'https://youtu.be/G8937xqkxDo' },
+  { id: 'cable-crunch', name: 'Cable Crunch',      sets: 3, reps: '12–15 reps', tempo: 3, load: 'Kneeling, rope at the ears · curl the ribs down, hips stay put',                        video: 'https://youtu.be/aBd6T01PBqw' },
+  { id: 'pallof-press', name: 'Pallof Press',      sets: 3, reps: '8 / side',   tempo: 3, load: 'Anti-rotation · press the handle straight out and resist the twist',                    video: 'https://youtu.be/xeFp4MXad98' },
   { id: 'plank',        name: 'Plank',             sets: 3, reps: '30–45 sec',  load: 'Squeeze glutes, ribs down · quality over minutes',                                                video: 'https://youtu.be/mH5Sfb_KTGg' },
   { id: 'side-plank',   name: 'Side Plank',        sets: 3, reps: '30 sec / side', load: 'Stack the hips, lift them high',                                                               video: 'https://youtu.be/44ND4bOB-T0' },
   { id: 'hollow',       name: 'Hollow Hold',       sets: 3, reps: '20–30 sec',  load: 'Lower back glued to the floor — shorten the legs if it lifts',                                    video: 'https://youtu.be/TNHSgs_orU0' },
   // Conditioning alternates
-  { id: 'treadmill-intervals', name: 'Treadmill Intervals', sets: 5, reps: '40 sec', rest: 40, conditioning: true, load: '40 sec brisk incline walk or jog / 40 sec easy · effort 7/10',   video: '' },
-  { id: 'bike-intervals',      name: 'Bike Intervals',      sets: 5, reps: '40 sec', rest: 40, conditioning: true, load: '40 sec hard / 40 sec spin · the joint-friendliest interval option', video: '' },
+  { id: 'treadmill-intervals', name: 'Treadmill Intervals', sets: 5, reps: '40 sec', rest: 40, conditioning: true, load: '40 sec brisk incline walk or jog / 40 sec easy · effort 7/10',   video: 'https://youtu.be/vdsaHSr1H_E' },
+  { id: 'bike-intervals',      name: 'Bike Intervals',      sets: 5, reps: '40 sec', rest: 40, conditioning: true, load: '40 sec hard / 40 sec spin · the joint-friendliest interval option', video: 'https://youtu.be/rlOOqDgDU3U' },
   // Mobility / bodyweight reserve — carried over from the home program
   { id: 'high-knees',        name: 'High Knees',        sets: 5, reps: '45 sec',    rest: 20, setup: 20, load: 'Drive knees to hip height · fast, light feet',           video: 'https://youtu.be/D0GwAezTvtg' },
   { id: 'jumping-jacks',     name: 'Jumping Jacks',     sets: 5, reps: '45 sec',    rest: 20, setup: 20, load: 'Full range · soft, quiet landings',                      video: 'https://youtu.be/7L-5wpilwv4' },
