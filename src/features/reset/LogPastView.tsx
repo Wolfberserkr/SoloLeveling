@@ -40,7 +40,6 @@ export function LogPastView({
               <button key={d.id} className="day-card" onClick={() => setDayId(d.id)}>
                 <div className="day-top">
                   <div className="day-info">
-                    <div className="day-dow">{d.dow}</div>
                     <div className="day-name">{d.name}</div>
                     <div className="day-focus">{d.focus} · {d.ex.length} exercises</div>
                   </div>

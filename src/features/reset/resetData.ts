@@ -4,7 +4,9 @@
 // no DOM.
 //
 // Design brief this file implements:
-//   • Mon / Tue / Thu / Fri strength · Wed / Sat mobility · Sun full rest.
+//   • Four strength sessions (Lower A/B, Upper A/B) plus a mobility session,
+//     picked by muscle focus on the day — not tied to weekdays (see
+//     PICKABLE_IDS). The app suggests the one trained longest ago.
 //   • Goal is fat loss: 10–15 rep work, 45–60 sec rest, paired supersets for
 //     density, and an interval-conditioning slot on the two upper days —
 //     while every session still carries real, progressive resistance work so
@@ -14,7 +16,7 @@
 //     the barbell squat finisher, the Smith-bar hinge, a couple of dumbbell
 //     reserves.
 //   • Every strength day ENDS on a squat, alternating across the week:
-//     Mon back squat → Tue front squat → Thu back squat → Fri front squat.
+//     Lower A back squat · Upper A front · Lower B back · Upper B front.
 //     Squatting 4×/week only works if the load is honest: the two back-squat
 //     days are MODERATE (ramp set + 3 × 6–8 @ RPE 7, three reps in the tank)
 //     and the two front-squat days are deliberately light technique work.
@@ -22,6 +24,8 @@
 //     by a comment: see estimateMinutes() below. Every Day.estMin is computed
 //     from the day's own exercise data, and tests/resetPlan.test.ts asserts
 //     the function's output (at week 2 AND at week 8) never exceeds 60.
+
+import type { PickOption, Region } from '@/lib/sessionPick';
 
 export type Exercise = {
   id: string;
@@ -57,8 +61,10 @@ export type Day = {
   name: string;
   focus: string;
   ex: Exercise[];
-  dow?: string;
   kind?: DayKind;
+  /** Body region the session loads — drives the "longest since trained"
+   *  suggestion and the 48h recovery warning (see src/lib/sessionPick.ts). */
+  region?: Region;
   /** Estimated door-to-door session length in minutes. Never hand-written —
    *  every value is produced by estimateMinutes() from the day's exercises. */
   estMin?: number;
@@ -252,7 +258,7 @@ export const MOBILITY_COOLDOWN = [
   'Legs up the wall — 1 min, let the heart rate settle',
 ];
 
-// Mobility & shadow-jump-rope days (Wed / Sat) — a shared conditioning + joint-
+// Mobility & shadow-jump-rope sessions (legacy Wed / Sat ids) — a shared conditioning + joint-
 // prep flow. Built as real exercises (sets, reps/time, a demo video per move)
 // so these days log and track exactly like the strength days. Exercise ids are
 // suffixed per day so Wednesday and Saturday keep independent set progress and
@@ -271,7 +277,7 @@ function shadowJumpDay(sfx: string): Exercise[] {
   ];
 }
 
-// Full rest day (Sun). Optional light recovery — nothing to log.
+// Rest-day tips (legacy rest-sun id). Optional light recovery — nothing to log.
 export const REST_TIPS = [
   'Gentle 20–30 min walk if you feel like moving — outside beats a treadmill today',
   'Run the lymphatic-drainage flow below, or foam-roll anything the week left tight',
@@ -279,9 +285,9 @@ export const REST_TIPS = [
   'Let the body absorb the week — rest is where the progress lands',
 ];
 
-// Equipment: a fully equipped commercial gym. Ordered as a Mon–Sun week:
-// strength Mon/Tue/Thu/Fri, mobility Wed/Sat, rest Sun. Day ids are frozen —
-// logged history and the navigation tests key off them.
+// Equipment: a fully equipped commercial gym. Originally designed as a Mon–Sun
+// week (the ids still say so); sessions are now picked freely by focus — see
+// PICKABLE_IDS. Day ids are frozen — logged history and the tests key off them.
 //
 // NOTE ON VIDEOS: every movement carries a demo. The machine moves were
 // sourced from real YouTube search results — never a guessed id, because a
@@ -296,7 +302,7 @@ export const REST_TIPS = [
 // the binding constraint, and isolation work is the first thing a fat-loss
 // program spends its minutes on last. They are one tap away in the swap menu.
 const PLAN_SPEC: Day[] = [
-  { id: 'lower-a', name: 'Lower A', focus: 'Legs, glutes & core · back-squat finisher', dow: 'Monday', kind: 'strength', ex: [
+  { id: 'lower-a', name: 'Lower A', focus: 'Legs, glutes & core · back-squat finisher', kind: 'strength', region: 'lower', ex: [
     { id: 'leg-press',       name: 'Leg Press',          sets: 4, reps: '12–15 reps', tempo: 3,   rest: 60, load: 'Feet mid-platform, hip-width · lower to 90°, no lumbar tuck · 2 reps in reserve, last set all-out · rest 60 sec',   video: 'https://youtu.be/K5n2vg3oZa4' },
     { id: 'leg-curl-seated', name: 'Seated Leg Curl',    sets: 3, reps: '12–15 reps', tempo: 3.5, rest: 60, pair: 'A', load: 'SUPERSET A1 · knee joint on the machine pivot · 2-sec lower, no swinging',                                  video: 'https://youtu.be/Wy1SwoY2aaQ' },
     { id: 'leg-extension',   name: 'Leg Extension',      sets: 3, reps: '12–15 reps', tempo: 3,   rest: 60, pair: 'A', load: 'SUPERSET A2 · 1-sec squeeze at the top · rest 45–60 sec after the pair, then straight back to A1',          video: 'https://youtu.be/3zWKiW9BBpo' },
@@ -304,7 +310,7 @@ const PLAN_SPEC: Day[] = [
     { id: 'dead-bug',        name: 'Dead Bug',           sets: 3, reps: '8 / side',   tempo: 3,   rest: 60, pair: 'B', load: 'SUPERSET B2 · anti-extension core — lower back glued to the mat, exhale as the leg lowers · this is the back insurance', video: 'https://youtu.be/bxn9FBrt4-A' },
     { id: 'back-squat-mon',  name: 'Barbell Back Squat', sets: 4, reps: '6–8 reps',   tempo: 4,   rest: 90, rack: true, ramp: true, load: 'FINISHER · set 1 is a ramp at ~50% · then 3 working sets at RPE 7 — leave 3 reps in the tank · brace before every rep · rest 90 sec', video: 'https://youtu.be/f-KL4VNN96E' },
   ]},
-  { id: 'upper-a', name: 'Upper A', focus: 'Push, shoulders & intervals', dow: 'Tuesday', kind: 'strength', ex: [
+  { id: 'upper-a', name: 'Upper A', focus: 'Push, shoulders & intervals', kind: 'strength', region: 'upper', ex: [
     { id: 'chest-press',     name: 'Chest Press Machine',     sets: 4, reps: '10–12 reps', tempo: 3, rest: 60, load: 'Handles level with mid-chest · press without slamming the elbows straight · last set close to failure · rest 60 sec · add the pec deck after this one if a day runs short', video: 'https://youtu.be/gNBU7hmW2EU' },
     { id: 'stair-intervals', name: 'Stair Climber Intervals', sets: 5, reps: '40 sec',     rest: 40, conditioning: true, load: 'CONDITIONING · 40 sec brisk / 40 sec easy · effort 7/10 — short sentences only · rower or bike works the same', video: 'https://youtu.be/SZU9Rm0sNOo' },
     { id: 'shoulder-press',  name: 'Shoulder Press Machine',  sets: 3, reps: '10–12 reps', tempo: 3, rest: 60, pair: 'A', load: 'SUPERSET A1 (press) · seat high enough that the handles start at ear level · ribs down',                   video: 'https://youtu.be/BAZkFGeUy5U' },
@@ -312,16 +318,16 @@ const PLAN_SPEC: Day[] = [
     { id: 'tri-pushdown',    name: 'Cable Triceps Pushdown',  sets: 3, reps: '12–15 reps', tempo: 3, rest: 45, load: 'ROPE, neutral grip — kinder on the elbow than a straight bar · elbows pinned to the ribs · rest 45 sec',              video: 'https://youtu.be/vPeQu_L-1n0' },
     { id: 'front-squat-tue', name: 'Barbell Front Squat',     sets: 4, reps: '8 reps',     tempo: 4, rest: 75, rack: true, ramp: true, load: 'FINISHER · technique day: set 1 is an empty-bar ramp, then 3 LIGHT sets · elbows high, 3-sec lower · quality, never a grind · rest 75 sec', video: 'https://youtu.be/GaZmLWUP85Q' },
   ]},
-  { id: 'mobility-wed', name: 'Mobility & Shadow Jump Rope', focus: 'Mobility & conditioning', dow: 'Wednesday', kind: 'mobility', ex: shadowJumpDay('wed') },
-  { id: 'lower-b', name: 'Lower B', focus: 'Hinge, hips & core · back-squat finisher', dow: 'Thursday', kind: 'strength', ex: [
+  { id: 'mobility-wed', name: 'Mobility & Shadow Jump Rope', focus: 'Mobility & conditioning', kind: 'mobility', region: 'mobility', ex: shadowJumpDay('wed') },
+  { id: 'lower-b', name: 'Lower B', focus: 'Hinge, hips & core · back-squat finisher', kind: 'strength', region: 'lower', ex: [
     { id: 'leg-curl-lying', name: 'Lying Leg Curl',        sets: 4, reps: '10–12 reps', tempo: 3.5, rest: 60, load: 'Hips flat on the pad · 2-sec lower · last set close to failure · rest 60 sec',                                          video: 'https://youtu.be/i6m3Vp9H40Y' },
     { id: 'smith-rdl',      name: 'Smith Machine RDL',     sets: 3, reps: '10–12 reps', tempo: 4,   rest: 90, load: 'STRAIGHT SETS, full 90-sec rest — the one hinge in the week is never rushed · bar grazing the legs, hips back, flat back · stop at mid-shin', video: 'https://youtu.be/nmGzbW15qYo' },
     { id: 'hip-adduction',  name: 'Hip Adduction Machine', sets: 3, reps: '12–15 reps', tempo: 3,   rest: 60, pair: 'A', load: 'SUPERSET A1 · controlled squeeze, never bounce out of the stretch',                                          video: 'https://youtu.be/CjAVezAggkI' },
     { id: 'hip-abduction',  name: 'Hip Abduction Machine', sets: 3, reps: '12–15 reps', tempo: 3,   rest: 60, pair: 'A', load: 'SUPERSET A2 · same seat, opposite job · lean the torso slightly forward · rest 45–60 sec after the pair',    video: 'https://youtu.be/OjI5OpV6IWA' },
     { id: 'bird-dog',       name: 'Bird Dog',              sets: 3, reps: '8 / side',   tempo: 3,   rest: 45, load: 'Anti-extension core · pause each rep, hips level, no rotation · rest 45 sec',                                           video: 'https://youtu.be/ZdAHe9_HeEw' },
-    { id: 'back-squat-thu', name: 'Barbell Back Squat',    sets: 4, reps: '6–8 reps',   tempo: 4,   rest: 90, rack: true, ramp: true, load: 'FINISHER · set 1 is a ramp at ~50% · then 3 working sets at RPE 7 — leave 3 reps in the tank · same weight as Monday, no hero sets after the hinge · rest 90 sec', video: 'https://youtu.be/f-KL4VNN96E' },
+    { id: 'back-squat-thu', name: 'Barbell Back Squat',    sets: 4, reps: '6–8 reps',   tempo: 4,   rest: 90, rack: true, ramp: true, load: 'FINISHER · set 1 is a ramp at ~50% · then 3 working sets at RPE 7 — leave 3 reps in the tank · same weight as Lower A, no hero sets after the hinge · rest 90 sec', video: 'https://youtu.be/f-KL4VNN96E' },
   ]},
-  { id: 'upper-b', name: 'Upper B', focus: 'Pull, arms & intervals', dow: 'Friday', kind: 'strength', ex: [
+  { id: 'upper-b', name: 'Upper B', focus: 'Pull, arms & intervals', kind: 'strength', region: 'upper', ex: [
     { id: 'lat-pulldown',   name: 'Lat Pulldown',            sets: 4, reps: '10–12 reps', tempo: 3,   rest: 60, load: 'Neutral / V-handle if the elbow is grumpy · pull to the collarbone, chest tall, no leaning back · rest 60 sec', video: 'https://youtu.be/CAwf7n6Luuc' },
     { id: 'row-intervals',  name: 'Rowing Machine Intervals', sets: 5, reps: '40 sec',    rest: 40, conditioning: true, load: 'CONDITIONING · 40 sec hard / 40 sec easy · legs → hips → arms, in that order · stair climber or bike is fine', video: 'https://youtu.be/4zWu1yuJ0_g' },
     { id: 'cable-row',      name: 'Seated Cable Row',        sets: 3, reps: '10–12 reps', tempo: 3.5, rest: 60, pair: 'A', load: 'SUPERSET A1 · pull to the belly button, shoulders down and back · 1-sec squeeze',                     video: 'https://youtu.be/OeLb503NZHk' },
@@ -329,8 +335,8 @@ const PLAN_SPEC: Day[] = [
     { id: 'cable-curl',     name: 'Cable Biceps Curl',       sets: 3, reps: '12 reps',    tempo: 3,   rest: 45, load: 'Rope or EZ attachment, never a straight bar · elbows still at the ribs · rest 45 sec',                          video: 'https://youtu.be/5jxkRHU4spk' },
     { id: 'front-squat-fri', name: 'Barbell Front Squat',    sets: 4, reps: '8 reps',     tempo: 4,   rest: 75, rack: true, ramp: true, load: 'FINISHER · technique day: set 1 is an empty-bar ramp, then 3 LIGHT sets · cross-arm grip if the front rack hurts · 3-sec lower · rest 75 sec', video: 'https://youtu.be/GaZmLWUP85Q' },
   ]},
-  { id: 'mobility-sat', name: 'Mobility & Shadow Jump Rope', focus: 'Mobility & conditioning', dow: 'Saturday', kind: 'mobility', ex: shadowJumpDay('sat') },
-  { id: 'rest-sun', name: 'Full Rest Day', focus: 'Recovery', dow: 'Sunday', kind: 'rest', ex: [] },
+  { id: 'mobility-sat', name: 'Mobility & Shadow Jump Rope', focus: 'Mobility & conditioning', kind: 'mobility', region: 'mobility', ex: shadowJumpDay('sat') },
+  { id: 'rest-sun', name: 'Full Rest Day', focus: 'Recovery', kind: 'rest', ex: [] },
 ];
 
 /** The week, with every estimate derived from the day's own exercise data. */
@@ -361,7 +367,7 @@ export function tipForWeek(w: number): [string, string] {
 export type InjuryFlag = { type: 'back' | 'elbow'; warn: string };
 export const INJURY_FLAGS: Record<string, InjuryFlag> = {
   'back-squat-mon':  { type: 'back',  warn: 'Loaded spine. Brace before every rep and never let the lower back round out of the bottom. RPE 7 means it should look easy — if it barks, swap to the Smith squat or hack squat.' },
-  'back-squat-thu':  { type: 'back',  warn: 'This lands after the hinge, so the erectors are already taxed. Same weight as Monday, three reps in the tank, and stop the set the moment the back rounds.' },
+  'back-squat-thu':  { type: 'back',  warn: 'This lands after the hinge, so the erectors are already taxed. Same weight as Lower A, three reps in the tank, and stop the set the moment the back rounds.' },
   'front-squat-tue': { type: 'back',  warn: 'Front-loaded, but the spine still pays. Keep it light and upright; drop the weight before you lose the torso position.' },
   'front-squat-fri': { type: 'back',  warn: 'Front-loaded, but the spine still pays. Keep it light and upright; drop the weight before you lose the torso position.' },
   'smith-rdl':       { type: 'back',  warn: 'Hinge with a neutral spine only — that is why this one gets full rest and no superset. Stop at mid-shin. If you feel it in the lumbar, shorten the range or swap to the leg curl.' },
@@ -581,6 +587,32 @@ export const NUTRITION_OPTIONS = [
 
 export function dayById(id: string): Day | undefined {
   return PLAN.find((d) => d.id === id);
+}
+
+// ── PICK-YOUR-SESSION ────────────────────────────────────────────────────────
+// Training no longer follows the weekday a session was designed for — she
+// picks today's session by its muscle focus. The four strength sessions plus
+// ONE mobility session are offered; the second mobility copy and the rest day
+// stay in PLAN only so history, swaps and set progress logged against those
+// frozen ids keep resolving.
+export const PICKABLE_IDS = ['lower-a', 'upper-a', 'lower-b', 'upper-b', 'mobility-wed'] as const;
+
+/** Legacy ids that count as a pickable session for "last trained" purposes. */
+const PICK_ALIAS: Record<string, string> = { 'mobility-sat': 'mobility-wed' };
+
+/** The sessions offered on the plan screen, in display order. */
+export function pickableDays(): Day[] {
+  return PICKABLE_IDS.map((id) => dayById(id)!);
+}
+
+/** The pickable session a logged day id counts as (itself, or its alias). */
+export function pickIdFor(dayId: string): string {
+  return PICK_ALIAS[dayId] ?? dayId;
+}
+
+/** Pickable sessions as sessionPick options. */
+export function pickOptions(): PickOption[] {
+  return pickableDays().map((d) => ({ id: d.id, region: d.region! }));
 }
 
 /** Resolve an exercise id: the live plan first, then the reserve pool, then —

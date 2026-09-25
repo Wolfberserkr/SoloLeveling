@@ -45,7 +45,6 @@ export function PlanView({ onOpenDay }: { onOpenDay: (dayId: string) => void }) 
             <button key={d.id} className="day-card" onClick={() => onOpenDay(d.id)}>
               <div className="day-top">
                 <div className="day-info">
-                  {d.dow && <div className="day-dow">{d.dow}</div>}
                   <div className="day-name">{d.name}</div>
                   <div className="day-focus">{d.focus}</div>
                   <div className="day-meta">

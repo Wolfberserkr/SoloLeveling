@@ -3,6 +3,7 @@ import {
   PLAN, RESERVE, RETIRED, SWAPS, INJURY_FLAGS, WEEK_TIPS, TIME_MODEL,
   estimateMinutes, estimateSeconds, setSeconds, repCount,
   exerciseById, isTimedReps, videoSearchUrl, tipForWeek,
+  dayById, pickableDays, pickOptions, pickIdFor,
   type Day,
 } from '../src/features/reset/resetData';
 
@@ -11,22 +12,29 @@ const trainingDays = PLAN.filter((d) => d.kind !== 'rest');
 const lastEx = (d: Day) => d.ex[d.ex.length - 1];
 
 describe('reset gym plan — week shape', () => {
-  it('is a Mon→Sun week of seven days with the frozen day ids', () => {
+  it('keeps the seven frozen day ids', () => {
     // Logged history and the back-nav / session-edit tests key off these ids.
     expect(PLAN.map((d) => d.id)).toEqual([
       'lower-a', 'upper-a', 'mobility-wed', 'lower-b', 'upper-b', 'mobility-sat', 'rest-sun',
     ]);
-    expect(PLAN.map((d) => d.dow)).toEqual([
-      'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday',
-    ]);
   });
 
-  it('trains Mon/Tue/Thu/Fri, does mobility Wed/Sat and rests Sunday', () => {
-    const byKind = (k: string) => PLAN.filter((d) => d.kind === k).map((d) => d.dow);
-    expect(byKind('strength')).toEqual(['Monday', 'Tuesday', 'Thursday', 'Friday']);
-    expect(byKind('mobility')).toEqual(['Wednesday', 'Saturday']);
-    expect(byKind('rest')).toEqual(['Sunday']);
-    expect(PLAN).toHaveLength(7);
+  it('is not tied to weekdays — no day carries a weekday label', () => {
+    for (const d of PLAN) expect((d as Record<string, unknown>).dow, d.id).toBeUndefined();
+  });
+
+  it('offers four strength sessions and one mobility session to pick from', () => {
+    const picks = pickableDays();
+    expect(picks.map((d) => d.id)).toEqual(['lower-a', 'upper-a', 'lower-b', 'upper-b', 'mobility-wed']);
+    expect(picks.map((d) => d.kind)).toEqual(['strength', 'strength', 'strength', 'strength', 'mobility']);
+    expect(picks.map((d) => d.region)).toEqual(['lower', 'upper', 'lower', 'upper', 'mobility']);
+    expect(pickOptions()).toEqual(picks.map((d) => ({ id: d.id, region: d.region })));
+  });
+
+  it('counts the legacy second mobility day as the pickable mobility session', () => {
+    expect(pickIdFor('mobility-sat')).toBe('mobility-wed');
+    expect(pickIdFor('lower-a')).toBe('lower-a');
+    expect(dayById('mobility-sat')?.region).toBe('mobility');
   });
 
   it('gives every training day exercises and the rest day none', () => {
