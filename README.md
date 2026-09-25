@@ -87,11 +87,20 @@ XP curve: `totalXp(L) = round(425·(L^1.55 − 1))`, repeatables capped at
 
 A second, light-themed app lives under `src/features/reset/` and is reached by
 role routing in `src/App.tsx` — a standalone workout tracker, not part of the
-RPG. It runs a **4-day machine-based gym program built for fat loss**
-(Mon/Tue/Thu/Fri strength, Wed/Sat mobility, Sun rest): short rests (45–60 sec
+RPG. It runs a **4-session machine-based gym program built for fat loss**
+(Lower A/B, Upper A/B, plus a mobility session): short rests (45–60 sec
 on the machines, 90 sec on the hinge and the squat), paired supersets for
 density, interval conditioning on the upper days, and a barbell squat finisher
-on every strength day that alternates back → front across the week.
+on every strength session (back squat on the lower days, front on the upper).
+
+**Sessions are picked, not scheduled.** Nothing is tied to a weekday: the plan
+tab lets her pick today's session by muscle focus, with a "Last trained"
+banner, a *Suggested today* badge on the session trained longest ago whose
+body region has recovered, and a soft warning when a region was trained in the
+last 48h (`src/lib/sessionPick.ts`, shared with the RPG Gym Dungeon picker).
+**Every training day resets at 00:00 local**: any session with ticked sets is
+logged to the calendar on the day it was trained (partial if unfinished) and
+the % rings return to 0 (`rolloverProgress` in `resetStore.ts`).
 
 The whole program is pure data in `src/features/reset/resetData.ts`: the week
 `PLAN` (day ids are frozen — logged history keys off them), `WARMUP` /
