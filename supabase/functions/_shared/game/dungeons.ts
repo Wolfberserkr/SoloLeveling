@@ -3,9 +3,11 @@
 //
 // Each dungeon is a multi-week training phase (Foundation → Master Physique).
 // A gym session is one dungeon run: max one per day, costs mana, pays XP.
-// Runs follow a 4-day Upper/Lower split (Upper A → Lower A → Upper B →
-// Lower B), cycled by run count — miss a day and the cycle waits, a session
-// is never skipped. Clearing enough runs unlocks the phase's Boss Fight — a
+// Runs use a 4-session Upper/Lower split (Upper A, Lower A, Upper B,
+// Lower B), trained on whatever days the Player makes it. The client suggests
+// the session trained longest ago (src/features/dungeons/gymPick.ts);
+// sessionKindFor's run-count cycle is only the server's fallback when a
+// request names no session. Clearing enough runs unlocks the phase's Boss Fight — a
 // concrete benchmark test. Defeating the boss clears the dungeon: the next
 // phase opens and the Daily Training Quest baseline rises one notch (the
 // `dungeonCycles` hook in training.ts). Benchmarks are self-reported; the
@@ -33,7 +35,7 @@ export const SESSION_LABELS: Record<SessionKind, { title: string; focus: string 
   lower_b: { title: 'Lower B — Earth-Splitter', focus: 'Hinge + posterior chain' },
 };
 
-/** Which session the cycle suggests next — runs cycle A→B→C→D, never skip. */
+/** Fallback session by run count (A→B→C→D) — used only when none is named. */
 export function sessionKindFor(sessionsCompleted: number): SessionKind {
   return SESSION_ORDER[((sessionsCompleted % 4) + 4) % 4];
 }

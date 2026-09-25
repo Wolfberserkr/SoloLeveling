@@ -4,6 +4,7 @@ import { gameAction } from '@/lib/gameApi';
 import { EXPLORES_PER_DAY } from '@game/encounters.ts';
 import { focusKeysPerDay } from '@game/focus.ts';
 import { buildSpartanSnapshot, type SpartanSnapshot } from '@game/spartan.ts';
+import { gymRunsFrom, type GymRun } from '@/features/dungeons/gymPick';
 import type {
   Profile,
   StatRow,
@@ -55,6 +56,9 @@ type PlayerState = {
   nutrition: NutritionLog | null; // today's Fuel Protocol log, if any
   dungeon: DungeonProgress | null;
   gymDoneToday: boolean;
+  /** Recent dungeon runs, newest first — feeds the pick-your-session
+   *  suggestion ("longest since trained") and the 48h recovery warning. */
+  gymHistory: GymRun[];
   legacy: LegacySnapshot | null; // the armed Legacy Boss, if any
   metrics: BodyMetrics | null; // latest entry
   books: Book[];
@@ -117,6 +121,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
   nutrition: null,
   dungeon: null,
   gymDoneToday: false,
+  gymHistory: [],
   legacy: null,
   metrics: null,
   books: [],
@@ -263,6 +268,7 @@ export const usePlayerStore = create<PlayerState>((set) => ({
       nutrition: null,
       dungeon: null,
       gymDoneToday: false,
+      gymHistory: [],
       legacy: null,
       metrics: null,
       books: [],
@@ -352,9 +358,9 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
       supabase.from('dungeon_progress').select('*').maybeSingle(),
       supabase
         .from('gym_sessions')
-        .select('local_date')
+        .select('local_date, session_kind, created_at')
         .order('local_date', { ascending: false })
-        .limit(1),
+        .limit(20),
       supabase
         .from('body_metrics')
         .select('*')
@@ -507,6 +513,7 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     nutrition: nutritionRow && nutritionRow.local_date === today ? nutritionRow : null,
     dungeon: (dungeonRes.data ?? null) as DungeonProgress | null,
     gymDoneToday: Boolean(gymRow && gymRow.local_date === today),
+    gymHistory: gymRunsFrom(gymRes.data),
     metrics: metricsRow,
     books: (booksRes.data ?? []) as Book[],
     dueQuestions,
@@ -529,3 +536,4 @@ async function readState(set: (partial: Partial<PlayerState>) => void) {
     ),
   });
 }
+

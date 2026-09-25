@@ -13,7 +13,6 @@ import {
   allDungeonsCleared,
   isBossReady,
   demoSearchUrl,
-  sessionKindFor,
   splitFor,
   MAX_DUNGEON_PHASE,
   SESSION_ORDER,
@@ -25,6 +24,8 @@ import {
 } from '@game/dungeons.ts';
 import { MANA_COSTS } from '@game/mana.ts';
 import { LegacyPanel } from './LegacyPanel';
+import { gymPickOptions, gymTrained } from './gymPick';
+import { daysAgoLabel, lastTrainedMap, mostRecent, recoveryWarning, suggestSession } from '@/lib/sessionPick';
 import type { DungeonProgress, LiftLog, XpAward } from '@/lib/types';
 
 export function DungeonsPage() {
@@ -74,7 +75,7 @@ function liftStats(logs: LiftLog[], exercise: string): { last: LiftLog | null; b
 }
 
 function DungeonRunPanel() {
-  const { profile, dungeon, gymDoneToday, liftLogs, setDungeon, refresh } = usePlayerStore();
+  const { profile, dungeon, gymDoneToday, gymHistory, liftLogs, setDungeon, refresh } = usePlayerStore();
   const pushAlert = useUiStore((s) => s.pushAlert);
   const showLevelUp = useUiStore((s) => s.showLevelUp);
   const burstXp = useUiStore((s) => s.burstXp);
@@ -91,8 +92,17 @@ function DungeonRunPanel() {
   if (!profile || !dungeon) return null;
   const def = dungeonPhaseFor(dungeon.phase);
   const affordable = profile.mana >= MANA_COSTS.gym;
-  const suggested = sessionKindFor(dungeon.sessions_completed);
+  // No fixed weekdays, no fixed cycle: suggest the session trained longest
+  // ago whose region has recovered (48h), and remind what was trained last.
+  const now = Date.now();
+  const pickOpts = gymPickOptions();
+  const trained = gymTrained(gymHistory);
+  const suggested = (suggestSession(pickOpts, trained, now) ?? SESSION_ORDER[0]) as SessionKind;
   const kind = selected ?? suggested;
+  const lastByKind = lastTrainedMap(trained);
+  const lastRun = mostRecent(trained);
+  const hasTicks = Object.values(ticked).some(Boolean);
+  const warn = gymDoneToday || hasTicks ? null : recoveryWarning(pickOpts, trained, kind, now);
 
   async function clearRun(at?: { x: number; y: number }) {
     if (busy || gymDoneToday || !affordable) return;
@@ -148,8 +158,20 @@ function DungeonRunPanel() {
         />
       </div>
 
-      {/* Pick today's session — the cycle marks the suggested next one. */}
-      <div className="mt-4 grid grid-cols-4 gap-1">
+      <div className="mt-4 border-l-2 border-accent-cyan/50 bg-accent-cyan/5 px-3 py-2 font-sys text-[0.65rem] uppercase tracking-widest text-slate-400">
+        Last trained:{' '}
+        {lastRun ? (
+          <span className="text-accent-cyan">
+            {SESSION_LABELS[lastRun.id as SessionKind].title.split(' — ')[0]} ·{' '}
+            {SESSION_LABELS[lastRun.id as SessionKind].focus} · {daysAgoLabel(Date.parse(lastRun.date), now)}
+          </span>
+        ) : (
+          <span className="text-slate-500">no runs recorded yet</span>
+        )}
+      </div>
+
+      {/* Pick today's session by muscle focus — the System marks a suggestion. */}
+      <div className="mt-3 grid grid-cols-4 gap-1">
         {SESSION_ORDER.map((k) => (
           <button
             key={k}
@@ -166,7 +188,9 @@ function DungeonRunPanel() {
             }`}
           >
             {SESSION_LABELS[k].title.split(' — ')[0]}
-            {k === suggested && <span className="block text-[0.5rem] opacity-70">next</span>}
+            <span className="block text-[0.5rem] opacity-70">
+              {k === suggested ? 'suggested' : lastByKind.has(k) ? daysAgoLabel(lastByKind.get(k)!, now) : 'new'}
+            </span>
           </button>
         ))}
       </div>
@@ -179,6 +203,12 @@ function DungeonRunPanel() {
           {SESSION_LABELS[kind].focus}
         </div>
       </div>
+
+      {warn && (
+        <div className="mt-3 border border-accent-gold/40 bg-accent-gold/10 px-3 py-2 font-sys text-[0.7rem] leading-relaxed text-accent-gold">
+          ⚠ {warn} The choice is still yours.
+        </div>
+      )}
 
       <ExerciseBlock label="Warmup" exercises={WARMUPS[split]} />
 
@@ -232,8 +262,9 @@ function DungeonRunPanel() {
       <ExerciseBlock label="Cooldown" exercises={COOLDOWNS[split]} />
 
       <p className="mt-3 text-xs leading-relaxed text-slate-500">
-        Four runs a week — e.g. Mon · Tue · Thu · Fri. The System suggests the next session in
-        the cycle, but the choice is yours: pick any of the four above.
+        Train on whatever days you can make it. The System suggests the session trained longest
+        ago and warns if a region is still recovering (48h) — the choice is yours: pick any of the
+        four above. Ticks reset at 00:00; cleared runs stay on record.
       </p>
 
       {gymDoneToday ? (
