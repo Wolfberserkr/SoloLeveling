@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import {
   LYMPH_VIDEO, WARMUP, COOLDOWN, MOBILITY_COOLDOWN, TRIM_ORDER, REST_TIPS, INJURY_FLAGS,
-  dayById, estimateMinutes, isTimedReps, videoSearchUrl, type Exercise,
+  dayById, estimateMinutes, isTimedReps, pickOptions, videoSearchUrl, type Exercise,
 } from './resetData';
-import { dayCount, effectiveVideo, resolvedExercise, setsArray, useResetStore } from './resetStore';
+import { dayCount, effectiveVideo, resolvedExercise, setsArray, trainedHistory, useResetStore } from './resetStore';
+import { recoveryWarning } from '@/lib/sessionPick';
 import { parseVideo } from './resetVideo';
 import { SwapModal } from './SwapModal';
 
@@ -224,6 +225,9 @@ export function DayView({
   // Length for the week she is in, not a fixed baseline (week 1 is a ramp-in,
   // week 5 a deload — both genuinely shorter).
   const estMin = estimateMinutes(d, { week: s.week });
+  // Soft 48h reminder — shown, never enforced. Once she has ticked a set the
+  // session is under way, and the note has done its job.
+  const warn = c.done === 0 ? recoveryWarning(pickOptions(), trainedHistory(s), dayId, Date.now()) : null;
 
   return (
     <>
@@ -235,6 +239,8 @@ export function DayView({
           {estMin ? ` · ≈ ${estMin} min` : ''}
         </div>
       </div>
+
+      {warn && <div className="recovery-note" style={{ marginBottom: 12 }}>{warn} You can still train it — just go lighter.</div>}
 
       {mobility ? (
         <LymphBlock />

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { todayInTz } from '@/lib/dates';
-import { dayById, exerciseById, type Exercise } from './resetData';
+import { dayById, exerciseById, pickIdFor, type Exercise } from './resetData';
+import type { TrainedEntry } from '@/lib/sessionPick';
 import {
   defaultState, loadCache, saveCache, flushQueue, fetchAll,
   upsertAppState, insertSession, insertExerciseLog, upsertWeight, upsertNutrition,
@@ -450,8 +451,14 @@ export function dayCount(s: ResetState, dayId: string): { done: number; total: n
   return { done, total, pct: total ? Math.round((done / total) * 100) : 0 };
 }
 
+/** Logged workouts as sessionPick history — legacy ids folded onto the
+ *  pickable session they count as (the second mobility day → mobility). */
+export function trainedHistory(s: ResetState): TrainedEntry[] {
+  return s.history.filter((x) => x.done > 0).map((x) => ({ id: pickIdFor(x.dayId), date: x.date }));
+}
+
 export function lastDone(s: ResetState, dayId: string): string | null {
-  const h = s.history.filter((x) => x.dayId === dayId);
+  const h = s.history.filter((x) => pickIdFor(x.dayId) === dayId);
   if (!h.length) return null;
   return relDate(h[h.length - 1].date);
 }

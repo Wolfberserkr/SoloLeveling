@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PLAN } from './resetData';
+import { pickableDays } from './resetData';
 import { useResetStore } from './resetStore';
 import { SessionEditor, seedFromPlan } from './SessionEditor';
 
@@ -17,7 +17,7 @@ export function LogPastView({
   const [dayId, setDayId] = useState<string | null>(null);
   const when = new Date(`${dateISO}T12:00:00`);
   const dateLabel = when.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-  const days = PLAN.filter((d) => d.kind !== 'rest');
+  const days = pickableDays();
 
   return (
     <>
