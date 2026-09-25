@@ -108,6 +108,14 @@ The whole program is pure data in `src/features/reset/resetData.ts`: the week
 tennis elbow), and `SWAPS` + `RESERVE` so a busy machine always has an
 alternative.
 
+**The program week drives the prescription.** `weekPrescription(ex, week)`
+is the one rule set behind what she sees, ticks and logs *and* what the time
+model costs: week 1 halves the sets (ramp-in), week 5 deloads to 2 sets per
+exercise (same reps, same loads), week 6+ cuts superset rests to 45 sec, and
+weeks 7–8 run the intervals as 6 × 40 sec / 30 sec easy. Change the week and
+the boxes, % rings and logged sessions re-size automatically; each card shows
+a short note on what the week changed.
+
 **The one-hour cap is executable, not a comment.** `estimateMinutes(day, opts)`
 costs a session out of its own exercise data — work sets priced as reps ×
 tempo, rest, station changes, the squat rack, per-set logging time, warm-up,

@@ -32,7 +32,9 @@ function stored(dayId: string, slotId: string): boolean[] | undefined {
 
 beforeEach(() => {
   store.clear();
-  useResetStore.setState({ uid: UID, ready: true, s: defaultState() });
+  // Week 2 = full volume; the week-1 ramp-in and week-5 deload have their
+  // own tests (resetWeekPrescription.test.ts).
+  useResetStore.setState({ uid: UID, ready: true, s: { ...defaultState(), week: 2 } });
 });
 
 describe('swapping a machine mid-session (the busy-gym path)', () => {

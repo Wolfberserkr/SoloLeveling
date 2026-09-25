@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   LYMPH_VIDEO, WARMUP, COOLDOWN, MOBILITY_COOLDOWN, TRIM_ORDER, REST_TIPS, INJURY_FLAGS,
-  dayById, estimateMinutes, isTimedReps, pickOptions, videoSearchUrl, type Exercise,
+  dayById, estimateMinutes, exerciseById, isTimedReps, pickOptions, videoSearchUrl, weekNote, weekPrescription, type Exercise,
 } from './resetData';
 import { dayCount, effectiveVideo, resolvedExercise, setsArray, trainedHistory, useResetStore } from './resetStore';
 import { recoveryWarning } from '@/lib/sessionPick';
@@ -91,6 +91,8 @@ function ExerciseCard({ dayId, slotId, onSwap }: { dayId: string; slotId: string
   const flag = INJURY_FLAGS[e.id];
   const lg = s.log[slotId] || { reps: '', weight: '' };
   const timed = isTimedReps(e.reps);
+  // What this program week changed, measured against the exercise as written.
+  const note = weekNote(exerciseById(e.id)!, s.week);
 
   return (
     <div className={`ex ${done ? 'done' : ''}`}>
@@ -107,6 +109,7 @@ function ExerciseCard({ dayId, slotId, onSwap }: { dayId: string; slotId: string
             {swapped && <span className="swap-badge">SWAPPED</span>}
           </div>
           <div className="ex-prescribe">{e.sets} × {e.reps}</div>
+          {note && <div className="week-note">{note}</div>}
           <span className="ex-load">{e.load}</span>
           {flag && (
             <div className={`injury-flag ${flag.type}`}>
@@ -218,7 +221,7 @@ export function DayView({
   // Rest range comes from the plan data (conditioning rounds excluded — their
   // recovery is part of the prescription), so the header can never drift from
   // what the exercises actually say.
-  const rests = d.ex.filter((e) => !e.conditioning).map((e) => e.rest ?? 60);
+  const rests = d.ex.filter((e) => !e.conditioning).map((e) => weekPrescription(e, s.week).rest ?? 60);
   const restLabel = rests.length
     ? `rest ${Math.min(...rests)}–${Math.max(...rests)} sec`
     : 'easy pace';

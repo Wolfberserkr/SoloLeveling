@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { todayInTz } from '@/lib/dates';
-import { dayById, exerciseById, pickIdFor, type Exercise } from './resetData';
+import { dayById, exerciseById, pickIdFor, weekPrescription, type Exercise } from './resetData';
 import type { TrainedEntry } from '@/lib/sessionPick';
 import {
   defaultState, loadCache, saveCache, flushQueue, fetchAll,
@@ -124,6 +124,9 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     if (!uid) return;
     const week = Math.min(12, Math.max(1, s.week + n));
     const next = { ...s, week };
+    // The week sets the set count (deload, ramp-in), so re-size any day in
+    // progress now — keeping the ticks that still fit, like a swap does.
+    Object.keys(next.progress).forEach((dayId) => { next.progress = ensureDay(next, dayId); });
     saveCache(uid, next);
     void upsertAppState(uid, next);
     set({ s: next });
@@ -394,7 +397,16 @@ export function buildRetroSession(dayId: string, dateISO: string, exercises: Ses
 }
 
 // ── Pure selectors (take the state slice) ────────────────────────────────────
+/** The exercise she performs in a slot today: the swapped-in alternative
+ *  when there is one, with the program week applied (week-1 half sets, the
+ *  week-5 deload, density rests, peak intervals — see weekPrescription). The
+ *  boxes, the rings and the logged session all size from this, so a deload
+ *  week automatically asks for 2 sets everywhere. */
 export function resolvedExercise(s: ResetState, dayId: string, exId: string): Exercise {
+  return weekPrescription(slotExercise(s, dayId, exId), s.week ?? 2);
+}
+
+function slotExercise(s: ResetState, dayId: string, exId: string): Exercise {
   const altId = s.swaps?.[dayId]?.[exId];
   if (altId) {
     const alt = exerciseById(altId);

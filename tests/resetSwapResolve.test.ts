@@ -4,7 +4,7 @@ import { dayCount, resolvedExercise, sessionTally, setsArray } from '../src/feat
 import { defaultState, type ResetState } from '../src/features/reset/resetDb';
 
 function stateWith(swaps: ResetState['swaps'], progress: ResetState['progress'] = {}): ResetState {
-  return { ...defaultState(), swaps, progress };
+  return { ...defaultState(), week: 2, swaps, progress }; // full-volume week
 }
 
 /** Every plan slot that still has a saved swap pointing at a retired id. The

@@ -1,4 +1,4 @@
-import { exerciseById, INJURY_FLAGS, SWAPS } from './resetData';
+import { exerciseById, weekPrescription, INJURY_FLAGS, SWAPS } from './resetData';
 import { resolvedExercise, useResetStore } from './resetStore';
 
 /** Swap-exercise modal — pick a safer/different alternative for a slot. */
@@ -20,8 +20,9 @@ export function SwapModal({ dayId, slotId, onClose }: { dayId: string; slotId: s
           <p style={{ color: 'var(--ink-3)', fontSize: 13, padding: '8px 0' }}>No alternatives configured.</p>
         )}
         {alts.map((altId) => {
-          const ex = exerciseById(altId);
-          if (!ex) return null;
+          const base = exerciseById(altId);
+          if (!base) return null;
+          const ex = weekPrescription(base, s.week);
           const flag = INJURY_FLAGS[altId];
           return (
             <div

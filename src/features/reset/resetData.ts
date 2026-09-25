@@ -159,20 +159,58 @@ export type EstimateOpts = {
   week?: number;
 };
 
-/** One exercise as it is actually performed in a given program week. */
-function weekView(ex: Exercise, week: number): { sets: number; work: number; rest: number } {
-  let sets = ex.sets;
-  let work = setSeconds(ex);
-  let rest = ex.rest ?? TIME_MODEL.defaultRest;
-  if (week <= 1) sets = Math.max(1, Math.ceil(sets / 2));          // week 1 ramp-in
-  if (week === 5) sets = Math.min(sets, TIME_MODEL.deloadSets);    // week 5 deload
-  if (week >= 6 && ex.pair) rest = Math.min(rest, TIME_MODEL.densityRestSec);
+/** One exercise as it is actually performed in a given program week — the
+ *  prescription the day view shows, the boxes she ticks and the session that
+ *  gets logged, and the numbers the time model costs. One rule set, so the
+ *  plan she sees can never disagree with the WEEK_TIPS or the hour cap:
+ *    • week 1  ramp-in — half the sets (rounded up), same reps
+ *    • week 5  deload  — at most 2 sets, same reps, same loads
+ *    • week 6+ density — superset rests drop to 45 sec
+ *    • week 7+ peak    — intervals run 6 × 40 sec hard / 30 sec easy
+ *  Reps never change for the strength work: the deload cuts volume, not
+ *  the rep target. Retired stubs (no prescription) pass through untouched. */
+export function weekPrescription(ex: Exercise, week: number): Exercise {
+  if (ex.retired) return ex;
+  const T = TIME_MODEL;
+  let { sets, reps } = ex;
+  let rest = ex.rest ?? T.defaultRest;
+  if (week <= 1) sets = Math.max(1, Math.ceil(sets / 2));
+  if (week === 5) sets = Math.min(sets, T.deloadSets);
+  if (week >= 6 && ex.pair) rest = Math.min(rest, T.densityRestSec);
   if (week >= 7 && ex.conditioning) {
-    sets = TIME_MODEL.peakIntervalRounds;
-    work = TIME_MODEL.peakIntervalWorkSec;
-    rest = TIME_MODEL.peakIntervalRestSec;
+    sets = T.peakIntervalRounds;
+    reps = `${T.peakIntervalWorkSec} sec`;
+    rest = T.peakIntervalRestSec;
   }
-  return { sets, work, rest };
+  if (sets === ex.sets && reps === ex.reps && rest === (ex.rest ?? T.defaultRest)) return ex;
+  return { ...ex, sets, reps, rest };
+}
+
+/** A one-line note on what this program week changed for an exercise, or
+ *  null when it runs as written. Shown on the exercise card. */
+export function weekNote(ex: Exercise, week: number): string | null {
+  const w = weekPrescription(ex, week);
+  if (w === ex) return null;
+  if (week >= 7 && ex.conditioning) {
+    return `Weeks 7–8: ${w.sets} rounds of ${TIME_MODEL.peakIntervalWorkSec} sec hard / ${w.rest} sec easy`;
+  }
+  const parts: string[] = [];
+  if (w.sets !== ex.sets) {
+    const why = week === 5 ? 'Deload week — same weight, same reps' : 'Week 1 ramp-in — learn the machine';
+    parts.push(`${why}: ${w.sets} of ${ex.sets} sets`);
+  }
+  if (w.rest !== (ex.rest ?? TIME_MODEL.defaultRest)) parts.push(`Density: rest ${w.rest} sec after the pair`);
+  return parts.join(' · ') || null;
+}
+
+function weekView(ex: Exercise, week: number): { sets: number; work: number; rest: number } {
+  const w = weekPrescription(ex, week);
+  const conditioningPeak = week >= 7 && ex.conditioning;
+  return {
+    sets: w.sets,
+    work: conditioningPeak ? TIME_MODEL.peakIntervalWorkSec : setSeconds(ex),
+    rest: w.rest ?? TIME_MODEL.defaultRest,
+  };
 }
 
 /** Split a day into blocks: consecutive exercises sharing a `pair` key run as
@@ -349,9 +387,9 @@ export const PLAN: Day[] = PLAN_SPEC.map((d) =>
 // Every step is TIME-NEUTRAL: intensity is bought with shorter rests, never
 // with extra rounds, because the hour is the constraint that never moves.
 export const WEEK_TIPS: Record<number, [string, string]> = {
-  1: ['Weeks 1–2', 'Week 1 is a ramp-in: <b>half the sets</b> (two per exercise, ramp + one working set on the squat) while you learn the machines — write down every seat height and pin. Week 2: full sets, 2–3 reps in reserve.'],
+  1: ['Weeks 1–2', 'Week 1 is a ramp-in: <b>half the sets</b> (the boxes already show it — ramp + one working set on the squat) while you learn the machines — write down every seat height and pin. Week 2: full sets, 2–3 reps in reserve.'],
   3: ['Weeks 3–4', '<b>Add load.</b> Hit the top of the rep range on every set and the pin moves one notch deeper next session. Last set of each main machine goes close to failure — the squat stays at RPE 7.'],
-  5: ['Weeks 5–6', '<b>Week 5 is a deload</b>: 2 sets per exercise, same loads, stop 3 reps short — the plan card will show the shorter session. Week 6 raises density instead of volume: superset rests down to <b>45 sec</b> at the loads you deloaded from.'],
+  5: ['Weeks 5–6', '<b>Week 5 is a deload</b>: 2 sets per exercise, same loads, same reps — each exercise already shows 2 sets, and the plan card shows the shorter session. Week 6 raises density instead of volume: superset rests down to <b>45 sec</b> at the loads you deloaded from.'],
   7: ['Weeks 7–8', 'Intervals go to <b>6 rounds of 40 sec hard / 30 sec easy</b> — intensity bought with shorter recoveries, not extra rounds, so the session still fits the hour. Squat stays at three working sets; in week 8, re-test your week-1 loads.'],
 };
 export function tipForWeek(w: number): [string, string] {
