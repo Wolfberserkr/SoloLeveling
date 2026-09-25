@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { todayInTz } from '@/lib/dates';
 import { dayById, exerciseById, type Exercise } from './resetData';
 import {
   defaultState, loadCache, saveCache, flushQueue, fetchAll,
@@ -26,7 +27,15 @@ type ResetStore = {
   saveNutrition: (rating: string, note: string) => void;
   logWeight: (kg: number) => void;
   setCalMonth: (m: string) => void;
+  /** Close out a finished day: log any ticked session to the calendar on the
+   *  day it was trained and reset every ring to 0%. No-op on the same day. */
+  rollover: () => void;
 };
+
+/** Device-local YYYY-MM-DD — the Reset portal's "today" (00:00 local reset). */
+export function localDate(d: Date = new Date()): string {
+  return todayInTz(null, d);
+}
 
 /** Re-length a per-set array to `n`, carrying over the sets already ticked.
  *  Shared with the day view so the boxes she sees and the boxes stored are
@@ -81,12 +90,17 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     // Background reconcile with the cloud, then merge.
     await flushQueue(uid);
     const cloud = await fetchAll(uid);
-    if (!cloud) return;
+    // Roll the day over only once the cloud has had its say: rolling a stale
+    // cache first would let a second phone log the same partial session twice.
+    if (!cloud) { get().rollover(); return; }
     const cur = get().s;
     const next: ResetState = { ...cur };
     if (cloud.appState) {
       next.week = cloud.appState.week ?? cur.week;
       next.progress = cloud.appState.progress ?? cur.progress;
+      // The cloud row's last write dates its progress (the row is rewritten
+      // on every tick, and the rollover itself rewrites it each new day).
+      if (cloud.appState.updatedAt) next.progressDate = localDate(new Date(cloud.appState.updatedAt));
       next.swaps = cloud.appState.swaps ?? cur.swaps;
       next.videos = cloud.appState.videos ?? cur.videos;
     }
@@ -101,6 +115,7 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     }
     saveCache(uid, next);
     set({ s: next });
+    get().rollover();
   },
 
   bumpWeek: (n) => {
@@ -114,13 +129,15 @@ export const useResetStore = create<ResetStore>((set, get) => ({
   },
 
   toggleSet: (dayId, slotId, i) => {
+    // A tick after midnight belongs to the new day — close yesterday out first.
+    get().rollover();
     const { uid, s } = get();
     if (!uid) return;
     const progress = ensureDay(s, dayId);
     const arr = [...progress[dayId][slotId]];
     arr[i] = !arr[i];
     progress[dayId] = { ...progress[dayId], [slotId]: arr };
-    const next = { ...s, progress };
+    const next = { ...s, progress, progressDate: localDate() };
     saveCache(uid, next);
     void upsertAppState(uid, next);
     set({ s: next });
@@ -147,9 +164,10 @@ export const useResetStore = create<ResetStore>((set, get) => ({
   finishSession: (dayId) => {
     const { uid, s } = get();
     const d = dayById(dayId)!;
-    const { exercises, done, total, progress } = sessionTally(s, dayId);
+    const { progress } = sessionTally(s, dayId);
     const date = new Date().toISOString();
-    const entry: Session = { dayId, name: d.name, date, done, total, exercises };
+    const entry = sessionEntry(s, dayId, date)!;
+    const { exercises, done, total } = entry;
     // Reset that day's set progress.
     const nextProgress = { ...progress, [dayId]: clearedDay(s, dayId) };
     const next: ResetState = {
@@ -292,7 +310,55 @@ export const useResetStore = create<ResetStore>((set, get) => ({
   },
 
   setCalMonth: (m) => set((st) => ({ s: { ...st.s, calMonth: m } })),
+
+  rollover: () => {
+    const { uid, s } = get();
+    if (!uid) return;
+    const { next, logged } = rolloverProgress(s, localDate());
+    if (next === s) return;
+    saveCache(uid, next);
+    void upsertAppState(uid, next);
+    logged.forEach((e) => void insertSession(uid, {
+      day_id: e.dayId, day_name: e.name, completed_at: e.date,
+      done_sets: e.done, total_sets: e.total, exercises: e.exercises,
+    }));
+    set({ s: next });
+  },
 }));
+
+/** The calendar entry a day's current ticks would log, stamped `dateISO`. */
+function sessionEntry(s: ResetState, dayId: string, dateISO: string): Session | null {
+  const d = dayById(dayId);
+  if (!d) return null;
+  const { exercises, done, total } = sessionTally(s, dayId);
+  return { dayId, name: d.name, date: dateISO, done, total, exercises };
+}
+
+/** Every training day resets at 00:00. When `today` is past the day the
+ *  current ticks belong to, each session with at least one ticked set is
+ *  logged as a (possibly partial) workout on THAT day — anchored to local
+ *  noon like a retro-logged session, so it lands on the right calendar
+ *  square in any timezone — and all progress clears. Returns the same state
+ *  object when there is nothing to do. Undated progress (a cache from before
+ *  dates were kept, with no cloud row to date it) is stamped today rather
+ *  than guessed at, so no ticks are ever lost or back-dated. */
+export function rolloverProgress(s: ResetState, today: string): { next: ResetState; logged: Session[] } {
+  if (s.progressDate === today) return { next: s, logged: [] };
+  if (!s.progressDate) return { next: { ...s, progressDate: today }, logged: [] };
+  if (s.progressDate > today) return { next: s, logged: [] }; // clock went backwards
+  const stamp = new Date(`${s.progressDate}T12:00:00`).toISOString();
+  const logged = Object.keys(s.progress || {})
+    .map((dayId) => sessionEntry(s, dayId, stamp))
+    .filter((e): e is Session => !!e && e.done > 0);
+  const next: ResetState = {
+    ...s,
+    progress: {},
+    progressDate: today,
+    history: [...s.history, ...logged].sort((a, b) => +new Date(a.date) - +new Date(b.date)),
+    sessions: [...logged, ...s.sessions].sort((a, b) => +new Date(b.date) - +new Date(a.date)),
+  };
+  return { next, logged };
+}
 
 /** Merge an edited exercise list into a finished session. Counts are recomputed
  *  from the list; for a legacy session with no per-exercise snapshot the stored

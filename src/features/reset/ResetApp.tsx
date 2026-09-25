@@ -6,6 +6,7 @@ import '@fontsource/inter/700.css';
 import '@fontsource/inter/800.css';
 import './reset.css';
 import { supabase } from '@/lib/supabase';
+import { msUntilMidnight } from '@/lib/dates';
 import { useResetStore } from './resetStore';
 import { PlanView } from './PlanView';
 import { DayView } from './DayView';
@@ -43,6 +44,7 @@ export function parentOf(v: View): View | null {
 export function ResetApp({ userId }: { userId: string }) {
   const init = useResetStore((s) => s.init);
   const ready = useResetStore((s) => s.ready);
+  const rollover = useResetStore((s) => s.rollover);
   const [view, setView] = useState<View>({ name: 'plan' });
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -50,6 +52,30 @@ export function ResetApp({ userId }: { userId: string }) {
   useEffect(() => {
     void init(userId);
   }, [init, userId]);
+
+  useEffect(() => {
+    // Every training day resets at 00:00 local: fire at midnight while the app
+    // is open, and re-check whenever it comes back to the foreground — a
+    // phone asleep overnight never runs the timer.
+    let timer: ReturnType<typeof setTimeout>;
+    function arm() {
+      timer = setTimeout(() => { rollover(); arm(); }, msUntilMidnight(null) + 1000);
+    }
+    function onWake() {
+      if (document.visibilityState !== 'visible') return;
+      rollover();
+      clearTimeout(timer);
+      arm();
+    }
+    arm();
+    document.addEventListener('visibilitychange', onWake);
+    window.addEventListener('focus', onWake);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onWake);
+      window.removeEventListener('focus', onWake);
+    };
+  }, [rollover]);
 
   useEffect(() => {
     // Arm a sentinel history entry so pressing back fires popstate here

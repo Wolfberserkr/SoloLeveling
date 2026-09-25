@@ -37,6 +37,10 @@ export type CloudLog = { exercise_id: string; reps: string; weight: number; logg
 export type ResetState = {
   week: number;
   progress: SetProgress;
+  /** Local YYYY-MM-DD the ticks in `progress` belong to. Progress is a
+   *  one-day thing: once the date moves on, rolloverProgress() logs any
+   *  ticked session to the calendar on this date and clears the rings. */
+  progressDate?: string;
   log: LogDraft;
   videos: Videos;
   swaps: Swaps;
@@ -230,7 +234,11 @@ export function upsertNutrition(uid: string, n: { recorded_on: string; rating: s
 
 // ── Cloud read (reconcile on boot) ───────────────────────────────────────────
 export type CloudSnapshot = {
-  appState: { week: number; progress: SetProgress; swaps: Swaps; videos: Videos } | null;
+  appState: {
+    week: number; progress: SetProgress; swaps: Swaps; videos: Videos;
+    /** When the row was last written — dates cloud progress with no local stamp. */
+    updatedAt: string | null;
+  } | null;
   sessions: Session[];
   logs: CloudLog[];
   weights: Weight[];
@@ -246,9 +254,14 @@ export async function fetchAll(uid: string): Promise<CloudSnapshot | null> {
       supabase.from('reset_weights').select('recorded_on, kg').eq('user_id', uid).order('recorded_on', { ascending: true }),
       supabase.from('reset_nutrition').select('recorded_on, rating, note').eq('user_id', uid).order('recorded_on', { ascending: false }).limit(60),
     ]);
-    const st = stRes.data as { week: number; progress: SetProgress; swaps: Swaps; videos: Videos } | null;
+    const st = stRes.data as {
+      week: number; progress: SetProgress; swaps: Swaps; videos: Videos; updated_at?: string;
+    } | null;
     return {
-      appState: st ? { week: st.week, progress: st.progress || {}, swaps: st.swaps || {}, videos: st.videos || {} } : null,
+      appState: st ? {
+        week: st.week, progress: st.progress || {}, swaps: st.swaps || {}, videos: st.videos || {},
+        updatedAt: st.updated_at ?? null,
+      } : null,
       sessions: ((sessRes.data ?? []) as Array<Record<string, unknown>>).map((s) => ({
         id: s.id as string,
         dayId: s.day_id as string,
