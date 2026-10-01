@@ -7,6 +7,11 @@ verify_jwt = true
 [functions.ascend]
 verify_jwt = true
 
+# Ascend reminders. Called hourly by pg_cron (job `ascend-reminders`) with the
+# same x-cron-secret as `cron`, not a JWT.
+[functions.ascend-notify]
+verify_jwt = false
+
 # Invoked by the GitHub Actions schedule with a shared secret, not a JWT.
 [functions.cron]
 verify_jwt = false

@@ -67,14 +67,15 @@ export interface ACompletion {
   xp: number; minutes: number | null; localDate: string; createdAt: number;
 }
 export interface Template { label: string; xp: number }
-export interface ASettings { theme: Theme; focusWork: number; focusBreak: number; templates: Template[] }
+export interface Reminders { enabled: boolean; hours: number[] }
+export interface ASettings { theme: Theme; focusWork: number; focusBreak: number; templates: Template[]; reminders: Reminders }
 export interface AscendData {
   stats: AStat[]; subskills: ASub[]; quests: AQuest[]; milestones: AMilestone[]; bosses: ABoss[];
   tickets: ATicket[]; reviews: AReview[]; completions: ACompletion[]; settings: ASettings;
 }
 
 export function defaultSettings(): ASettings {
-  return { theme: 'system', focusWork: ASCEND.focus.work, focusBreak: ASCEND.focus.brk, templates: ASCEND.defaultTemplates.map((t) => ({ ...t })) };
+  return { theme: 'system', focusWork: ASCEND.focus.work, focusBreak: ASCEND.focus.brk, templates: ASCEND.defaultTemplates.map((t) => ({ ...t })), reminders: { enabled: true, hours: [20] } };
 }
 export function emptyData(): AscendData {
   return { stats: [], subskills: [], quests: [], milestones: [], bosses: [], tickets: [], reviews: [], completions: [], settings: defaultSettings() };

@@ -2,7 +2,7 @@
 // workbox `importScripts` (see vite.config.ts).
 
 self.addEventListener('push', (event) => {
-  let data = { title: '[SYSTEM]', body: '', url: '/' };
+  let data = { title: '[SYSTEM]', body: '', url: '/', tag: undefined, requireInteraction: false, renotify: false };
   try {
     data = { ...data, ...event.data.json() };
   } catch {
@@ -14,6 +14,10 @@ self.addEventListener('push', (event) => {
       icon: '/icons/icon-192.png',
       badge: '/icons/icon-192.png',
       data: { url: data.url },
+      // Ascend reminders pass a fixed tag + requireInteraction so the latest
+      // reminder replaces the previous one and stays until dismissed.
+      ...(data.tag ? { tag: data.tag, renotify: Boolean(data.renotify) } : {}),
+      requireInteraction: Boolean(data.requireInteraction),
     }),
   );
 });
