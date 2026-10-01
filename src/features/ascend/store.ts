@@ -44,6 +44,7 @@ interface AscendState {
   levelGlow: number;
 
   init: (uid: string) => Promise<void>;
+  reload: () => Promise<void>;
   syncToday: () => void;
   openSheet: (s: Sheet) => void;
   closeSheet: () => void;
@@ -143,6 +144,15 @@ export const useAscend = create<AscendState>((set, get) => {
       } catch (e) {
         set({ status: 'error', error: db.errText(e) });
       }
+    },
+    /** Quiet refetch, e.g. after the home-screen widget completed a quest. */
+    async reload() {
+      const { uid, tz, status } = get();
+      if (status !== 'ready' || !uid) return;
+      try {
+        const data = await db.loadAll(tz);
+        if (get().uid === uid) set({ data, today: todayInTz(tz) });
+      } catch { /* keep what we have; the next action surfaces any error */ }
     },
     syncToday() {
       const t = todayInTz(get().tz);

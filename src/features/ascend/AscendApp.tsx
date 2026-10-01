@@ -10,7 +10,8 @@ import '@fontsource/schibsted-grotesk/latin-800.css';
 import './ascend.css';
 import { msUntilMidnight } from '@/lib/dates';
 import { setPortal } from '@/lib/portal';
-import { levelInfo, weekdayOf, dailyCount, ASCEND, type Theme } from './logic';
+import { levelInfo, weekdayOf, dailyCount, dailyQuests, titleFor, ASCEND, type AscendData, type StatColor, type Theme } from './logic';
+import { isNativeApp, syncWidget } from '@/lib/widget';
 import { useAscend } from './store';
 import { newDraft } from './drafts';
 import { Bar, Celebrations, Floats, Icon, Toasts, fmt, statVar, totalXp, type IconName } from './ui';
@@ -69,6 +70,19 @@ export function AscendApp({ userId }: { userId: string }) {
     return () => { if (prev) meta?.setAttribute('content', prev); };
   }, [theme]);
 
+  // Android app: keep the home-screen widget in step with Ascend, and pick up
+  // quests the widget completed while the app was in the background.
+  const data = useAscend((s) => s.data);
+  const today = useAscend((s) => s.today);
+  const reload = useAscend((s) => s.reload);
+  useEffect(() => { if (status === 'ready') syncWidget(widgetSnapshot(data, today, tz)); }, [status, data, today, tz]);
+  useEffect(() => {
+    if (!isNativeApp) return;
+    const wake = () => { if (document.visibilityState === 'visible') void reload(); };
+    document.addEventListener('visibilitychange', wake);
+    return () => document.removeEventListener('visibilitychange', wake);
+  }, [reload]);
+
   useFocusTicker();
 
   return (
@@ -110,6 +124,27 @@ export function AscendApp({ userId }: { userId: string }) {
       <Toasts />
     </div>
   );
+}
+
+// Dark-theme stat colors (ascend.css); the widget always renders dark.
+const WIDGET_COLORS: Record<StatColor, string> = {
+  blue: '#6FA3FF', green: '#53D08A', teal: '#3ACDBE', amber: '#F4B547', rose: '#FB7193',
+  violet: '#A98CFB', indigo: '#8E94FF', orange: '#FF9152', cyan: '#4CC8E6', slate: '#A2AFC3',
+};
+
+function widgetSnapshot(data: AscendData, today: string, tz: string | null) {
+  const xp = totalXp(data);
+  const level = levelInfo(xp).level;
+  const color = (statId: string) => WIDGET_COLORS[data.stats.find((s) => s.id === statId)?.color ?? 'slate'];
+  return {
+    tz: tz || Intl.DateTimeFormat().resolvedOptions().timeZone,
+    level,
+    title: titleFor(level),
+    xp,
+    dailies: dailyQuests(data).map((q) => ({ id: q.id, title: q.title, xp: q.xp, days: q.days, color: color(q.statId) })),
+    doneDate: today,
+    doneIds: data.completions.filter((c) => c.kind === 'daily' && c.localDate === today && c.questId).map((c) => c.questId!),
+  };
 }
 
 function ThemeButton({ wide }: { wide?: boolean }) {

@@ -172,7 +172,39 @@ calendar/grid: position the first item, don't pad with empty cells.
 npm run dev        # dev server
 npm test           # game-math test suite (XP pacing, training scaling)
 npm run build      # typecheck + production build (PWA)
+npm run android    # build the web app and copy it into the Android project
 ```
+
+## Android app + Ascend home-screen widget
+
+`android/` is a Capacitor shell around the same web build, so the app can
+ship a home-screen widget (web apps can't add Android widgets). The widget shows
+today's Ascend dailies, your level and XP bar. Tap an open quest to complete it
+(it calls the same `ascend_complete_quest` RPC as the app); tap the header to
+open Ascend.
+
+Build it in Android Studio (needs JDK 21 and Android SDK 36):
+
+```sh
+npm run android          # build + sync web assets into android/
+npx cap open android     # then Run ▶ to your phone, or Build → Generate APK
+```
+
+Then long-press the home screen → Widgets → The System → Ascend.
+
+How it stays in sync (`src/lib/widget.ts` ↔ `android/app/src/main/java/.../AscendWidget*.java`):
+- While Ascend is open, the app sends the widget a snapshot of the dailies,
+  today's completions and total XP. It sends the Supabase access token too.
+- The widget never refreshes the token itself, because that would rotate the
+  refresh token out from under the app. Once the token lapses (about 1 h after
+  you last opened the app), tapping a quest opens the app instead. Open the
+  app once and the widget can complete quests again.
+- The widget redraws at local midnight for the new day's dailies. Quests
+  completed from the widget show up in the app the next time it comes to the
+  foreground.
+
+The web assets are bundled into the APK, so re-run `npm run android` and reinstall
+after web changes. The Vercel PWA updates on its own as before.
 
 ## Deploy
 

@@ -1,8 +1,9 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
 import type { Session } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
+import { supabase, supabaseAnonKey, supabaseUrl } from '@/lib/supabase';
+import { listenForDeepLinks, syncWidgetSession } from '@/lib/widget';
 import { todayInTz } from '@/lib/dates';
 import { usePlayerStore } from '@/stores/playerStore';
 import { BottomNav } from '@/components/system/BottomNav';
@@ -249,6 +250,13 @@ function SystemGate() {
   );
 }
 
+/** Opens the route a home-screen widget tap asked for (Android app only). */
+function DeepLinks() {
+  const navigate = useNavigate();
+  useEffect(() => listenForDeepLinks((path) => navigate(path)), [navigate]);
+  return null;
+}
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
@@ -256,10 +264,12 @@ export default function App() {
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
+      syncWidgetSession(data.session, supabaseUrl, supabaseAnonKey);
       setReady(true);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
+      syncWidgetSession(s, supabaseUrl, supabaseAnonKey);
       // Any sign-out (expiry, another tab, forced 401) must clear the
       // previous player's state, not just the MorePage sign-out button.
       if (event === 'SIGNED_OUT') {
@@ -278,6 +288,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <DeepLinks />
       {/* reducedMotion="user": Framer transforms obey the OS setting, matching
           the CSS media query that already stills keyframe animations. */}
       <MotionConfig reducedMotion="user">

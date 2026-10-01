@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">The System</string>
+    <string name="title_activity_main">The System</string>
+    <string name="package_name">app.thesystem.sololeveling</string>
+    <string name="custom_url_scheme">app.thesystem.sololeveling</string>
+    <string name="ascend_widget_name">Ascend</string>
+    <string name="ascend_widget_description">Today\'s Ascend dailies. Tap one to complete it.</string>
+    <string name="ascend_widget_signed_out">Open The System and sign in to Ascend</string>
+    <string name="ascend_widget_rest_day">No dailies today</string>
+    <string name="ascend_widget_all_done">All dailies done. Nice work.</string>
+    <string name="ascend_widget_open_app">Open The System to sync, then tap again</string>
+    <string name="ascend_widget_offline">Can\'t reach the server. Try again.</string>
+    <string name="ascend_widget_failed">Couldn\'t complete that quest</string>
+</resources>
