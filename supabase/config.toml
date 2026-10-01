@@ -3,6 +3,15 @@ project_id = "npqpzzarohlvexqpqurg"
 [functions.game]
 verify_jwt = true
 
+# Ascend Coach (Gemini). Read-only; signed-in players only.
+[functions.ascend]
+verify_jwt = true
+
+# Ascend reminders. Called hourly by pg_cron (job `ascend-reminders`) with the
+# same x-cron-secret as `cron`, not a JWT.
+[functions.ascend-notify]
+verify_jwt = false
+
 # Invoked by the GitHub Actions schedule with a shared secret, not a JWT.
 [functions.cron]
 verify_jwt = false

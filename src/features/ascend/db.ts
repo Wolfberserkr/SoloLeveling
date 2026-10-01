@@ -63,6 +63,12 @@ function mapSettings(raw: unknown): ASettings {
     focusWork: Number(o.focusWork) > 0 ? Number(o.focusWork) : d.focusWork,
     focusBreak: Number(o.focusBreak) > 0 ? Number(o.focusBreak) : d.focusBreak,
     templates: Array.isArray(o.templates) && o.templates.length ? o.templates.map((t) => ({ label: String(t.label), xp: Number(t.xp) || 1 })) : d.templates,
+    reminders: o.reminders && typeof o.reminders === 'object'
+      ? {
+          enabled: o.reminders.enabled !== false,
+          hours: Array.isArray(o.reminders.hours) ? o.reminders.hours.map(Number).filter((h) => Number.isInteger(h) && h >= 0 && h <= 23) : d.reminders.hours,
+        }
+      : d.reminders,
   };
 }
 

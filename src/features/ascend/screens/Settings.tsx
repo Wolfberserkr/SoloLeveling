@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { setPortal } from '@/lib/portal';
-import { ASCEND, xpForLevel, type Template, type Theme } from '../logic';
+import { currentSubscription, disablePush, enablePush, pushSupported } from '@/lib/push';
+import { ASCEND, xpForLevel, type Reminders, type Template, type Theme } from '../logic';
 import { useAscend } from '../store';
 import { Icon, cvar, fmt, useConfirm } from '../ui';
 
@@ -45,6 +46,7 @@ export function SettingsScreen() {
               <NumberField id="set-break" label="Break minutes" value={st.focusBreak} max={60} onCommit={(v) => void save({ focusBreak: v })} />
             </div>
           </section>
+          <RemindersCard reminders={st.reminders} onSave={(reminders) => void save({ reminders })} />
           <Templates templates={st.templates} onSave={(templates) => void save({ templates })} />
           <section className="card setgroup">
             <h2>Level curve</h2>
@@ -131,6 +133,48 @@ function StatsEditor() {
           </form>
         </div>
       ))}
+    </section>
+  );
+}
+
+const HOURS = Array.from({ length: 19 }, (_, i) => i + 5); // 05:00–23:00
+
+function RemindersCard({ reminders, onSave }: { reminders: Reminders; onSave: (r: Reminders) => void }) {
+  const uid = useAscend((s) => s.uid);
+  const toast = useAscend((s) => s.toast);
+  const [device, setDevice] = useState<'unknown' | 'on' | 'off' | 'unsupported'>('unknown');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!pushSupported()) { setDevice('unsupported'); return; }
+    void currentSubscription().then((sub) => setDevice(sub ? 'on' : 'off'));
+  }, []);
+  async function toggleDevice() {
+    if (!uid || busy) return;
+    setBusy(true);
+    try {
+      if (device === 'on') { await disablePush(); setDevice('off'); toast('Notifications turned off on this device'); }
+      else { await enablePush(uid); setDevice('on'); toast('Notifications are on for this device'); }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not change notifications');
+    } finally { setBusy(false); }
+  }
+  const hours = [...reminders.hours].sort((a, b) => a - b);
+  const toggleHour = (h: number) => onSave({ ...reminders, hours: hours.includes(h) ? hours.filter((x) => x !== h) : [...hours, h].sort((a, b) => a - b) });
+  return (
+    <section className="card setgroup">
+      <div className="card-head" style={{ margin: 0 }}><h2>Reminders</h2><span className="muted">Daily quests still open</span></div>
+      <div className="setrow">
+        <span style={{ fontSize: 14 }}>This device: <b>{device === 'on' ? 'on' : device === 'off' ? 'off' : device === 'unsupported' ? 'not supported' : '…'}</b></span>
+        {device !== 'unsupported' && device !== 'unknown' && <button className="btn sm" disabled={busy} onClick={() => void toggleDevice()}>{device === 'on' ? 'Turn off here' : 'Turn on for this device'}</button>}
+      </div>
+      {device === 'unsupported' && <p className="hint">On iPhone, add the app to your Home Screen first, then open it from there to allow notifications.</p>}
+      <label className="toggle"><input type="checkbox" id="rem-on" checked={reminders.enabled} onChange={(e) => onSave({ ...reminders, enabled: e.target.checked })} /><span>Remind me when daily quests are still open</span></label>
+      {reminders.enabled && (
+        <div className="field"><span className="flabel">Remind me at</span>
+          <div className="chips">{HOURS.map((h) => <button key={h} className="chip num" aria-pressed={hours.includes(h)} onClick={() => toggleHour(h)}>{String(h).padStart(2, '0')}:00</button>)}</div>
+        </div>
+      )}
+      <p className="hint">Each reminder lists what is left today and stays on screen until you dismiss it. A later one replaces it, and nothing is sent once every daily quest is done.</p>
     </section>
   );
 }

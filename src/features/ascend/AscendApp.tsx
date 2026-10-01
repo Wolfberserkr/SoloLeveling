@@ -122,6 +122,14 @@ function ThemeButton({ wide }: { wide?: boolean }) {
     : <button className="iconbtn" onClick={onClick} aria-label={`${THEME_LABEL[theme]} (tap to switch)`} title={THEME_LABEL[theme]}><Icon name={THEME_ICON[theme]} /></button>;
 }
 
+function CoachButton({ wide }: { wide?: boolean }) {
+  const openSheet = useAscend((s) => s.openSheet);
+  const open = () => openSheet({ kind: 'coach' });
+  return wide
+    ? <button className="navbtn" onClick={open}><Icon name="spark" />Ask the Coach</button>
+    : <button className="iconbtn" onClick={open} aria-label="Ask the Coach" title="Ask the Coach"><Icon name="spark" /></button>;
+}
+
 function FocusPill() {
   const timer = useAscend((s) => s.timer);
   const sheet = useAscend((s) => s.sheet);
@@ -141,6 +149,7 @@ function TopBar() {
     <header className="topbar">
       <NavLink className="brand" to="/ascend" end><span className="brand-mark"><Icon name="up" /></span>Ascend</NavLink>
       <FocusPill />
+      <CoachButton />
       <ThemeButton />
       <NavLink className="iconbtn" to="/ascend/settings" aria-label="Settings"><Icon name="gear" /></NavLink>
     </header>
@@ -163,6 +172,7 @@ function Sidebar() {
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><b>Level {L.level}</b><span className="num muted">{fmt(L.xp)} XP</span></div>
           <Bar pct={L.pct} />
         </div>
+        <CoachButton wide />
         <ThemeButton wide />
         <NavLink to="/ascend/settings" className={({ isActive }) => `navbtn${isActive ? ' active' : ''}`}><Icon name="gear" />Settings</NavLink>
         <button className="navbtn" onClick={() => { setPortal('system'); navigate('/'); }}><Icon name="swap" />Switch to the System</button>

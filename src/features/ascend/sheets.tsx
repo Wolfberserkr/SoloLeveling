@@ -7,6 +7,7 @@ import {
 import { useAscend, type QuestDraft, type QuestKind } from './store';
 import { Empty, Icon, Ring, cvar, fmt, fmtDate, statLabel, statVar, useConfirm } from './ui';
 import { editDraft } from './drafts';
+import { CoachSheet } from './coachSheet';
 
 export function SheetHost() {
   const sheet = useAscend((s) => s.sheet);
@@ -23,6 +24,7 @@ export function SheetHost() {
   else if (sheet.kind === 'main') body = <MainDetail id={sheet.id} />;
   else if (sheet.kind === 'ticket') body = <TicketForm id={sheet.id} />;
   else if (sheet.kind === 'review') body = <ReviewForm />;
+  else if (sheet.kind === 'coach') body = <CoachSheet />;
   else body = <FocusTimer />;
   return (
     <>

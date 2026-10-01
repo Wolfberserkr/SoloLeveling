@@ -7,6 +7,7 @@ import {
 import { openFocus, useAscend } from '../store';
 import { Empty, Icon, Ring, fmt, fmtDate, fmtMonthYear, statLabel, statVar, useConfirm, cvar } from '../ui';
 import { bossDraft, editDraft, newDraft } from '../drafts';
+import { useCoach } from '../coach';
 
 type Tab = 'daily' | 'side' | 'main' | 'bosses' | 'done';
 const TABS: Array<[Tab, string]> = [['daily', 'Daily'], ['side', 'Side'], ['main', 'Main'], ['bosses', 'Bosses'], ['done', 'Completed']];
@@ -223,6 +224,7 @@ function BossesTab({ pass, filterStat }: { pass: (statId: string) => boolean; fi
   const hall = data.bosses.filter((b) => b.defeatedAt).sort((a, b) => ((a.defeatedAt ?? '') < (b.defeatedAt ?? '') ? 1 : -1));
   return (
     <>
+      {active.length > 1 && <div><button className="btn sm" onClick={() => { useCoach.getState().setTab('boss'); openSheet({ kind: 'coach' }); }}><Icon name="spark" />Which boss next?</button></div>}
       {list.length ? <div className="stack" style={{ gap: 12 }}>{list.map((b) => <BossCard key={b.id} b={b} />)}</div> : (
         <section className="card">
           <Empty icon="flame" title={active.length ? 'Nothing for this stat' : 'No bosses to face'}
