@@ -10,10 +10,16 @@ import { SystemErrorBoundary } from '@/components/system/ErrorBoundary';
 import { DailyBriefing } from '@/components/system/DailyBriefing';
 import { FocusOverlay } from '@/components/system/FocusOverlay';
 import { isResetAccount } from '@/features/reset/resetAccounts';
+import { getPortal, setPortal } from '@/lib/portal';
+import { PortalChooser } from '@/features/portal/PortalChooser';
 
 // D's Reset portal — lazy so it never weighs on the System bundle.
 const ResetApp = lazy(() =>
   import('@/features/reset/ResetApp').then((m) => ({ default: m.ResetApp })),
+);
+// Ascend (the life RPG) — lazy, its own light theme and data; it only shares sign-in.
+const AscendApp = lazy(() =>
+  import('@/features/ascend/AscendApp').then((m) => ({ default: m.AscendApp })),
 );
 import { SystemAlertStack } from '@/components/system/SystemAlertStack';
 import { OfflineBanner } from '@/components/system/OfflineBanner';
@@ -217,6 +223,32 @@ function AuthedApp() {
   );
 }
 
+/** The System's ambient layers — only mounted while the System (or its
+ *  login and chooser) is on screen, never under Ascend. */
+function SystemLayer({ children }: { children: React.ReactNode }) {
+  return (
+    <>
+      <AmbientMotes />
+      <OfflineBanner />
+      <SystemAlertStack />
+      <LevelUpSequence />
+      <SystemTakeover />
+      <XpBurstLayer />
+      {children}
+    </>
+  );
+}
+
+/** After sign-in: the chooser first (once per launch), then the System. */
+function SystemGate() {
+  const [portal, setLocalPortal] = useState(getPortal());
+  return (
+    <SystemLayer>
+      {portal === 'system' ? <AuthedApp /> : <PortalChooser onSystem={() => setLocalPortal('system')} />}
+    </SystemLayer>
+  );
+}
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
@@ -230,7 +262,10 @@ export default function App() {
       setSession(s);
       // Any sign-out (expiry, another tab, forced 401) must clear the
       // previous player's state, not just the MorePage sign-out button.
-      if (event === 'SIGNED_OUT') usePlayerStore.getState().reset();
+      if (event === 'SIGNED_OUT') {
+        usePlayerStore.getState().reset();
+        setPortal(null); // next sign-in starts at the System / Ascend chooser
+      }
     });
     return () => sub.subscription.unsubscribe();
   }, []);
@@ -255,18 +290,22 @@ export default function App() {
           </Routes>
         </Suspense>
       ) : (
-        <>
-          <AmbientMotes />
-          <OfflineBanner />
-          <SystemAlertStack />
-          <LevelUpSequence />
-          <SystemTakeover />
-          <XpBurstLayer />
-          <Routes>
-            <Route path="/login" element={session ? <Navigate to="/" replace /> : <LoginPage />} />
-            <Route path="/*" element={session ? <AuthedApp /> : <Navigate to="/login" replace />} />
-          </Routes>
-        </>
+        <Routes>
+          <Route path="/login" element={session ? <Navigate to="/" replace /> : <SystemLayer><LoginPage /></SystemLayer>} />
+          <Route
+            path="/ascend/*"
+            element={
+              session ? (
+                <Suspense fallback={<BootScreen />}>
+                  <AscendApp userId={session.user.id} />
+                </Suspense>
+              ) : (
+                <Navigate to="/login" replace />
+              )
+            }
+          />
+          <Route path="/*" element={session ? <SystemGate /> : <Navigate to="/login" replace />} />
+        </Routes>
       )}
       </SystemErrorBoundary>
       </MotionConfig>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
+import { setPortal } from '@/lib/portal';
 import { usePlayerStore } from '@/stores/playerStore';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore, type DistanceUnit } from '@/stores/settingsStore';
@@ -22,6 +23,7 @@ export function MorePage() {
   const tzMismatch = Boolean(profile && deviceTz && profile.timezone !== deviceTz);
 
   async function signOut() {
+    setPortal(null);
     await supabase.auth.signOut();
     reset();
     navigate('/login', { replace: true });
@@ -81,7 +83,16 @@ export function MorePage() {
             Device reports {deviceTz} — sync
           </button>
         )}
-        <button className="sys-btn sys-btn-danger mt-4 w-full" onClick={signOut}>
+        <button
+          className="sys-btn mt-4 w-full"
+          onClick={() => {
+            setPortal('ascend');
+            navigate('/ascend');
+          }}
+        >
+          Switch to Ascend
+        </button>
+        <button className="sys-btn sys-btn-danger mt-2 w-full" onClick={signOut}>
           Sever System Link
         </button>
       </SystemWindow>
