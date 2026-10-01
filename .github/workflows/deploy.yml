@@ -2,7 +2,7 @@ name: Deploy (Supabase)
 
 # Auto-deploys the backend when changes land on the default branch:
 #   • applies any new database migrations  (needs SUPABASE_DB_PASSWORD)
-#   • deploys the game + cron edge functions (needs SUPABASE_ACCESS_TOKEN)
+#   • deploys the game, cron + ascend edge functions (needs SUPABASE_ACCESS_TOKEN)
 #
 # Both steps are GATED on their secret: if a secret is absent the step is
 # skipped and the job still succeeds, so the workflow is inert until you add
@@ -59,3 +59,4 @@ jobs:
         run: |
           supabase functions deploy game --project-ref "$SUPABASE_PROJECT_REF"
           supabase functions deploy cron --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions deploy ascend --project-ref "$SUPABASE_PROJECT_REF"

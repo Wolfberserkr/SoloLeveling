@@ -18,7 +18,8 @@ export type Sheet =
   | { kind: 'main'; id: string }
   | { kind: 'ticket'; id: string }
   | { kind: 'review' }
-  | { kind: 'focus' };
+  | { kind: 'focus' }
+  | { kind: 'coach' };
 export interface Toast { id: number; text: string; level?: boolean; action?: { label: string; run: () => void }; ms: number }
 export type Modal = { kind: 'level'; level: number } | { kind: 'ticket'; ticketId: string } | { kind: 'boss'; boss: ABoss; xp: number };
 export interface Float { id: number; x: number; y: number; xp: number; statId: string }

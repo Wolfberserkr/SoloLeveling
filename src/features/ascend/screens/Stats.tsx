@@ -1,6 +1,7 @@
 import { ASCEND, bestStreak, currentStreak, levelUpEvents, tally, titleFor, weekReviewed, weekStart, weekdayOf } from '../logic';
 import { useAscend } from '../store';
-import { cvar, fmt, fmtDate, statVar } from '../ui';
+import { Icon, cvar, fmt, fmtDate, statVar } from '../ui';
+import { useCoach } from '../coach';
 import { Donut, Heatmap, Weekly, XpPerDay } from '../charts';
 import { Hall } from './Quests';
 
@@ -49,7 +50,10 @@ export function StatsScreen() {
               <span className="pill num">+{ASCEND.reviewXp} XP</span>
             </div>
             <p className="muted" style={{ fontSize: 14 }}>{reviewed ? 'Your next review opens on Monday. Sundays are the default.' : 'Wins this week, what slipped, one focus stat for next week, one Stoic reflection.'}</p>
-            {!reviewed && <div><button className="btn primary sm" onClick={() => openSheet({ kind: 'review' })}>Start weekly review</button></div>}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {!reviewed && <button className="btn primary sm" onClick={() => openSheet({ kind: 'review' })}>Start weekly review</button>}
+              {data.reviews.length > 0 && <button className="btn sm" onClick={() => { useCoach.getState().setTab('review'); openSheet({ kind: 'coach' }); }}><Icon name="spark" />Coach feedback</button>}
+            </div>
           </section>
           {reviews.length > 0 && (
             <section className="card">
