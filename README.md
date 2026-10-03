@@ -172,7 +172,47 @@ calendar/grid: position the first item, don't pad with empty cells.
 npm run dev        # dev server
 npm test           # game-math test suite (XP pacing, training scaling)
 npm run build      # typecheck + production build (PWA)
+npm run android:apk  # build an installable APK (needs the Android SDK)
 ```
+
+## Android app (APK)
+
+The web app is wrapped in a native Android shell with
+[Capacitor](https://capacitorjs.com) (`capacitor.config.ts`, `android/`).
+`.github/workflows/android.yml` builds the APK on every push:
+
+- **Any branch** → download `the-system-apk` from the workflow run's
+  *Artifacts* section (a zip containing `the-system.apk`).
+- **`main`** → also published to the
+  [`android-latest` release](../../releases/tag/android-latest). Open that page
+  on your phone, tap `the-system.apk`, and allow "install unknown apps" for
+  your browser when asked.
+
+**Signing key (do this once so updates install over the old app).** Without
+it, every CI build uses a throwaway key and Android refuses to update — you'd
+have to uninstall first (and log in again). Generate a key on your computer and
+add four repository secrets under **Settings → Secrets and variables → Actions**:
+
+```sh
+keytool -genkeypair -keystore release.keystore -alias thesystem \
+  -keyalg RSA -keysize 2048 -validity 10000
+base64 -w0 release.keystore   # macOS: base64 -i release.keystore
+```
+
+| Secret | Value |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | output of the `base64` command |
+| `ANDROID_KEYSTORE_PASSWORD` | the keystore password you chose |
+| `ANDROID_KEY_ALIAS` | `thesystem` |
+| `ANDROID_KEY_PASSWORD` | key password (same as the keystore one unless you set another) |
+
+Keep `release.keystore` somewhere safe and out of git — losing it means users
+must uninstall to get updates.
+
+Web push notifications rely on the browser's Push API, which Android's WebView
+doesn't provide, so the toggle reports "not supported" inside the APK. Native
+push would need Firebase Cloud Messaging; until then keep the PWA installed
+for notifications.
 
 ## Deploy
 

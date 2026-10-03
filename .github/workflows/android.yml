@@ -1,0 +1,79 @@
+name: Android APK
+
+# Builds an installable APK of the app (Capacitor wrapper around dist/).
+#   • every run uploads the APK as a workflow artifact ("the-system-apk")
+#   • runs on main also refresh the "android-latest" GitHub release, so the
+#     newest APK is always one tap away from your phone:
+#     https://github.com/<owner>/<repo>/releases/tag/android-latest
+
+on:
+  push:
+    branches: ['**']
+    paths-ignore:
+      - 'supabase/**'
+      - 'docs/**'
+      - '**.md'
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - run: npm ci
+      - run: npm run build
+      - run: npx cap sync android
+
+      # Optional but recommended: a fixed signing key (see README → Android app).
+      # Without it the APK is signed with this runner's throwaway debug key, so
+      # each new build must be uninstalled before the next one will install.
+      - name: Build APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > app/release.keystore
+          else
+            unset ANDROID_KEYSTORE_PASSWORD
+          fi
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon -PversionCode=${{ github.run_number }}
+          cp app/build/outputs/apk/release/app-release.apk ../the-system.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: the-system-apk
+          path: the-system.apk
+
+      - name: Publish to android-latest release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete android-latest --yes --cleanup-tag || true
+          gh release create android-latest the-system.apk \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "The System — Android (build ${{ github.run_number }})" \
+            --notes "Latest APK built from ${GITHUB_SHA::7}. Open this page on your phone, tap the-system.apk, and install."
