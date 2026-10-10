@@ -49,8 +49,7 @@ Unsaved logger input is kept as a per-user draft in localStorage.
 The old Solo Leveling RPG code was removed. Its database tables were left in
 place untouched; migration 0028 only stops its `system-heartbeat` pg_cron job
 so it no longer sends RPG push notifications. The `game` and `cron` edge
-functions are no longer deployed; to remove the copies still on Supabase run
-`npx supabase functions delete game` and `... delete cron`.
+functions were deleted from Supabase.
 
 ### The "Reset" portal (D's side)
 
