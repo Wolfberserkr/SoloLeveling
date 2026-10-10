@@ -1,0 +1,24 @@
+name: Delete Solo Leveling edge functions (one-off)
+
+# Removes the retired Solo Leveling `game` and `cron` edge functions from
+# Supabase. Touches nothing else: Ascend (ascend, ascend-notify) and D's
+# Reset portal (no edge function) are left alone. Run once, then delete
+# this file.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  delete:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_PROJECT_REF: npqpzzarohlvexqpqurg
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Delete game and cron
+        run: |
+          supabase functions delete game --project-ref "$SUPABASE_PROJECT_REF"
+          supabase functions delete cron --project-ref "$SUPABASE_PROJECT_REF"
