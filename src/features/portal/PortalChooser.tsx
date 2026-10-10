@@ -1,17 +1,19 @@
+import '@fontsource/barlow-condensed/latin-700.css';
+import '@fontsource/ibm-plex-sans/latin-400.css';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { setPortal, type Portal } from '@/lib/portal';
 import { GlitchText } from '@/components/system/GlitchText';
 
-/** Shown once per launch after sign-in: open the System RPG or Ascend. */
-export function PortalChooser({ onSystem }: { onSystem: () => void }) {
+/** Shown once per launch after sign-in: open Project Viking or Ascend. */
+export function PortalChooser({ onViking }: { onViking: () => void }) {
   const navigate = useNavigate();
 
   function choose(p: Portal) {
     setPortal(p);
     if (p === 'ascend') navigate('/ascend');
-    else onSystem();
+    else onViking();
   }
 
   return (
@@ -25,18 +27,23 @@ export function PortalChooser({ onSystem }: { onSystem: () => void }) {
 
       <motion.button
         type="button"
-        onClick={() => choose('system')}
+        onClick={() => choose('viking')}
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        className="sys-window group w-full p-5 text-left active:scale-[0.99]"
+        className="w-full rounded-2xl border border-white/10 bg-[#141C21] p-5 text-left text-[#E1E8EA] shadow-[0_12px_32px_rgba(0,0,0,0.35)] active:scale-[0.99]"
+        style={{ fontFamily: '"IBM Plex Sans", system-ui, sans-serif' }}
       >
-        <div className="sys-title text-[0.7rem]">The System</div>
-        <div className="mt-1 font-display text-2xl font-semibold uppercase tracking-[0.12em] text-white">Solo Leveling</div>
-        <p className="mt-2 text-sm text-[#a9c6e0]">
-          Daily Training Quest, dungeons, the Library and your shadow army. Ranks, mana and the Legacy Boss.
+        <div
+          className="text-2xl font-bold uppercase tracking-[0.14em]"
+          style={{ fontFamily: '"Barlow Condensed", "Arial Narrow", sans-serif' }}
+        >
+          Project <span className="text-[#D3A253]">Viking</span>
+        </div>
+        <p className="mt-2 text-sm text-[#8D9DA5]">
+          The 52-week plan: four lifting sessions, weigh-ins and checkpoints, fuel targets and rides, with a coach reading your log.
         </p>
-        <div className="mt-4 font-sys text-xs uppercase tracking-widest text-accent-cyan">Enter the System →</div>
+        <div className="mt-4 text-xs font-semibold uppercase tracking-wider text-[#62B4C1]">Open Project Viking →</div>
       </motion.button>
 
       <motion.button

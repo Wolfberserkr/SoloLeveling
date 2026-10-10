@@ -175,7 +175,7 @@ function Sidebar() {
         <CoachButton wide />
         <ThemeButton wide />
         <NavLink to="/ascend/settings" className={({ isActive }) => `navbtn${isActive ? ' active' : ''}`}><Icon name="gear" />Settings</NavLink>
-        <button className="navbtn" onClick={() => { setPortal('system'); navigate('/'); }}><Icon name="swap" />Switch to the System</button>
+        <button className="navbtn" onClick={() => { setPortal('viking'); navigate('/'); }}><Icon name="swap" />Switch to Project Viking</button>
       </div>
     </aside>
   );

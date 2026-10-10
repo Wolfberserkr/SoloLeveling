@@ -21,9 +21,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon.svg'],
       manifest: {
-        name: 'The System — Solo Leveling',
+        name: 'The System',
         short_name: 'The System',
-        description: 'Real-life progression system. Arise.',
+        description: 'Project Viking — the 52-week training plan.',
         theme_color: '#05060d',
         background_color: '#05060d',
         display: 'standalone',
@@ -50,7 +50,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': `${root}src`,
-      '@game': `${root}supabase/functions/_shared/game`,
     },
   },
   build: {

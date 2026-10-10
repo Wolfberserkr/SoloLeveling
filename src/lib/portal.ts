@@ -1,13 +1,13 @@
-// Which app a signed-in player opened this session: the System RPG or Ascend.
+// Which app a signed-in player opened this session: Project Viking or Ascend.
 // Kept in sessionStorage, so every fresh launch (and every sign-in) starts at
 // the chooser, while a reload or back-from-background stays where you were.
-export type Portal = 'system' | 'ascend';
+export type Portal = 'viking' | 'ascend';
 const KEY = 'portal_v1';
 
 export function getPortal(): Portal | null {
   try {
     const v = sessionStorage.getItem(KEY);
-    return v === 'system' || v === 'ascend' ? v : null;
+    return v === 'viking' || v === 'ascend' ? v : null;
   } catch {
     return null;
   }

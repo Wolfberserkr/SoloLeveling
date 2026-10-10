@@ -18,9 +18,8 @@
     "types": ["vite/client"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@game/*": ["supabase/functions/_shared/game/*"]
+      "@/*": ["src/*"]
     }
   },
-  "include": ["src", "tests", "supabase/functions/_shared/game", "vite.config.ts"]
+  "include": ["src", "tests", "vite.config.ts"]
 }

@@ -1,93 +1,62 @@
-# THE SYSTEM — Solo Leveling: Real-Life Progression
+# THE SYSTEM
 
-A 1–2 year real-life transformation RPG. Not entertainment — structured
-transformation under game-like feedback loops. Daily training quests, gym
-dungeons, a book-powered intellect engine, random system events, and a
-90-day Legacy Boss: your past self.
+A personal training site with three sides, all behind one Supabase sign-in:
 
-Built as an installable PWA: **Vite + React + TypeScript + Tailwind +
-Framer Motion**, backed by **Supabase** (Postgres + Auth + Edge Functions).
-All XP, mana, and currency mutations run server-side in edge functions —
-the client cannot forge progress (RLS enforces it).
+- **Project Viking** (`src/features/viking/`) — the 52-week training plan.
+  This is the main side of the site (it replaced the Solo Leveling RPG).
+- **Ascend** (`src/features/ascend/`) — a life-RPG, picked from the chooser.
+- **Reset** (`src/features/reset/`) — D's separate workout portal.
 
-## Status — complete (8 of 8)
+Built as an installable PWA: **Vite + React + TypeScript + Tailwind**, backed by
+**Supabase** (Postgres + Auth + Edge Functions).
 
-| Phase | System | Status |
-|---|---|---|
-| 1 | Core: Status window · Daily Training Quest · XP/levels | ✅ |
-| 2 | Mana economy · daily quest loop · streaks · Perfect Clear | ✅ |
-| 3 | Gym Dungeons (training phases) · Boss Fights · body metrics | ✅ |
-| 4 | Library: Read → Reflect → Apply → Retain · knowledge checks | ✅ |
-| 5 | Cron · push notifications · random System Events | ✅ |
-| 6 | AI (Gemini) question banks & riddles | ✅ |
-| 7 | Ranks · living Stats · Titles · Classes · Skills | ✅ |
-| 8 | Legacy Boss (past self) · polish · PWA hardening | ✅ |
+## Project Viking
 
-**Phase 7** brings the dormant identity fields to life: `rank` promotes by
-level (E→Monarch), the nine attributes grow from what you actually do, Titles
-are earned and equipped, a Class is chosen at C-Rank from your strongest stat
-group, and Essence Stones buy passive + active Skills.
+After sign-in a chooser offers Project Viking or Ascend (once per launch; a
+reload stays where you were). Viking is a phone-first tracker with five tabs:
 
-**Phase 8** closes the loop: every 90 days the System snapshots your measurable
-self; when it comes due, that past self rises as a **Legacy Boss** you must
-surpass on every core measure. Plus a split vendor bundle, an offline banner,
-and an install prompt. All mechanics live in `_shared/game/{progression,legacy}.ts`
-(pure, unit-tested) and are enforced server-side.
+| Tab | What it does |
+|---|---|
+| Today | Week and phase on a 52-week strip, next session in the rotation, 7-day tiles, the **coach**, morning weigh-in, sleep/steps/supplements check-in |
+| Train | Session logger (Upper A → Lower A → Upper B → Lower B) with suggested weights, deload toggle, est. 1-rep-max chart, editable history |
+| Body | Weight chart with 7-day average and the checkpoint corridor, waist log, Month 3/6/9/12 checkpoints |
+| Fuel | Calories / protein / water against the phase target, the plan's four meals as tick boxes, extras, 14-day bars |
+| Ride | Easy/hard rides (90+ min counts as hard and adds 300 kcal), sleep and steps charts |
 
-## Post-launch — in progress
+**The plan is data, the rules are pure functions.**
+`vikingData.ts` holds the phases (Foundation cut → Main cut → Diet break →
+Finish cut → Lean build), the four sessions (exercise keys are frozen, since
+saved workouts key off them), the meal plan, supplements and checkpoints.
+`vikingLogic.ts` holds every rule and takes `today` as an argument:
 
-The core 8-phase loop is complete; the [post-launch roadmap](docs/ROADMAP.md)
-extends it. Shipped so far:
+- week = whole weeks since the start date; every 6th week is a deload (half the
+  sets, rounded up); accessories get +1 set from phase 2, upper compounds +1 in
+  the lean build
+- double progression: top of the rep range on every set → suggest the next
+  load; no better best set in 3 sessions → swap the exercise
+- the coach reads the 7-day average weight trend (too fast / sweet spot /
+  stalled, with one-tap ±kcal buttons and a 14-day cool-down), calories,
+  protein, main-lift trends, hard rides and sleep
 
-| Phase | System | Status |
-|---|---|---|
-| 9 | Shadow Army: conquests Arise as deployable allies (passive buffs) | ✅ |
-| 10 | AI System Coach: weekly assessment (read-only) | 🔄 |
-| 11 | Fuel Protocol: daily protein target + supplement stack → XP | ✅ |
+`tests/viking.test.ts` locks those rules.
 
-**Phase 9** turns every boss, gate, finished tome, cleared Legacy, and encounter
-into an extractable **shadow** (`_shared/game/shadows.ts`); arisen shadows deploy
-up to a rank-scaled army capacity and fold passive XP/stat/mana buffs into the
-same gates as skills.
+**Storage.** `vikingDb.ts` keeps one row per document in `viking_docs`
+(`supabase/migrations/0028_viking.sql`): `(user_id, coll, doc_id) → data jsonb`,
+owner-only RLS, no edge function. The UI renders from a localStorage cache and
+writes optimistically; a failed write shows a toast and reloads the server copy.
+Unsaved logger input is kept as a per-user draft in localStorage.
 
-**Phase 10** adds the **AI System Coach**: each completed week is aggregated by
-pure math (`_shared/game/review.ts`) and narrated by Gemini in the System's voice
-(`_shared/ai.ts`), stored one-per-week in `weekly_reviews`. The cron heartbeat
-auto-generates the assessment each Monday; players can also request it on demand
-from their Status. The same review tunes **adaptive targets** — a bounded
-plateau/deload detector nudges a persistent `training_load` that the Daily
-Training Quest scales by, so a strong, recovered week earns progressive overload
-and a rough one earns a deload.
-
-**Phase 11** adds the **Fuel Protocol** (`_shared/game/nutrition.ts`): a daily
-nutrition quest on the Training page. Protein accumulates through the day
-toward a personal target (`profiles.protein_target_g`, player-editable);
-meeting it pays XP once per day, and checking off the supplement stack
-(creatine + micros) pays a small bonus — both server-gated by once-per-day
-flags in `nutrition_logs`. Calories track alongside as an informational
-ceiling (no XP — eating less is not gamified), and the weekly System Coach
-now sees fueled days in its assessment. The 6-month personalized training campaign built on
-top of all this lives in [docs/SPARTAN_PROTOCOL.md](docs/SPARTAN_PROTOCOL.md).
-
-## Architecture
-
-```
-src/                          React SPA (PWA)
-supabase/migrations/          schema + RLS (anti-cheat boundary)
-supabase/functions/game/      trusted player actions (XP, quests)
-supabase/functions/_shared/game/   PURE game math, shared client+server,
-                                   unit-tested (alias @game in Vite)
-```
-
-XP curve: `totalXp(L) = round(425·(L^1.55 − 1))`, repeatables capped at
-300 XP/day → Level 10 ≈ 2 months, Level 50 ≈ 24 months. Verified in
-`tests/xpCurve.test.ts`.
+The old Solo Leveling RPG code was removed. Its database tables were left in
+place untouched; migration 0028 only stops its `system-heartbeat` pg_cron job
+so it no longer sends RPG push notifications. The `game` and `cron` edge
+functions are no longer deployed; to remove the copies still on Supabase run
+`npx supabase functions delete game` and `... delete cron`.
 
 ### The "Reset" portal (D's side)
 
 A second, light-themed app lives under `src/features/reset/` and is reached by
-role routing in `src/App.tsx` — a standalone workout tracker, not part of the
-RPG. It runs a **4-session machine-based gym program built for fat loss**
+role routing in `src/App.tsx` — a standalone workout tracker, separate from
+Project Viking. It runs a **4-session machine-based gym program built for fat loss**
 (Lower A/B, Upper A/B, plus a mobility session): short rests (45–60 sec
 on the machines, 90 sec on the hinge and the squat), paired supersets for
 density, interval conditioning on the upper days, and a barbell squat finisher
@@ -97,7 +66,7 @@ on every strength session (back squat on the lower days, front on the upper).
 tab lets her pick today's session by muscle focus, with a "Last trained"
 banner, a *Suggested today* badge on the session trained longest ago whose
 body region has recovered, and a soft warning when a region was trained in the
-last 48h (`src/lib/sessionPick.ts`, shared with the RPG Gym Dungeon picker).
+last 48h (`src/lib/sessionPick.ts`).
 **Every training day resets at 00:00 local**: any session with ticked sets is
 logged to the calendar on the day it was trained (partial if unfinished) and
 the % rings return to 0 (`rolloverProgress` in `resetStore.ts`).
@@ -157,7 +126,8 @@ calendar/grid: position the first item, don't pad with empty cells.
 2. **Edge function** — with the Supabase CLI:
    ```sh
    npx supabase login          # needs an access token
-   npx supabase functions deploy game --project-ref npqpzzarohlvexqpqurg
+   npx supabase functions deploy ascend --project-ref npqpzzarohlvexqpqurg
+   npx supabase functions deploy ascend-notify --project-ref npqpzzarohlvexqpqurg
    ```
 3. **Frontend env** — copy `.env.example` to `.env` and paste the project
    anon key (Supabase dashboard → Settings → API).
@@ -170,7 +140,7 @@ calendar/grid: position the first item, don't pad with empty cells.
 
 ```sh
 npm run dev        # dev server
-npm test           # game-math test suite (XP pacing, training scaling)
+npm test           # unit tests (Viking rules, Reset plan, Ascend)
 npm run build      # typecheck + production build (PWA)
 npm run android:apk  # build an installable APK (needs the Android SDK)
 ```
@@ -218,7 +188,7 @@ for notifications.
 
 The backend deploys automatically. Pushing to `main` runs
 `.github/workflows/deploy.yml`, which applies any new database migrations and
-redeploys the `game` + `cron` edge functions. Each step is gated on its secret,
+redeploys the `ascend` + `ascend-notify` edge functions. Each step is gated on its secret,
 so add these under **Settings → Secrets and variables → Actions**:
 
 | Secret | Enables | Where to get it |
@@ -235,6 +205,6 @@ needs (`GEMINI_API_KEY`, `VAPID_*`, `CRON_SECRET`) are set once with
 To deploy by hand instead:
 
 ```sh
-npx supabase functions deploy game --project-ref npqpzzarohlvexqpqurg
-npx supabase functions deploy cron --project-ref npqpzzarohlvexqpqurg
+npx supabase functions deploy ascend --project-ref npqpzzarohlvexqpqurg
+npx supabase functions deploy ascend-notify --project-ref npqpzzarohlvexqpqurg
 ```

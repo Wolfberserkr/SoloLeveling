@@ -58,7 +58,7 @@ export function SettingsScreen() {
             <p className="muted" style={{ fontSize: 13.5 }}>Your progress is saved to your account and syncs across devices.</p>
             <div className="setrow" style={{ justifyContent: 'flex-start' }}>
               <button className="btn sm" onClick={exportJson}>Download my data (JSON)</button>
-              <button className="btn sm" onClick={() => { setPortal('system'); navigate('/'); }}><Icon name="swap" />Switch to the System</button>
+              <button className="btn sm" onClick={() => { setPortal('viking'); navigate('/'); }}><Icon name="swap" />Switch to Project Viking</button>
               <button className="btn sm danger" onClick={() => void signOut()}>Sign out</button>
             </div>
           </section>
