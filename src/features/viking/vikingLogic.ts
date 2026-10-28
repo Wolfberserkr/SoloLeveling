@@ -5,6 +5,7 @@ import {
   CPS, EXBY, INC, ORDER, PHASES, PLAN_ITEMS, PROTEIN, SESS, STEP, autoPhase,
   type Exercise, type PhaseKey, type SessionKey,
 } from './vikingData';
+import type { BenchId, RideCode } from './bikePlan';
 
 // ── Documents ────────────────────────────────────────────────────────────────
 export type Settings = {
@@ -36,18 +37,38 @@ export type WorkoutDoc = {
   entries: Array<{ ex: string; sets: SetEntry[] }>;
   savedAt: number;
 };
-export type RideDoc = { date: string; type: 'easy' | 'hard'; minutes: number; hr?: number; savedAt?: number };
+/** A ride. `type` stays on every doc (the coach and the kcal rule read it);
+ *  rides logged against the bike plan also carry their plan `code`, which
+ *  decides hard vs easy. Everything after `savedAt` is optional detail. */
+export type RideDoc = {
+  date: string; type: 'easy' | 'hard'; minutes: number; hr?: number; savedAt?: number;
+  code?: RideCode; km?: number; maxHr?: number; cadence?: number;
+  /** Minutes in Z2 from the Garmin, when entered. */
+  z2?: number;
+  notes?: string; strava?: string;
+};
+/** One tick of the 8-day bike/gym cycle: that cycle day was done or skipped. */
+export type CycleDoc = { date: string; day: number; status: 'done' | 'skip'; savedAt: number };
+/** A benchmark retest (the baselines live in bikePlan.ts). */
+export type BenchDoc = {
+  date: string; bench: BenchId; sec?: number; rpm?: number; hr?: number;
+  source: 'manual' | 'strava'; savedAt: number;
+};
 
-export type Coll = 'weights' | 'waist' | 'nutrition' | 'recovery' | 'workouts' | 'rides';
-export const COLLS: Coll[] = ['weights', 'waist', 'nutrition', 'recovery', 'workouts', 'rides'];
+export type Coll = 'weights' | 'waist' | 'nutrition' | 'recovery' | 'workouts' | 'rides' | 'cycle' | 'benchmarks';
+export const COLLS: Coll[] = ['weights', 'waist', 'nutrition', 'recovery', 'workouts', 'rides', 'cycle', 'benchmarks'];
 export type DocOf = {
   weights: WeightDoc; waist: WaistDoc; nutrition: NutritionDoc;
   recovery: RecoveryDoc; workouts: WorkoutDoc; rides: RideDoc;
+  cycle: CycleDoc; benchmarks: BenchDoc;
 };
 export type VikingData = { settings: Settings | null } & { [C in Coll]: Record<string, DocOf[C]> };
 
 export function emptyData(): VikingData {
-  return { settings: null, weights: {}, waist: {}, nutrition: {}, recovery: {}, workouts: {}, rides: {} };
+  return {
+    settings: null, weights: {}, waist: {}, nutrition: {}, recovery: {}, workouts: {}, rides: {},
+    cycle: {}, benchmarks: {},
+  };
 }
 
 // ── Dates (local YYYY-MM-DD, day numbers since the epoch) ───────────────────
@@ -267,9 +288,8 @@ export function viking(D: VikingData) {
     const pl = Object.keys(H).filter(plateau).map((k) => EXBY[k]?.n).filter(Boolean);
     if (pl.length) out.push({ l: 'warn', t: 'Stuck exercises', b: `${pl.slice(0, 3).join(', ')}: no progress in 3 sessions. Swap each for a similar exercise.` });
 
-    // Rides
-    const hard = sorted('rides').filter((r) => dn(r.date) > t - 7 && dn(r.date) <= t && r.type === 'hard').length;
-    if (P.cut && hard > 2) out.push({ l: 'warn', t: 'Too many hard rides', b: `${hard} hard rides in 7 days. Keep it to 2 during the cut so they don't eat into lifting recovery.` });
+    // Rides: the bike plan's rules (hard-ride cap, deload, Lower-day spacing)
+    // live in bikeLogic.ts and are merged in on the Today tab.
 
     // Sleep
     const sl: number[] = [];

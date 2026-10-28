@@ -21,7 +21,7 @@ reload stays where you were). Viking is a phone-first tracker with five tabs:
 | Train | Session logger (Upper A → Lower A → Upper B → Lower B) with suggested weights, deload toggle, est. 1-rep-max chart, editable history |
 | Body | Weight chart with 7-day average and the checkpoint corridor, waist log, Month 3/6/9/12 checkpoints |
 | Fuel | Calories / protein / water against the phase target, the plan's four meals as tick boxes, extras, 14-day bars |
-| Ride | Easy/hard rides (90+ min counts as hard and adds 300 kcal), sleep and steps charts |
+| Ride | The bike plan: ride log (code, time, distance, HR, cadence, Z2 minutes, notes, Strava link) with live rule warnings, weekly summary (Z2 vs target, hard rides vs cap, ride time), HR zones, **Benchmarks** (baseline vs retests with a trend chart), sleep and steps |
 
 **The plan is data, the rules are pure functions.**
 `vikingData.ts` holds the phases (Foundation cut → Main cut → Diet break →
@@ -39,6 +39,20 @@ saved workouts key off them), the meal plan, supplements and checkpoints.
   protein, main-lift trends, hard rides and sleep
 
 `tests/viking.test.ts` locks those rules.
+
+**The bike plan** (`bikePlan.ts` data, `bikeLogic.ts` rules, `tests/bike.test.ts`)
+runs alongside the lifting on an **8-day cycle** (Upper A + optional R1 →
+Lower A → hard ride → Upper B → Lower B → endurance → ride → rest). The cycle
+is a sequence, not weekdays: Today shows the current day's gym session and ride
+card (code, time, target zones, how, where), and it advances when the day is
+ticked done or skipped. Saving a gym session ticks its day; saving a ride can
+tick a ride day. Weeks, phases and deloads come from the Viking start date.
+Rules: no hard ride (H1/H2/H3) within 24 h before Lower A/B; hard rides per
+rolling 8 days ≤ the phase cap (1 in phase 1, 2 after); deload weeks swap hard
+rides for ≤ 60 min Z1–Z2 and flag any hard ride logged; H3 sprints hidden
+before phase 2. A retest prompt shows at the end of each deload week.
+Rides stay in the `rides` collection (old easy/hard rides still count);
+`cycle` ticks and `benchmarks` retests are new collections (migration 0029).
 
 **Storage.** `vikingDb.ts` keeps one row per document in `viking_docs`
 (`supabase/migrations/0028_viking.sql`): `(user_id, coll, doc_id) → data jsonb`,
