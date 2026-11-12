@@ -178,3 +178,24 @@ describe('nudges', () => {
     expect(stepsNudge(undefined, 10000, 18, false)).toBeNull();
   });
 });
+
+describe('Claude API spend', () => {
+  it('prices tokens at list rates in micro-dollars', async () => {
+    const { apiCostMicros } = await import('../supabase/functions/_shared/lifeLogic');
+    // 10k input × $4 + 2k output × $20 + 50k cache read × $0.20 + 3k cache write × $5
+    expect(apiCostMicros({ input: 10_000, output: 2_000, cacheRead: 50_000, cacheWrite: 3_000 }, 'claude-opus-5-5'))
+      .toBe(40_000 + 40_000 + 10_000 + 15_000);
+    // Unknown models are priced as Opus 5.5, never as free.
+    expect(apiCostMicros({ input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0 }, 'claude-future-9')).toBe(4_000_000);
+  });
+
+  it('renders the briefing line with a warning near the budget', async () => {
+    const { apiUsageLine } = await import('../supabase/functions/_shared/lifeLogic');
+    expect(apiUsageLine({ yesterdayMsgs: 14, yesterdayUsd: 0.38, monthMsgs: 80, monthUsd: 2.1, budgetUsd: 10, month: 'Nov' }))
+      .toBe('🤖 Jarvis API: yesterday 14 msgs · $0.38 · Nov so far $2.10 of $10 (21%)');
+    expect(apiUsageLine({ yesterdayMsgs: 0, yesterdayUsd: 0, monthMsgs: 300, monthUsd: 8.5, budgetUsd: 10, month: 'Nov' }))
+      .toBe('🤖 Jarvis API: no chat yesterday · Nov so far $8.50 of $10 (85%) 🟠');
+    expect(apiUsageLine({ yesterdayMsgs: 1, yesterdayUsd: 0.05, monthMsgs: 400, monthUsd: 12, budgetUsd: 12.5, month: 'Dec' }))
+      .toBe('🤖 Jarvis API: yesterday 1 msg · $0.05 · Dec so far $12.00 of $12.50 (96%) 🟠');
+  });
+});

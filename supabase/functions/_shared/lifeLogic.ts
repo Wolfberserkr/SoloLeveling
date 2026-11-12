@@ -341,6 +341,37 @@ export function billsToFlag(bills: BillLite[], today: string): Array<BillLite & 
     .sort((a, b) => a.days - b.days);
 }
 
+// ── Claude API spend ────────────────────────────────────────────────────
+
+/** List prices in $ per million tokens. Cache writes are the 5-minute TTL
+ *  (1.25 × input), which is what the bot's cache_control uses. */
+export const MODEL_RATES: Record<string, { in: number; out: number; cacheRead: number; cacheWrite: number }> = {
+  'claude-opus-5-5': { in: 4, out: 20, cacheRead: 0.2, cacheWrite: 5 },
+  'claude-sonnet-5-5': { in: 2, out: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+  'claude-haiku-5-5': { in: 0.1, out: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
+};
+
+export type TokenUsage = { input: number; output: number; cacheRead: number; cacheWrite: number };
+
+/** Cost in micro-dollars ($ per million tokens × tokens = µ$). Unknown models
+ *  are priced as Opus 5.5 so a new model never shows as free. */
+export function apiCostMicros(u: TokenUsage, model: string): number {
+  const r = MODEL_RATES[model] ?? MODEL_RATES['claude-opus-5-5'];
+  return Math.round(u.input * r.in + u.output * r.out + u.cacheRead * r.cacheRead + u.cacheWrite * r.cacheWrite);
+}
+
+export type ApiUsageSummary = { yesterdayMsgs: number; yesterdayUsd: number; monthMsgs: number; monthUsd: number; budgetUsd: number; month: string };
+
+/** One briefing line, e.g. "🤖 Jarvis API: yesterday 14 msgs · $0.38 · Nov so far $2.10 of $10 (21%)". */
+export function apiUsageLine(s: ApiUsageSummary): string {
+  const usd = (n: number) => `$${Number(n).toFixed(2)}`;
+  const budget = Number(s.budgetUsd);
+  const pct = budget > 0 ? Math.round((Number(s.monthUsd) / budget) * 100) : 0;
+  const yesterday = Number(s.yesterdayMsgs) ? `yesterday ${s.yesterdayMsgs} msg${Number(s.yesterdayMsgs) === 1 ? '' : 's'} · ${usd(s.yesterdayUsd)}` : 'no chat yesterday';
+  const warn = pct >= 100 ? ' 🔴' : pct >= 80 ? ' 🟠' : '';
+  return `🤖 Jarvis API: ${yesterday} · ${s.month} so far ${usd(s.monthUsd)} of $${budget % 1 ? budget.toFixed(2) : budget} (${pct}%)${warn}`;
+}
+
 /** Telegram HTML needs only these three escaped. */
 export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

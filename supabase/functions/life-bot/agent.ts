@@ -5,7 +5,7 @@
 // ═════════════════════════════════════════════════════════════════════════
 import Anthropic from 'npm:@anthropic-ai/sdk@^0.136.0';
 import {
-  advanceDue, AWG_RATES, budgetStatus, formatMoney, localParts, toAwgMinor, zonedTime, type Cadence,
+  advanceDue, apiCostMicros, AWG_RATES, budgetStatus, formatMoney, localParts, toAwgMinor, zonedTime, type Cadence,
 } from '../_shared/lifeLogic.ts';
 import type { Keyboard } from './telegram.ts';
 
@@ -228,12 +228,12 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'set_preference',
-    description: 'Change an assistant setting: sleepHours, prepMinutes, offDayWake (HH:MM), offDayBriefing (HH:MM), windDownMinutes, stepTarget, timezone.',
+    description: 'Change an assistant setting: sleepHours, prepMinutes, offDayWake (HH:MM), offDayBriefing (HH:MM), windDownMinutes, stepTarget, apiMonthlyBudgetUsd (monthly Claude API budget for this chat, in $), timezone.',
     input_schema: { type: 'object', properties: { key: { type: 'string' }, value: { type: 'string' } }, required: ['key', 'value'] },
   },
 ];
 
-const PREF_KEYS = new Set(['sleepHours', 'prepMinutes', 'offDayWake', 'offDayBriefing', 'windDownMinutes', 'stepTarget']);
+const PREF_KEYS = new Set(['sleepHours', 'prepMinutes', 'offDayWake', 'offDayBriefing', 'windDownMinutes', 'stepTarget', 'apiMonthlyBudgetUsd']);
 
 export type Ctx = { db: Db; userId: string; tz: string; today: string; keyboard?: Keyboard };
 
@@ -493,7 +493,26 @@ export async function converse(ctx: Ctx, text: string, attachment?: Attachment):
   }
   content.push({ type: 'text', text: text || (attachment ? '(sent a file with no caption)' : '') });
   const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: 'user', content }];
+  const spend = { model: MODEL, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, micros: 0, calls: 0 };
+  try {
+    return await loop(ctx, client, messages, spend);
+  } finally {
+    if (spend.calls) await recordUsage(ctx, spend);
+  }
+}
 
+type Spend = { model: string; input: number; output: number; cacheRead: number; cacheWrite: number; micros: number; calls: number };
+
+/** One row per owner message, even when it took several tool rounds or failed halfway. */
+async function recordUsage(ctx: Ctx, s: Spend) {
+  const { error } = await ctx.db.from('life_api_usage').insert({
+    user_id: ctx.userId, model: s.model, input_tokens: s.input, output_tokens: s.output,
+    cache_read_tokens: s.cacheRead, cache_write_tokens: s.cacheWrite, cost_usd_micros: s.micros,
+  });
+  if (error) console.error('life-bot: usage insert failed', error);
+}
+
+async function loop(ctx: Ctx, client: Anthropic, messages: Anthropic.Beta.BetaMessageParam[], spend: Spend): Promise<{ text: string; keyboard?: Keyboard }> {
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     // deno-lint-ignore no-explicit-any
     const params: any = {
@@ -507,6 +526,13 @@ export async function converse(ctx: Ctx, text: string, attachment?: Attachment):
       messages,
     };
     const resp = await client.beta.messages.create(params) as Anthropic.Beta.BetaMessage;
+    // Priced per round by the model that actually answered (a fallback can differ).
+    const u = { input: resp.usage.input_tokens ?? 0, output: resp.usage.output_tokens ?? 0,
+      cacheRead: resp.usage.cache_read_input_tokens ?? 0, cacheWrite: resp.usage.cache_creation_input_tokens ?? 0 };
+    spend.model = resp.model ?? MODEL;
+    spend.input += u.input; spend.output += u.output; spend.cacheRead += u.cacheRead; spend.cacheWrite += u.cacheWrite;
+    spend.micros += apiCostMicros(u, spend.model);
+    spend.calls++;
     if (resp.stop_reason === 'refusal') return { text: "I can't help with that one." };
     // Append the full content unchanged (thinking blocks included).
     messages.push({ role: 'assistant', content: resp.content as Anthropic.Beta.BetaContentBlockParam[] });

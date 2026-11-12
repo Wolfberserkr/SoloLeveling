@@ -97,7 +97,8 @@ For each such day, build the briefing and insert it with `kind='briefing'`, `sen
    - Write each as one English line (translate from Papiamento or Dutch), with the outlet linked: `• <one-line summary> (<a href="URL">Diario</a>)`.
    - Don't repeat a story from the last 3 briefings: check `select text from life_outbox where user_id = :uid and kind = 'briefing' order by created_at desc limit 3`.
    - If search is unavailable or nothing new turns up, leave the section out. Never make up or guess a headline.
-At most about 24 lines. Lead with what matters most that day.
+9. **Last line, always: Claude API spend.** `select life_api_usage_summary(:uid);` returns `{yesterdayMsgs, yesterdayUsd, monthMsgs, monthUsd, budgetUsd, month}`. Render it exactly like `🤖 Jarvis API: yesterday 14 msgs · $0.38 · Nov so far $2.10 of $10 (21%)` (say `no chat yesterday` when yesterdayMsgs is 0; add ` 🟠` at 80% or more of the budget, ` 🔴` at 100% or more). Don't estimate or adjust the numbers.
+At most about 25 lines. Lead with what matters most that day.
 
 ## 9. Finance sheet mirror (once a day)
 On the first run after 03:00 local, if `prefs->>'financeSheetLastSync'` isn't today, sync the Google Sheet named "Jarvis — Finance". Create it if `prefs->>'financeSheetId'` is empty and store its id there. Tabs: Transactions (the last 400, newest first), This month (category, spent, budget, %), Bills, Goals. Rewrite the tabs in full; don't append. Then set `prefs.financeSheetLastSync`.
