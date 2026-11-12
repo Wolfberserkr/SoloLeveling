@@ -191,7 +191,7 @@ async function handleCallback(cb: Row) {
     if (verb === 'ok') {
       const { data } = await db.from('life_shifts').update({ status: 'confirmed', updated_at: new Date().toISOString() }).eq('user_id', uid).eq('batch', id).eq('status', 'pending').select('id');
       await settleButtons(chatId, messageId, `✅ ${(data ?? []).length} shifts saved`);
-      await sendMessage(chatId, 'Saved. They go into your calendar with the shift reminders at the next sync (within the hour), and your sleep and briefing times now follow them.');
+      await sendMessage(chatId, 'Saved. They go into your calendar with the shift reminders at the next sync (within 3 hours), and your sleep and briefing times now follow them.');
     } else {
       await db.from('life_shifts').delete().eq('user_id', uid).eq('batch', id).eq('status', 'pending');
       await settleButtons(chatId, messageId, '✖️ Discarded');
