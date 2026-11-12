@@ -8,8 +8,8 @@
 //   5. the daily inbox digest with Delete / Keep buttons
 // ═════════════════════════════════════════════════════════════════════════
 import {
-  addDays, billsToFlag, budgetStatus, escapeHtml, formatMoney, hhmm, isDue, localParts, planDay,
-  readPrefs, safeTz, stepsNudge, windDownAt, zonedTime, type DayPlan, type LifePrefs, type Shift,
+  addDays, apiUsageLine, billsToFlag, budgetStatus, escapeHtml, formatMoney, hhmm, isDue, localParts, planDay,
+  readPrefs, safeTz, stepsNudge, windDownAt, zonedTime, type DayPlan, type ApiUsageSummary, type LifePrefs, type Shift,
 } from '../_shared/lifeLogic.ts';
 import { sendMessage, type Keyboard } from './telegram.ts';
 import type { Db } from './agent.ts';
@@ -105,6 +105,7 @@ async function tickUser(db: Db, p: Row, now: Date) {
     }
   }
   if (lp.minute % 15 === 0) await budgetNudges(db, userId, today, nudge);
+  if (lp.minute % 15 === 0) await apiBudgetNudge(db, userId, today, nudge);
 
   // 4. Fallback briefing: the routine composes one ahead of time; if it
   // hasn't 10 minutes after the briefing time, send the deterministic one.
@@ -169,6 +170,23 @@ async function budgetNudges(db: Db, userId: string, today: string, nudge: (k: st
   }
 }
 
+async function apiUsage(db: Db, userId: string): Promise<ApiUsageSummary | null> {
+  const { data, error } = await db.rpc('life_api_usage_summary', { p_user: userId });
+  if (error) { console.error('life tick: usage summary failed', error); return null; }
+  return data as ApiUsageSummary;
+}
+
+/** Once per month per level: 80% and 100% of the Claude API budget. */
+async function apiBudgetNudge(db: Db, userId: string, today: string, nudge: (k: string, t: string) => Promise<void>) {
+  const s = await apiUsage(db, userId);
+  if (!s || !(Number(s.budgetUsd) > 0)) return;
+  const pct = (Number(s.monthUsd) / Number(s.budgetUsd)) * 100;
+  if (pct < 80) return;
+  const level = pct >= 100 ? 'over' : 'warn';
+  await nudge(`apibudget:${today.slice(0, 7)}:${level}`,
+    `${level === 'over' ? '🔴' : '🟠'} <b>Claude API</b>: $${Number(s.monthUsd).toFixed(2)} of your $${s.budgetUsd} monthly budget used (${Math.round(pct)}%). Say "set my API budget to $…" to change it.`);
+}
+
 async function basicBriefing(db: Db, userId: string, tz: string, plan: DayPlan, today: string): Promise<string> {
   const [{ data: events }, { data: tasks }, { data: bills }, { data: health }] = await Promise.all([
     db.from('life_calendar_cache').select('starts_at,title,all_day').eq('user_id', userId)
@@ -186,6 +204,8 @@ async function basicBriefing(db: Db, userId: string, tz: string, plan: DayPlan, 
   for (const e of (events ?? []) as Row[]) lines.push(`📅 ${e.all_day ? 'All day' : hhmm(new Date(String(e.starts_at)), tz)} ${escapeHtml(String(e.title))}`);
   for (const t of (tasks ?? []) as Row[]) lines.push(`☑️ ${escapeHtml(String(t.title))}`);
   for (const b of (bills ?? []) as Row[]) lines.push(`💳 ${escapeHtml(String(b.name))} due ${b.next_due}`);
+  const usage = await apiUsage(db, userId);
+  if (usage) lines.push(apiUsageLine(usage));
   for (const n of plan.notes) lines.push(`<i>${escapeHtml(n)}</i>`);
   lines.push('', '<i>Quick version: the full briefing routine didn\'t run in time.</i>');
   return lines.join('\n');

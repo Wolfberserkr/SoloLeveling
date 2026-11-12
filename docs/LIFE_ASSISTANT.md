@@ -17,6 +17,7 @@ Garmin and Strava into Project Viking.
 | **Email** | Tiered. Obvious junk (promotions, social, expired codes, delivered parcels) goes to Trash and is recoverable for 30 days. Uncertain mail comes to Telegram at 19:00 with 🗑 / ✅ / ♻️ Always. Receipts are archived after being logged. Important mail is summarised and gets a draft reply, never sent |
 | **Money** | Bank alert and receipt emails are parsed. Quick-log by Telegram ("25 lunch", "$40 gas"), or send a receipt or statement photo. Statements skip lines already logged. Includes budgets with 80% / 100% warnings, bills and renewals with ✅ Paid buttons, savings goals, and a monthly subscription audit. AWG + USD at the 1.79 peg |
 | **Other** | Groceries, errands, household, family dates, learning and habits (`life_tasks`, `life_memory`) |
+| **API spend** | Every Claude reply is metered (tokens × list price) into `life_api_usage`. The briefing ends with `🤖 Jarvis API: yesterday N msgs · $x · <month> so far $y of $budget`, with a nudge at 80% and 100%. The budget defaults to $10; say "set my API budget to $20" to change it |
 | **Data** | Supabase is the source of truth, mirrored daily to the Google Sheet **Jarvis — Finance** |
 
 ## How it fits together
