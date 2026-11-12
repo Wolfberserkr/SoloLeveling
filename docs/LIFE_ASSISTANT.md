@@ -28,13 +28,13 @@ Garmin and Strava into Project Viking.
      └──── life_outbox ◀── Supabase (life_* tables, viking_docs) ◀──┐
                                                                      │ execute_sql
                Claude scheduled tasks ── Gmail · Calendar · Garmin · Strava · Sheets
-               • hourly sync  (life/routines/hourly-sync.md)
+               • sync, every 3 h (life/routines/sync.md)
                • weekly review (life/routines/weekly-review.md)
 ```
 
 The bot can't reach Google, Garmin or Strava itself. When you ask it to change your calendar
-or email, it queues a `life_jobs` row, and the hourly routine carries it out and messages you.
-So **calendar and email changes asked for in chat land within the hour**. Everything that
+or email, it queues a `life_jobs` row, and the background sync carries it out and messages you.
+It runs every 3 hours, so **calendar and email changes asked for in chat land within 3 hours**. Everything that
 lives in Supabase is instant: money, tasks, shifts, schedule questions and memory.
 
 | Piece | Where |
@@ -76,7 +76,7 @@ lives in Supabase is instant: money, tasks, shifts, schedule questions and memor
 8. **Other Gmail accounts.** In each extra account: Settings → Forwarding → forward to your
    main Gmail. In the main Gmail, add a filter `deliveredto:<that address>` → apply label
    `acct/<name>`. The routine triages them all and keeps track of which account each came from.
-9. **Scheduled tasks.** Claude runs `hourly-sync` every hour and `weekly-review` on Sunday
+9. **Scheduled tasks.** Claude runs `sync` every 3 hours and `weekly-review` on Sunday
    evenings, with the Gmail, Google Calendar, Garmin, Strava, Supabase, Google Sheets and
    Google Drive connectors.
 

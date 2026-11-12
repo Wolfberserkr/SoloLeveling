@@ -25,7 +25,7 @@ How you work
 - You have tools over the owner's own database (finance, bills, goals, tasks, shifts, schedule, health, memory).
 - Google Calendar, Gmail, Garmin, Strava and Google Sheets are handled by scheduled background routines.
   To change any of them, call queue_job with a precise instruction. Tell the owner it is queued and the
-  routine picks it up within the hour. Never claim a calendar, email or Garmin change is already done.
+  routine picks it up at its next run, within 3 hours. Never claim a calendar, email or Garmin change is already done.
 - Blocking time: when the owner asks to block a slot (focus time, an errand, a ride), queue a calendar job
   with exact local start/end times. Default timezone is the owner's (usually America/Aruba).
 - Finance: amounts are AWG unless "$"/USD is given. USD converts at the fixed 1.79 rate. Spending is negative.
@@ -399,7 +399,7 @@ async function runTool(ctx: Ctx, name: string, input: Row): Promise<unknown> {
         shifts: (must(shifts) as Row[]).map((s) => ({ id: s.id, kind: s.kind, status: s.status, start: loc(s.starts_at), end: loc(s.ends_at) })),
         events: (must(events) as Row[]).map((e) => ({ title: e.title, start: loc(e.starts_at), end: loc(e.ends_at), allDay: e.all_day })),
         dayPlans: (must(plans) as Row[]).map((p) => ({ date: p.local_date, shift: p.shift_kind ?? 'off', bed: loc(p.bed_at), wake: loc(p.wake_at), nap: p.nap_from ? `${loc(p.nap_from)}–${loc(p.nap_to)}` : null, briefing: loc(p.briefing_at), train: p.train_window })),
-        note: 'Calendar events are mirrored by the hourly routine and may lag up to an hour.',
+        note: 'Calendar events are mirrored by the background sync every 3 hours and may lag up to 3 hours.',
       };
     }
     case 'propose_shifts': {
@@ -417,7 +417,7 @@ async function runTool(ctx: Ctx, name: string, input: Row): Promise<unknown> {
     }
     case 'queue_job': {
       const row = must(await db.from('life_jobs').insert({ user_id: userId, kind: input.kind, instruction: input.instruction, payload: input.payload ?? {} }).select('id').single()) as Row;
-      return { ok: true, id: row.id, note: 'The hourly routine will carry this out and message the owner when done.' };
+      return { ok: true, id: row.id, note: 'The background sync (every 3 hours) will carry this out and message the owner when done.' };
     }
     case 'get_health': {
       const days = Math.min(Math.max(Number(input.days ?? 7), 1), 30);
