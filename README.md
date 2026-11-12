@@ -132,6 +132,16 @@ grid item is a real, identically-sized day cell and no leading placeholder can
 ever make one row taller than the rest. Same rule applies to any future
 calendar/grid: position the first item, don't pad with empty cells.
 
+## Jarvis — the Life Assistant
+
+A Telegram assistant that plans days around shifts, keeps Calendar current,
+triages Gmail, tracks money (AWG + USD) and folds Garmin/Strava into Project
+Viking. The `life-bot` edge function (Claude API + a minute pg_cron tick)
+handles chat and nudges; Claude scheduled tasks (`life/routines/*.md`) do the
+Google/Garmin/Strava work through connectors. Schema: migration 0030. Rules:
+`supabase/functions/_shared/lifeLogic.ts`, locked by `tests/life.test.ts`.
+Full design and setup: [`docs/LIFE_ASSISTANT.md`](docs/LIFE_ASSISTANT.md).
+
 ## Setup (one time)
 
 1. **Database** — open the Supabase SQL editor for project
