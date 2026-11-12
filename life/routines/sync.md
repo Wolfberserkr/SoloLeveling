@@ -30,6 +30,7 @@ For each one, set `status='running'`, do it, then set `status='done'` (or `'fail
 - `calendar`: create, move or delete events on the primary calendar. Blocks you create get `[jarvis]` in the description. Use the owner's timezone. Check for clashes with shifts and say so if there is one. If a requested block's start time has already passed, create it anyway only if it hasn't ended, and say so.
 - `email`: as instructed (find, label, draft a reply, unsubscribe). Draft only.
 - `garmin`: schedule, move or remove workouts, or push one to the watch.
+- `news`: the owner wants the news now. Build the "📰 Aruba today" section exactly as step 8.8 describes, and send it as its own message right away: `kind = 'news'`, `send_after = now()`, starting with `<b>📰 Aruba today</b>`. Don't mark any briefing composed. Your one outbox line for this job is that news message itself.
 - `strava`, `sheets`, `other`: as instructed, within the hard rules.
 
 ## 2. Shifts → Calendar (with the shift reminders)
