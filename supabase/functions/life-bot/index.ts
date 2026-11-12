@@ -27,7 +27,7 @@ const HELP = `<b>Jarvis</b> — just talk to me. Some things I do:
 • "Block 14:00–15:30 tomorrow for groceries"
 • "What's my week look like?" · "How much did I spend on food?"
 • "Add milk and eggs to groceries" · "Remind me to renew my licence in March"
-/today · /week · /money · /inbox · /tasks · /help`;
+/today · /week · /money · /inbox · /tasks · /news · /help`;
 
 const COMMANDS: Record<string, string> = {
   '/today': "Give me today's plan: shift, sleep, training, meals, tasks and anything due.",
@@ -35,6 +35,7 @@ const COMMANDS: Record<string, string> = {
   '/money': "How am I doing this month: spending by category vs budget, bills coming up, savings goals.",
   '/inbox': 'What email decisions are waiting for me? Summarise them.',
   '/tasks': 'List my open tasks and grocery list, grouped by area.',
+  '/news': 'Send me the Aruba news now.',
 };
 
 Deno.serve(async (req) => {

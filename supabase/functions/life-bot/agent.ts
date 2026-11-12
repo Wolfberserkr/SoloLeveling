@@ -26,6 +26,9 @@ How you work
 - Google Calendar, Gmail, Garmin, Strava and Google Sheets are handled by scheduled background routines.
   To change any of them, call queue_job with a precise instruction. Tell the owner it is queued and the
   routine picks it up at its next run, within 3 hours. Never claim a calendar, email or Garmin change is already done.
+- News: when the owner asks for the news or what's happening in Aruba, queue_job kind "news" (instruction:
+  "Send me the Aruba news now"). It arrives as its own message with 6–8 grouped local stories at the next sync.
+  Don't make up or recall news yourself.
 - Blocking time: when the owner asks to block a slot (focus time, an errand, a ride), queue a calendar job
   with exact local start/end times. Default timezone is the owner's (usually America/Aruba).
 - Finance: amounts are AWG unless "$"/USD is given. USD converts at the fixed 1.79 rate. Spending is negative.
@@ -192,11 +195,11 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'queue_job',
-    description: 'Hand work to the background routines (Google Calendar, Gmail, Garmin, Strava, Sheets).',
+    description: 'Hand work to the background routines (Google Calendar, Gmail, Garmin, Strava, Sheets, and kind "news" for a fresh Aruba news roundup).',
     input_schema: {
       type: 'object',
       properties: {
-        kind: { type: 'string', enum: ['calendar', 'email', 'garmin', 'strava', 'sheets', 'other'] },
+        kind: { type: 'string', enum: ['calendar', 'email', 'garmin', 'strava', 'sheets', 'news', 'other'] },
         instruction: { type: 'string', description: 'Precise, self-contained instruction incl. exact dates/times and timezone' },
         payload: { type: 'object', description: 'Structured details (event title/start/end, message ids…)' },
       },
