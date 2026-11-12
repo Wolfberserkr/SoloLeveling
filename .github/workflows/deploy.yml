@@ -39,8 +39,9 @@ jobs:
       - uses: actions/checkout@v4
 
       # Pinned: CLI 3.x made commands target the LOCAL database unless given
-      # --remote, so an unpinned `latest` broke the deploy overnight. Bump on
-      # purpose, after reading the CLI changelog.
+      # --remote, and refuses hosted changes in CI without --yes, so an
+      # unpinned `latest` broke the deploy overnight. Bump on purpose, after
+      # reading the CLI changelog.
       - uses: supabase/setup-cli@v1
         with:
           version: 3.1.0
@@ -54,12 +55,12 @@ jobs:
           # `db push` replays 0020 and dies on "column already exists". Mark
           # them applied (records history, runs no SQL), then push only 0022+.
           # Idempotent — re-marking an already-applied migration is a no-op.
-          supabase migration repair --remote --password "$SUPABASE_DB_PASSWORD" --status applied 0020 0021
+          supabase migration repair --remote --password "$SUPABASE_DB_PASSWORD" --status applied --yes 0020 0021
           supabase db push --remote --password "$SUPABASE_DB_PASSWORD" --yes
 
       - name: Deploy edge functions
         if: ${{ env.SUPABASE_ACCESS_TOKEN != '' }}
         run: |
-          supabase functions deploy ascend --remote="$SUPABASE_PROJECT_REF"
-          supabase functions deploy ascend-notify --remote="$SUPABASE_PROJECT_REF"
-          supabase functions deploy life-bot --remote="$SUPABASE_PROJECT_REF"
+          supabase functions deploy ascend --remote="$SUPABASE_PROJECT_REF" --yes
+          supabase functions deploy ascend-notify --remote="$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
+          supabase functions deploy life-bot --remote="$SUPABASE_PROJECT_REF" --no-verify-jwt --yes
