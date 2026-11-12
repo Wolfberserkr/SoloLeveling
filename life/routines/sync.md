@@ -88,17 +88,18 @@ For each such day, build the briefing and insert it with `kind='briefing'`, `sen
 5. Calendar events that day (from Google Calendar, not the cache), errands and tasks due (`life_tasks`), and grocery items if a shop fits the day.
 6. Money: bills due within 3 days, and any budget at 80% or more this month.
 7. Email: important mail waiting, and drafts you prepared.
-8. **📰 Aruba today.** Use WebSearch (and WebFetch for detail) to find news published in the last 24–36 hours from local outlets: Aruba Today, 24ora, Diario, Bon Dia Aruba, Awe Mainta, and the Government of Aruba's announcements. Pick the 3 most interesting or useful. Prefer, in this order:
-   - things that change the owner's day: road closures and traffic, Elmar or WEB outages, weather or sea warnings, strikes, public-holiday or opening-hour changes
-   - government and economy decisions (taxes, prices, laws, the florin)
-   - tourism, hotel and casino news
-   - events and sport this week
+8. **📰 Aruba today: 6–8 stories.** Search widely: run at least 6 WebSearch queries (and WebFetch the outlets' front or latest-news pages) across Aruba Today, 24ora, Diario, Bon Dia Aruba, Awe Mainta, Masbangu, Aruba Native, Coolaruba, the Government of Aruba (government.aw) and Elmar/WEB announcements, plus Caribbean or Dutch outlets (NOS, Curaçao.nu, Caribisch Netwerk) for stories about Aruba. Use news from the last 36 hours; if that gives fewer than 6 good stories, go back to 48 hours. Aim for 6–8. Never pad with weak items, and only go under 6 when the day is genuinely quiet (then add "Quiet news day").
+   Group them under these small bold headings, skipping any group with nothing:
+   - <b>Today on the island</b>: road closures and traffic, Elmar or WEB outages, weather or sea warnings, strikes, public-holiday or opening-hour changes
+   - <b>Government &amp; money</b>: decisions on taxes, prices, fuel, laws, the florin, the economy
+   - <b>Tourism, hotels &amp; casinos</b>: arrivals, cruise calls, hotel and casino news, airlift
+   - <b>Community, events &amp; sport</b>: this week's events, sport results, culture
    Skip crime-blotter items, obituaries, gossip and ads.
-   - Write each as one English line (translate from Papiamento or Dutch), with the outlet linked: `• <one-line summary> (<a href="URL">Diario</a>)`.
-   - Don't repeat a story from the last 3 briefings: check `select text from life_outbox where user_id = :uid and kind = 'briefing' order by created_at desc limit 3`.
-   - If search is unavailable or nothing new turns up, leave the section out. Never make up or guess a headline.
+   - Write each as one English line (translate from Papiamento or Dutch) with one useful detail (a date, place, number, or what it means for the owner), with the outlet linked: `• <summary> (<a href="URL">Diario</a>)`.
+   - Don't repeat a story from the last 3 briefings: check `select text from life_outbox where user_id = :uid and kind = 'briefing' order by created_at desc limit 3`. A real development in an earlier story may run again, marked "Update:".
+   - If search is unavailable, leave the section out. Never make up or guess a headline.
 9. **Last line, always: Claude API spend.** `select life_api_usage_summary(:uid);` returns `{yesterdayMsgs, yesterdayUsd, monthMsgs, monthUsd, budgetUsd, month}`. Render it exactly like `🤖 Jarvis API: yesterday 14 msgs · $0.38 · Nov so far $2.10 of $10 (21%)` (say `no chat yesterday` when yesterdayMsgs is 0; add ` 🟠` at 80% or more of the budget, ` 🔴` at 100% or more). Don't estimate or adjust the numbers.
-At most about 25 lines. Lead with what matters most that day.
+At most about 35 lines. Lead with what matters most that day; the news section comes after the email section.
 
 ## 9. Finance sheet mirror (once a day)
 On the first run after 03:00 local, if `prefs->>'financeSheetLastSync'` isn't today, sync the Google Sheet named "Jarvis — Finance". Create it if `prefs->>'financeSheetId'` is empty and store its id there. Tabs: Transactions (the last 400, newest first), This month (category, spent, budget, %), Bills, Goals. Rewrite the tabs in full; don't append. Then set `prefs.financeSheetLastSync`.
