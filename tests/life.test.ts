@@ -199,3 +199,66 @@ describe('Claude API spend', () => {
       .toBe('🤖 Jarvis API: yesterday 1 msg · $0.05 · Dec so far $12.00 of $12.50 (96%) 🟠');
   });
 });
+
+import { eventClashes, eventReminders, freeWindows, listFor, nextOccurrence, parseRecur, recurLabel } from '../supabase/functions/_shared/lifeLogic';
+
+describe('tasks vs events', () => {
+  it('maps areas and names to the five lists', () => {
+    expect(listFor('grocery')).toBe('Groceries');
+    expect(listFor('Errands')).toBe('Errands');
+    expect(listFor('household')).toBe('Household');
+    expect(listFor('work')).toBe('Work');
+    expect(listFor('learning')).toBe('Personal');
+    expect(listFor(undefined)).toBe('Personal');
+  });
+
+  it('normalises recurrence rules and rejects junk', () => {
+    expect(parseRecur('weekly: 3,0,3')).toBe('weekly:0,3');
+    expect(parseRecur('monthly:31')).toBe('monthly:31');
+    expect(parseRecur('every:14d')).toBe('every:14d');
+    expect(parseRecur('weekly:7')).toBeNull();
+    expect(parseRecur('fortnightly')).toBeNull();
+  });
+
+  it('finds the next occurrence', () => {
+    expect(nextOccurrence('2026-11-12', 'daily')).toBe('2026-11-13');
+    expect(nextOccurrence('2026-11-12', 'weekly:0')).toBe('2026-11-15'); // Thu → Sun
+    expect(nextOccurrence('2026-11-15', 'weekly:0')).toBe('2026-11-22');
+    expect(nextOccurrence('2026-11-12', 'weekly:1,4')).toBe('2026-11-16'); // Thu → Mon (not the same Thu)
+    expect(nextOccurrence('2026-11-01', 'monthly:1')).toBe('2026-12-01');
+    expect(nextOccurrence('2026-11-10', 'monthly:15')).toBe('2026-11-15');
+    expect(nextOccurrence('2026-01-31', 'monthly:31')).toBe('2026-02-28');
+    expect(nextOccurrence('2026-12-20', 'monthly:5')).toBe('2027-01-05');
+    expect(nextOccurrence('2026-11-12', 'every:10d')).toBe('2026-11-22');
+  });
+
+  it('labels recurrences for people', () => {
+    expect(recurLabel('weekly:0,3')).toBe('every Sun, Wed');
+    expect(recurLabel('monthly:1')).toBe('monthly on the 1st');
+    expect(recurLabel('monthly:22')).toBe('monthly on the 22nd');
+    expect(recurLabel('every:3d')).toBe('every 3 days');
+    expect(recurLabel(null)).toBe('');
+  });
+
+  it('gives medical appointments a day-before and 2-hour reminder', () => {
+    expect(eventReminders('medical')).toEqual([1440, 120]);
+    expect(eventReminders('social')).toEqual([60]);
+  });
+
+  it('flags shift overlaps, prep time and planned sleep', () => {
+    const sh = [{ startsAt: at('2026-11-14', '13:00'), endsAt: at('2026-11-14', '22:00'), label: 'Mid' }];
+    const opts = { prepMinutes: 90, travelMinutes: 20, tz: TZ };
+    expect(eventClashes({ start: at('2026-11-14', '14:00'), end: at('2026-11-14', '15:00') }, sh, [], opts)[0]).toMatch(/overlaps your Mid shift 13:00–22:00/);
+    expect(eventClashes({ start: at('2026-11-14', '11:00'), end: at('2026-11-14', '12:00') }, sh, [], opts)[0]).toMatch(/90 min prep/);
+    expect(eventClashes({ start: at('2026-11-14', '09:00'), end: at('2026-11-14', '10:00') }, sh, [], opts)).toEqual([]);
+    const plan = { date: '2026-11-15', bedAt: at('2026-11-14', '23:30'), wakeAt: at('2026-11-15', '07:30') };
+    expect(eventClashes({ start: at('2026-11-15', '07:00'), end: at('2026-11-15', '08:00') }, [], [plan], opts)[0]).toMatch(/planned sleep \(23:30–07:30\)/);
+  });
+
+  it('finds free windows between busy blocks', () => {
+    const from = at('2026-11-14', '07:30'), to = at('2026-11-14', '23:30');
+    const busy = [{ start: at('2026-11-14', '11:30'), end: at('2026-11-14', '22:00') }, { start: at('2026-11-14', '09:00'), end: at('2026-11-14', '09:20') }];
+    const w = freeWindows(from, to, busy, 30).map((x) => [hhmm(x.start, TZ), hhmm(x.end, TZ)]);
+    expect(w).toEqual([['07:30', '09:00'], ['09:20', '11:30'], ['22:00', '23:30']]);
+  });
+});

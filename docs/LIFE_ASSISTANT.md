@@ -81,12 +81,45 @@ lives in Supabase is instant: money, tasks, shifts, schedule questions and memor
    evenings, with the Gmail, Google Calendar, Garmin, Strava, Supabase, Google Sheets and
    Google Drive connectors.
 
+10. **Google Tasks** (optional; until it's linked, tasks stay in Jarvis and the dashboard).
+    No Google Tasks connector exists, so Jarvis reaches it through a small Apps Script that runs
+    in your own Google account:
+    1. Open **script.google.com** → **New project**. Replace the code with
+       `life/google-tasks-bridge.gs` and save.
+    2. **Services (+)** → **Google Tasks API** → **Add**.
+    3. **Project Settings** → **Script properties** → add `JARVIS_SECRET` with a long random value.
+    4. **Deploy** → **New deployment** → type **Web app** · Execute as **Me** · Who has access
+       **Anyone** → **Deploy** → authorise → copy the **Web app URL**.
+    5. In Supabase → Edge Functions → Secrets, add `GTASKS_URL` (the URL) and `GTASKS_SECRET`
+       (the same value as `JARVIS_SECRET`).
+    The next tick creates the lists Errands, Groceries, Household, Work and Personal, pushes
+    your open tasks, and from then on pulls changes from the Tasks app every 5 minutes.
+
+## Tasks vs events
+
+- **Event:** a fixed time slot, such as a doctor's appointment, dinner, a class or a work shift.
+  Events go to Google Calendar. Work shifts go through the roster flow; other events through
+  `add_event`, which:
+  - checks them against shifts, prep time, naps and planned sleep
+  - adds reminders by type (medical: a day before and 2 h before; social and personal: 1 h)
+  - adds 🚗 travel blocks (20 min, `prefs.travelMinutes`) when there's a location
+- **Task:** something done by a date or whenever. Tasks go to Google Tasks, in one of five lists,
+  and can have:
+  - a due date
+  - a Telegram reminder (✅ Done · ⏰ +1 h · Tomorrow)
+  - recurrence: `daily`, `weekly:0,3`, `monthly:1` or `every:14d`. A finished recurring task
+    comes back with its next date.
+- Jarvis decides which one, says which it chose, and attaches a ↔ button to switch.
+  "When can I do my errands?" uses `free_time`: the gaps left after shifts with their prep
+  time, sleep, naps and calendar events.
+
 ## Talking to it
 
 `25 lunch` · `$12.99 netflix` · `+2500 salary` · *(receipt photo)* · *(roster photo)* ·
 "what's my week?" · "block 2–3:30 tomorrow for the bank" · "add eggs, oats, chicken to
 groceries" · "budget 600 for dining" · "car insurance renews 1 March, yearly, ƒ1,450" ·
-"I'm saving ƒ5,000 for a new bike by June" · "always delete mail from @shein.com" ·
+"I'm saving ƒ5,000 for a new bike by June" · "dentist Tuesday 10:00 at Oranjestad" ·
+"pay the water bill by Friday" · "water the plants every Sunday" · "when can I do my errands?" · "always delete mail from @shein.com" ·
 "remember D's birthday is 3 May" · "I want 7.5 h sleep" · `/today` `/week` `/money` `/inbox` `/tasks`
 
 ## Safety

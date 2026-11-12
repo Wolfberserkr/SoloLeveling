@@ -376,3 +376,129 @@ export function apiUsageLine(s: ApiUsageSummary): string {
 export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+
+// ── Tasks vs events ──────────────────────────────────────────────────────
+// A task is something to get done by a date (or whenever); it lives in Google
+// Tasks. An event has a fixed time slot; it lives in Google Calendar.
+
+export const TASK_LISTS = ['Errands', 'Groceries', 'Household', 'Work', 'Personal'] as const;
+export type TaskList = (typeof TASK_LISTS)[number];
+
+/** Map a list name or a legacy area ("grocery", "errand"…) to one of the lists. */
+export function listFor(x: unknown): TaskList {
+  const s = String(x ?? '').trim().toLowerCase();
+  const exact = TASK_LISTS.find((l) => l.toLowerCase() === s);
+  if (exact) return exact;
+  if (/grocer|shopping|supermarket/.test(s)) return 'Groceries';
+  if (/errand/.test(s)) return 'Errands';
+  if (/house|home|chore/.test(s)) return 'Household';
+  if (/work|job|office/.test(s)) return 'Work';
+  return 'Personal';
+}
+
+/**
+ * Recurrence rules: `daily`, `weekly:<d>[,<d>…]` (0 = Sunday … 6 = Saturday),
+ * `monthly:<1-31>`, `every:<n>d`. Returns the normalised rule or null.
+ */
+export function parseRecur(raw: unknown): string | null {
+  const s = String(raw ?? '').trim().toLowerCase().replace(/\s+/g, '');
+  if (!s) return null;
+  if (s === 'daily') return 'daily';
+  let m = /^weekly:([0-6](?:,[0-6])*)$/.exec(s);
+  if (m) return 'weekly:' + Array.from(new Set(m[1].split(',').map(Number))).sort((a, b) => a - b).join(',');
+  m = /^monthly:(\d{1,2})$/.exec(s);
+  if (m && +m[1] >= 1 && +m[1] <= 31) return `monthly:${+m[1]}`;
+  m = /^every:(\d{1,3})d$/.exec(s);
+  if (m && +m[1] >= 1 && +m[1] <= 365) return `every:${+m[1]}d`;
+  return null;
+}
+
+const weekdayOf = (isoDate: string) => new Date(`${isoDate}T12:00:00Z`).getUTCDay();
+const daysInMonth = (y: number, m0: number) => new Date(Date.UTC(y, m0 + 1, 0)).getUTCDate();
+
+/** The next due date strictly after `fromDate` for a recurrence rule. */
+export function nextOccurrence(fromDate: string, recur: string): string | null {
+  const r = parseRecur(recur);
+  if (!r) return null;
+  if (r === 'daily') return addDays(fromDate, 1);
+  if (r.startsWith('every:')) return addDays(fromDate, parseInt(r.slice(6), 10));
+  if (r.startsWith('weekly:')) {
+    const days = r.slice(7).split(',').map(Number);
+    for (let i = 1; i <= 7; i++) { const d = addDays(fromDate, i); if (days.includes(weekdayOf(d))) return d; }
+    return null;
+  }
+  const want = parseInt(r.slice(8), 10);
+  const [y, m, d] = fromDate.split('-').map(Number);
+  const thisMonth = Math.min(want, daysInMonth(y, m - 1));
+  if (thisMonth > d) return `${y}-${String(m).padStart(2, '0')}-${String(thisMonth).padStart(2, '0')}`;
+  const ny = m === 12 ? y + 1 : y, nm = m === 12 ? 1 : m + 1;
+  return `${ny}-${String(nm).padStart(2, '0')}-${String(Math.min(want, daysInMonth(ny, nm - 1))).padStart(2, '0')}`;
+}
+
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+/** "every Sun, Wed", "monthly on the 1st", "every 3 days", "every day". */
+export function recurLabel(recur: string | null | undefined): string {
+  const r = parseRecur(recur);
+  if (!r) return '';
+  if (r === 'daily') return 'every day';
+  if (r.startsWith('every:')) return `every ${parseInt(r.slice(6), 10)} days`;
+  if (r.startsWith('weekly:')) return 'every ' + r.slice(7).split(',').map((d) => DAY_NAMES[+d]).join(', ');
+  const n = parseInt(r.slice(8), 10);
+  const suf = n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th';
+  return `monthly on the ${n}${suf}`;
+}
+
+export type EventKind = 'medical' | 'personal' | 'social' | 'training' | 'other';
+/** Calendar popup reminders (minutes before) by event type. */
+export function eventReminders(kind: unknown): number[] {
+  switch (kind) {
+    case 'medical': return [1440, 120];
+    case 'social': return [60];
+    case 'training': return [30];
+    default: return [60];
+  }
+}
+
+export type Interval = { start: Date; end: Date; label?: string };
+type PlanLite = { date: string; wakeAt: Date; bedAt: Date; napFrom?: Date; napTo?: Date };
+
+/**
+ * Why an event at [start, end) is a bad fit: it overlaps a shift, eats into
+ * the prep time before one (travel included), or falls in planned sleep.
+ */
+export function eventClashes(
+  ev: { start: Date; end: Date }, shifts: Shift[], plans: PlanLite[],
+  opts: { prepMinutes: number; travelMinutes: number; tz: string },
+): string[] {
+  const out: string[] = [];
+  const t = opts.travelMinutes * 60000;
+  const s0 = ev.start.getTime() - t, e0 = ev.end.getTime() + t;
+  const fmt = (d: Date) => hhmm(d, opts.tz);
+  for (const sh of shifts) {
+    const a = sh.startsAt.getTime(), b = sh.endsAt.getTime();
+    const label = `${sh.label ? sh.label + ' ' : ''}shift ${fmt(sh.startsAt)}–${fmt(sh.endsAt)}`;
+    if (ev.start.getTime() < b && ev.end.getTime() > a) out.push(`overlaps your ${label}`);
+    else if (s0 < b && e0 > a) out.push(`leaves no travel time around your ${label}`);
+    else if (e0 > a - opts.prepMinutes * 60000 && s0 < a) out.push(`cuts into your ${opts.prepMinutes} min prep before the ${label}`);
+  }
+  for (const p of plans) {
+    if (ev.start < p.wakeAt && ev.end > p.bedAt) out.push(`falls in your planned sleep (${fmt(p.bedAt)}–${fmt(p.wakeAt)})`);
+    if (p.napFrom && p.napTo && ev.start < p.napTo && ev.end > p.napFrom) out.push(`overlaps your planned nap (${fmt(p.napFrom)}–${fmt(p.napTo)})`);
+  }
+  return Array.from(new Set(out));
+}
+
+/** Free gaps of at least `minMinutes` inside [from, to) once `busy` is removed. */
+export function freeWindows(from: Date, to: Date, busy: Interval[], minMinutes = 30): Interval[] {
+  const blocks = busy.filter((b) => b.end > from && b.start < to)
+    .map((b) => ({ start: Math.max(b.start.getTime(), from.getTime()), end: Math.min(b.end.getTime(), to.getTime()) }))
+    .sort((a, b) => a.start - b.start);
+  const out: Interval[] = [];
+  let cur = from.getTime();
+  for (const b of blocks) {
+    if (b.start - cur >= minMinutes * 60000) out.push({ start: new Date(cur), end: new Date(b.start) });
+    cur = Math.max(cur, b.end);
+  }
+  if (to.getTime() - cur >= minMinutes * 60000) out.push({ start: new Date(cur), end: to });
+  return out;
+}

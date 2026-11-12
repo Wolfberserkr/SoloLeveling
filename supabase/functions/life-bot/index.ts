@@ -12,6 +12,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { advanceDue, formatMoney, isConfidentQuickLog, localParts, parseQuickLog, safeTz, toAwgMinor, escapeHtml } from '../_shared/lifeLogic.ts';
 import { converse, type Attachment, type Db } from './agent.ts';
+import { addTasks, completeTask, tomorrowSameTime } from './tasks.ts';
 import { answerCallback, downloadFile, sendMessage, settleButtons, typing } from './telegram.ts';
 import { tick } from './tick.ts';
 
@@ -26,7 +27,9 @@ const HELP = `<b>Jarvis</b> — just talk to me. Some things I do:
 • Send a receipt photo and I'll log it
 • "Block 14:00–15:30 tomorrow for groceries"
 • "What's my week look like?" · "How much did I spend on food?"
-• "Add milk and eggs to groceries" · "Remind me to renew my licence in March"
+• "Dentist Tuesday 10:00" → a calendar event, checked against your shifts
+• "Pay the water bill by Friday" · "Add milk and eggs" → Google Tasks
+• "Water the plants every Sunday" · "When can I do my errands this week?"
 /today · /week · /money · /inbox · /tasks · /news · /help`;
 
 const COMMANDS: Record<string, string> = {
@@ -34,7 +37,7 @@ const COMMANDS: Record<string, string> = {
   '/week': 'Give me the week ahead: shifts, key events, training days, bills due.',
   '/money': "How am I doing this month: spending by category vs budget, bills coming up, savings goals.",
   '/inbox': 'What email decisions are waiting for me? Summarise them.',
-  '/tasks': 'List my open tasks and grocery list, grouped by area.',
+  '/tasks': 'List my open tasks by list (Errands, Groceries, Household, Work, Personal) with due dates, flag overdue ones, and suggest when to fit them in this week.',
   '/news': 'Send me the Aruba news now.',
 };
 
@@ -198,6 +201,45 @@ async function handleCallback(cb: Row) {
       await settleButtons(chatId, messageId, '✖️ Discarded');
     }
     return answerCallback(String(cb.id));
+  }
+  if (kind === 'tk') {
+    const tz = owner.tz;
+    if (verb === 'd') {
+      const r = await completeTask(db, uid, tz, id);
+      await settleButtons(chatId, messageId, r ? `✅ Done${r.next ? ` · next ${r.next}` : ''}` : 'Already gone');
+    } else {
+      const { data: t } = await db.from('life_tasks').select('remind_at').eq('user_id', uid).eq('id', id).maybeSingle();
+      if (t) {
+        const at = verb === 'h' ? new Date(Date.now() + 3600000).toISOString() : tomorrowSameTime(String(t.remind_at ?? new Date().toISOString()));
+        await db.from('life_tasks').update({ remind_at: at, reminded_at: null }).eq('id', id);
+        await settleButtons(chatId, messageId, verb === 'h' ? '⏰ Snoozed 1 h' : '⏰ Tomorrow, same time');
+      }
+    }
+    return answerCallback(String(cb.id));
+  }
+  if (kind === 'sw') {
+    await answerCallback(String(cb.id), 'Switching…');
+    const today = localParts(new Date(), owner.tz).date;
+    if (id === 't') {
+      // Task → event needs a time, so let Jarvis handle it (and ask if it must).
+      const { data: t } = await db.from('life_tasks').select('id,title,due_on,notes').eq('user_id', uid).eq('id', verb).maybeSingle();
+      if (!t) return settleButtons(chatId, messageId, 'Already gone');
+      await settleButtons(chatId, messageId, '↔ Switching to an event');
+      const reply = await converse({ db, userId: uid, tz: owner.tz, today },
+        `Switch: "${t.title}" should be a calendar EVENT, not a task. Delete task ${t.id} with the tasks tool, then add_event. ${t.due_on ? `It was due ${t.due_on}. ` : ''}If you don't know the date or time, ask me before creating it (keep the task until I answer).`);
+      return sendMessage(chatId, reply.text, reply.keyboard);
+    }
+    // Event → task: cancel the queued event (or remove it if already created), then add the task.
+    const { data: job } = await db.from('life_jobs').select('id,status,payload').eq('user_id', uid).eq('id', verb).maybeSingle();
+    if (!job) return settleButtons(chatId, messageId, 'Already gone');
+    const p = (job.payload ?? {}) as Row;
+    const title = String(p.title ?? 'Task'), due = String(p.local ?? '').slice(0, 10) || null;
+    if (job.status === 'pending') await db.from('life_jobs').update({ status: 'cancelled', result: 'switched to a task', done_at: new Date().toISOString() }).eq('id', job.id);
+    else await db.from('life_jobs').insert({ user_id: uid, kind: 'calendar', instruction: `Delete the Jarvis-created event "${title}" on ${p.local ?? '?'} (and its travel blocks): the owner made it a task instead.`, payload: { type: 'delete_event', title, start: p.start ?? null } });
+    const rows = await addTasks(db, uid, owner.tz, [{ title, list: 'Personal', area: 'personal', due_on: due && /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null, notes: (p.notes as string | null) ?? null }]);
+    await settleButtons(chatId, messageId, '↔ Made it a task');
+    return sendMessage(chatId, `☑️ <b>${escapeHtml(title)}</b> is now a task in Personal${rows[0]?.due_on ? `, due ${rows[0].due_on}` : ''}${job.status === 'pending' ? '' : '. The calendar event is removed at the next sync'}.`,
+      [[{ text: '↔ Back to an event', data: `sw:t:${rows[0]?.id}` }]]);
   }
   if (kind === 'tx' && verb === 'undo') {
     await db.from('life_transactions').delete().eq('user_id', uid).eq('id', id);
