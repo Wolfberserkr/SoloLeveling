@@ -6,12 +6,15 @@
 //   3. nudges: wind-down, nap, steps, bills, budgets — each once (life_nudge_log)
 //   4. a fallback briefing when no routine composed one in time
 //   5. the daily inbox digest with Delete / Keep buttons
+//   6. task reminders (Done / +1 h / Tomorrow) and the Google Tasks sync
 // ═════════════════════════════════════════════════════════════════════════
 import {
   addDays, apiUsageLine, billsToFlag, budgetStatus, escapeHtml, formatMoney, hhmm, isDue, localParts, planDay,
   readPrefs, safeTz, stepsNudge, windDownAt, zonedTime, type DayPlan, type ApiUsageSummary, type LifePrefs, type Shift,
 } from '../_shared/lifeLogic.ts';
 import { sendMessage, type Keyboard } from './telegram.ts';
+import { spawnPending, syncGoogle } from './tasks.ts';
+import { gtasksEnabled } from './gtasks.ts';
 import type { Db } from './agent.ts';
 
 type Row = Record<string, unknown>;
@@ -122,6 +125,20 @@ async function tickUser(db: Db, p: Row, now: Date) {
   const digestAt = zonedTime(today, INBOX_DIGEST_AT, tz);
   if (isDue(digestAt, now, 60)) await inboxDigest(db, userId, chatId, today, tz);
 
+  // 6. Task reminders, then the Google Tasks sync every 5 minutes.
+  const { data: rem } = await db.from('life_tasks').select('id,title,list,due_on').eq('user_id', userId)
+    .is('done_at', null).is('reminded_at', null).lte('remind_at', now.toISOString()).limit(10);
+  for (const t of (rem ?? []) as Row[]) {
+    await db.from('life_tasks').update({ reminded_at: now.toISOString() }).eq('id', t.id);
+    await sendMessage(chatId, `⏰ <b>${escapeHtml(String(t.title))}</b> · ${escapeHtml(String(t.list ?? 'Personal'))}${t.due_on && String(t.due_on) < today ? ` · <i>overdue since ${t.due_on}</i>` : ''}`,
+      [[{ text: '✅ Done', data: `tk:${t.id}:d` }, { text: '⏰ +1 h', data: `tk:${t.id}:h` }, { text: 'Tomorrow', data: `tk:${t.id}:t` }]]);
+    nudges++;
+  }
+  await spawnPending(db, userId, tz);
+  if (gtasksEnabled() && lp.minute % 5 === 0) {
+    try { await syncGoogle(db, userId, tz); } catch (err) { console.error('life tick: Google Tasks sync failed', err); }
+  }
+
   return { sent, nudges };
 }
 
@@ -191,7 +208,7 @@ async function basicBriefing(db: Db, userId: string, tz: string, plan: DayPlan, 
   const [{ data: events }, { data: tasks }, { data: bills }, { data: health }] = await Promise.all([
     db.from('life_calendar_cache').select('starts_at,title,all_day').eq('user_id', userId)
       .gte('starts_at', zonedTime(today, '00:00', tz).toISOString()).lt('starts_at', zonedTime(addDays(today, 1), '00:00', tz).toISOString()).order('starts_at').limit(10),
-    db.from('life_tasks').select('title,area,due_on').eq('user_id', userId).is('done_at', null).lte('due_on', today).limit(8),
+    db.from('life_tasks').select('title,list,due_on').eq('user_id', userId).is('done_at', null).lte('due_on', today).order('due_on').limit(8),
     db.from('life_bills').select('name,next_due').eq('user_id', userId).eq('active', true).lte('next_due', addDays(today, 3)).order('next_due'),
     db.from('life_health').select('data').eq('user_id', userId).eq('local_date', today).maybeSingle(),
   ]);
@@ -202,7 +219,7 @@ async function basicBriefing(db: Db, userId: string, tz: string, plan: DayPlan, 
   lines.push(`🚴 Train: ${plan.trainWindow}`);
   if (plan.napFrom) lines.push(`😴 Nap ${hhmm(plan.napFrom, tz)}–${hhmm(plan.napTo!, tz)}`);
   for (const e of (events ?? []) as Row[]) lines.push(`📅 ${e.all_day ? 'All day' : hhmm(new Date(String(e.starts_at)), tz)} ${escapeHtml(String(e.title))}`);
-  for (const t of (tasks ?? []) as Row[]) lines.push(`☑️ ${escapeHtml(String(t.title))}`);
+  for (const t of (tasks ?? []) as Row[]) lines.push(`☑️ ${escapeHtml(String(t.title))} · ${escapeHtml(String(t.list ?? ''))}${String(t.due_on) < today ? ' <i>(overdue)</i>' : ''}`);
   for (const b of (bills ?? []) as Row[]) lines.push(`💳 ${escapeHtml(String(b.name))} due ${b.next_due}`);
   const usage = await apiUsage(db, userId);
   if (usage) lines.push(apiUsageLine(usage));

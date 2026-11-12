@@ -5,9 +5,12 @@
 // ═════════════════════════════════════════════════════════════════════════
 import Anthropic from 'npm:@anthropic-ai/sdk@^0.136.0';
 import {
-  advanceDue, apiCostMicros, AWG_RATES, budgetStatus, formatMoney, localParts, toAwgMinor, zonedTime, type Cadence,
+  addDays, advanceDue, apiCostMicros, AWG_RATES, budgetStatus, eventClashes, eventReminders, formatMoney, freeWindows, hhmm, listFor,
+  localParts, parseRecur, readPrefs, recurLabel, TASK_LISTS, toAwgMinor, zonedTime, type Cadence, type Interval,
 } from '../_shared/lifeLogic.ts';
 import type { Keyboard } from './telegram.ts';
+import { addTasks, completeTask, deleteTask, pushTask } from './tasks.ts';
+import { gtasksEnabled } from './gtasks.ts';
 
 // deno-lint-ignore no-explicit-any
 export type Db = any;
@@ -29,6 +32,24 @@ How you work
 - News: when the owner asks for the news or what's happening in Aruba, queue_job kind "news" (instruction:
   "Send me the Aruba news now"). It arrives as its own message with 6–8 grouped local stories at the next sync.
   Don't make up or recall news yourself.
+- Tasks vs events. Decide yourself; never ask "task or event?".
+  • EVENT = a fixed time slot: an appointment (doctor, dentist, bank, haircut, car service), a meeting, dinner or a
+    party with people, a class, a flight. Use add_event. Work shifts are events too, but always go through propose_shifts
+    (even a single extra shift), so the sleep plan follows them.
+  • TASK = something to get done by a date or whenever: pay a bill, buy oats, call the plumber, renew a licence, clean
+    the garage. Use tasks. "Remind me at 15:00 to call mum" is a task with remind_at, not an event.
+  • Rule of thumb: a specific time plus a place or other people → event; a deadline or "sometime" → task.
+  • Say in one short line which you made it (e.g. "📅 Event: Dentist, Tue 10:00" or "☑️ Task in Errands, due Fri").
+    A ↔ switch button is attached automatically.
+- Tasks go in one of the lists Errands, Groceries, Household, Work, Personal, and sync to the owner's Google Tasks.
+  Give a due date when one is implied ("by Friday" → that Friday). Recurring chores get recur: daily |
+  weekly:<0-6>[,…] (0 = Sunday) | monthly:<day> | every:<n>d. A reminder time goes in remind_at (Telegram nudge).
+- Events: give kind (medical, personal, social, training, other), exact local date/start/end (1 h if no end is given),
+  and the location if known. Reminders by type, a travel buffer and the shift/sleep clash check are added automatically.
+  If add_event reports clashes, tell the owner plainly and offer to move it.
+- "When should I do X?", "fit my tasks in", "plan my errands": call free_time for those days and suggest specific
+  slots: off days and daytime first, outdoor errands outside 11:00–16:00 heat, never in planned sleep, a nap, or the
+  prep time before a shift. Group errands into one trip when they fit.
 - Blocking time: when the owner asks to block a slot (focus time, an errand, a ride), queue a calendar job
   with exact local start/end times. Default timezone is the owner's (usually America/Aruba).
 - Finance: amounts are AWG unless "$"/USD is given. USD converts at the fixed 1.79 rate. Spending is negative.
@@ -151,18 +172,45 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'tasks',
-    description: 'Manage to-dos, errands, chores and grocery items.',
+    description: 'To-dos, errands, chores and grocery items. Synced to Google Tasks. Use for things done by a date or whenever, not for fixed-time appointments.',
     input_schema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['add', 'list', 'done', 'delete'] },
-        id: { type: 'string' },
-        titles: { type: 'array', items: { type: 'string' }, description: 'For add: one or more items' },
-        area: { type: 'string', enum: ['household', 'errand', 'grocery', 'family', 'learning', 'work', 'general'] },
-        due_on: { type: 'string', description: 'YYYY-MM-DD' },
+        action: { type: 'string', enum: ['add', 'list', 'update', 'done', 'delete'] },
+        id: { type: 'string', description: 'For update/done/delete' },
+        titles: { type: 'array', items: { type: 'string' }, description: 'For add: one or more items (several grocery items at once is fine)' },
+        list: { type: 'string', enum: [...TASK_LISTS] },
+        title: { type: 'string', description: 'For update' },
+        due_on: { type: 'string', description: 'YYYY-MM-DD local' },
+        remind_at: { type: 'string', description: 'Local "YYYY-MM-DD HH:MM" for a Telegram reminder' },
+        recur: { type: 'string', description: 'daily | weekly:<0-6>[,…] (0 = Sunday) | monthly:<1-31> | every:<n>d' },
+        notes: { type: 'string' },
       },
       required: ['action'],
     },
+  },
+  {
+    name: 'add_event',
+    description: 'Put a fixed-time appointment in Google Calendar (doctor, dentist, meeting, dinner, class…). Checks it against shifts, prep time and planned sleep, adds reminders by type and a travel buffer when there is a location. Not for work shifts (use propose_shifts).',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        kind: { type: 'string', enum: ['medical', 'personal', 'social', 'training', 'other'] },
+        date: { type: 'string', description: 'YYYY-MM-DD local' },
+        start: { type: 'string', description: 'HH:MM local' },
+        end: { type: 'string', description: 'HH:MM local; default start + 1 h' },
+        all_day: { type: 'boolean' },
+        location: { type: 'string' },
+        notes: { type: 'string' },
+      },
+      required: ['title', 'kind', 'date'],
+    },
+  },
+  {
+    name: 'free_time',
+    description: 'Free windows between two local dates, after removing shifts (with prep time), planned sleep and naps, and calendar events. Use to suggest when to do tasks.',
+    input_schema: { type: 'object', properties: { from: { type: 'string' }, to: { type: 'string' }, min_minutes: { type: 'number' } }, required: ['from', 'to'] },
   },
   {
     name: 'get_schedule',
@@ -370,20 +418,95 @@ async function runTool(ctx: Ctx, name: string, input: Row): Promise<unknown> {
       return { ok: true, saved: money(saved), target: money(g.target_awg_minor), pct: Math.round((saved / Number(g.target_awg_minor)) * 100) };
     }
     case 'tasks': {
+      const local = (v: unknown) => { const m = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})$/.exec(String(v ?? '').trim()); return m ? zonedTime(m[1], m[2], ctx.tz).toISOString() : null; };
+      const linked = gtasksEnabled();
       if (input.action === 'add') {
-        const titles = (input.titles as string[] | undefined) ?? [];
+        const titles = ((input.titles as string[] | undefined) ?? []).map((t) => String(t).trim()).filter(Boolean);
         if (!titles.length) throw new Error('titles is required');
-        must(await db.from('life_tasks').insert(titles.map((t) => ({ user_id: userId, title: t, area: input.area ?? 'general', due_on: input.due_on ?? null }))));
-        return { ok: true, added: titles.length };
+        const recur = input.recur ? parseRecur(input.recur) : null;
+        if (input.recur && !recur) throw new Error('recur must be daily | weekly:<0-6>[,…] | monthly:<1-31> | every:<n>d');
+        const list = listFor(input.list);
+        const rows = await addTasks(db, userId, ctx.tz, titles.map((t) => ({ title: t, list, area: list.toLowerCase(), due_on: input.due_on ?? null, remind_at: local(input.remind_at), recur, notes: input.notes ?? null })));
+        if (rows.length === 1) ctx.keyboard = [[{ text: '↔ Make it an event', data: `sw:t:${rows[0].id}` }]];
+        return { ok: true, list, added: rows.map((r) => ({ id: r.id, title: r.title, due: r.due_on, repeats: recurLabel(r.recur as string | null) || undefined })), googleTasks: linked ? 'synced' : 'not linked yet (saved in Jarvis; it syncs once the owner links Google Tasks)' };
       }
       if (input.action === 'list') {
-        let q = db.from('life_tasks').select('id,title,area,due_on').eq('user_id', userId).is('done_at', null);
-        if (input.area) q = q.eq('area', input.area);
-        return must(await q.order('due_on', { nullsFirst: false }).limit(100));
+        let q = db.from('life_tasks').select('id,title,list,due_on,recur,remind_at').eq('user_id', userId).is('done_at', null);
+        if (input.list) q = q.eq('list', listFor(input.list));
+        const rows = must(await q.order('due_on', { nullsFirst: false }).limit(150)) as Row[];
+        return { today, googleTasks: linked ? 'synced' : 'not linked', tasks: rows.map((r) => ({ id: r.id, title: r.title, list: r.list, due: r.due_on, overdue: r.due_on ? String(r.due_on) < today : false, repeats: recurLabel(r.recur as string | null) || undefined, remind: r.remind_at ? hhmm(new Date(String(r.remind_at)), ctx.tz) : undefined })) };
       }
-      if (input.action === 'done') { must(await db.from('life_tasks').update({ done_at: new Date().toISOString() }).eq('user_id', userId).eq('id', input.id)); return { ok: true }; }
-      must(await db.from('life_tasks').delete().eq('user_id', userId).eq('id', input.id));
+      if (!input.id) throw new Error('id is required');
+      if (input.action === 'done') return { ok: true, ...(await completeTask(db, userId, ctx.tz, String(input.id))) };
+      if (input.action === 'delete') { await deleteTask(db, userId, String(input.id)); return { ok: true }; }
+      const patch: Row = { updated_at: new Date().toISOString() };
+      if (input.title) patch.title = String(input.title);
+      if (input.list) { patch.list = listFor(input.list); patch.area = String(patch.list).toLowerCase(); }
+      if (input.due_on !== undefined) patch.due_on = input.due_on || null;
+      if (input.remind_at !== undefined) { patch.remind_at = local(input.remind_at); patch.reminded_at = null; }
+      if (input.recur !== undefined) patch.recur = input.recur ? parseRecur(input.recur) : null;
+      if (input.notes !== undefined) patch.notes = input.notes || null;
+      must(await db.from('life_tasks').update(patch).eq('user_id', userId).eq('id', input.id));
+      await pushTask(db, userId, ctx.tz, String(input.id));
       return { ok: true };
+    }
+    case 'add_event': {
+      const date = String(input.date);
+      const allDay = !!input.all_day || !input.start;
+      const start = zonedTime(date, allDay ? '00:00' : String(input.start), ctx.tz);
+      let end = allDay ? zonedTime(addDays(date, 1), '00:00', ctx.tz) : input.end ? zonedTime(date, String(input.end), ctx.tz) : new Date(start.getTime() + 3600000);
+      if (end <= start) end = new Date(end.getTime() + 86400000);
+      const { data: prof } = await db.from('life_profile').select('prefs').eq('user_id', userId).maybeSingle();
+      const prefs = readPrefs(prof?.prefs);
+      const travel = input.location ? Math.min(Math.max(Number((prof?.prefs as Row | undefined)?.travelMinutes ?? 20), 0), 120) : 0;
+      const [{ data: sh }, { data: pl }] = await Promise.all([
+        db.from('life_shifts').select('starts_at,ends_at,kind').eq('user_id', userId).eq('status', 'confirmed')
+          .gte('ends_at', new Date(start.getTime() - 86400000).toISOString()).lte('starts_at', new Date(end.getTime() + 86400000).toISOString()),
+        db.from('life_day_plan').select('local_date,wake_at,bed_at,nap_from,nap_to').eq('user_id', userId).gte('local_date', addDays(date, -1)).lte('local_date', addDays(date, 1)),
+      ]);
+      const clashes = allDay ? [] : eventClashes({ start, end },
+        ((sh ?? []) as Row[]).map((x) => ({ startsAt: new Date(String(x.starts_at)), endsAt: new Date(String(x.ends_at)), label: String(x.kind ?? '') })),
+        ((pl ?? []) as Row[]).map((x) => ({ date: String(x.local_date), wakeAt: new Date(String(x.wake_at)), bedAt: new Date(String(x.bed_at)), napFrom: x.nap_from ? new Date(String(x.nap_from)) : undefined, napTo: x.nap_to ? new Date(String(x.nap_to)) : undefined })),
+        { prepMinutes: prefs.prepMinutes, travelMinutes: travel, tz: ctx.tz });
+      const reminders = eventReminders(input.kind);
+      const when = allDay ? `${date} (all day)` : `${date} ${hhmm(start, ctx.tz)}–${hhmm(end, ctx.tz)}`;
+      const payload = {
+        type: 'event', title: input.title, kind: input.kind, all_day: allDay, start: start.toISOString(), end: end.toISOString(),
+        local: when, timezone: ctx.tz, location: input.location ?? null, notes: input.notes ?? null,
+        reminders_min: reminders, travel_buffer_min: travel, clashes,
+      };
+      const instruction = `Create calendar event "${input.title}" (${input.kind}) on ${when} ${ctx.tz}`
+        + (input.location ? ` at ${input.location}, with ${travel}-min travel blocks before and after` : '')
+        + `. Popup reminders: ${reminders.map((m) => (m >= 1440 ? `${m / 1440} day` : m >= 60 ? `${m / 60} h` : `${m} min`)).join(' and ')} before.`;
+      const row = must(await db.from('life_jobs').insert({ user_id: userId, kind: 'calendar', instruction, payload }).select('id').single()) as Row;
+      ctx.keyboard = [[{ text: '↔ Make it a task', data: `sw:e:${row.id}` }]];
+      return { ok: true, queued: when, reminders: payload.reminders_min, travelBufferMin: travel, clashes, note: 'The background sync adds it to Google Calendar within 3 hours.' };
+    }
+    case 'free_time': {
+      const from = String(input.from), to = String(input.to);
+      const span = Math.min(Math.max(Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1, 1), 14);
+      const min = Math.min(Math.max(Number(input.min_minutes ?? 30), 15), 600);
+      const startMs = zonedTime(from, '00:00', ctx.tz), endMs = zonedTime(addDays(from, span), '00:00', ctx.tz);
+      const { data: prof } = await db.from('life_profile').select('prefs').eq('user_id', userId).maybeSingle();
+      const prefs = readPrefs(prof?.prefs);
+      const [{ data: sh }, { data: pl }, { data: ev }] = await Promise.all([
+        db.from('life_shifts').select('starts_at,ends_at,kind').eq('user_id', userId).eq('status', 'confirmed').gte('ends_at', startMs.toISOString()).lte('starts_at', endMs.toISOString()),
+        db.from('life_day_plan').select('local_date,wake_at,bed_at,nap_from,nap_to,shift_kind').eq('user_id', userId).gte('local_date', from).lte('local_date', addDays(from, span)),
+        db.from('life_calendar_cache').select('starts_at,ends_at,title,all_day').eq('user_id', userId).eq('all_day', false).gte('ends_at', startMs.toISOString()).lte('starts_at', endMs.toISOString()),
+      ]);
+      const busy: Interval[] = [];
+      for (const x of (sh ?? []) as Row[]) busy.push({ start: new Date(Date.parse(String(x.starts_at)) - prefs.prepMinutes * 60000), end: new Date(Date.parse(String(x.ends_at)) + 30 * 60000), label: 'shift' });
+      for (const x of (pl ?? []) as Row[]) {
+        busy.push({ start: new Date(String(x.bed_at)), end: new Date(String(x.wake_at)), label: 'sleep' });
+        if (x.nap_from) busy.push({ start: new Date(String(x.nap_from)), end: new Date(String(x.nap_to)), label: 'nap' });
+      }
+      for (const x of (ev ?? []) as Row[]) busy.push({ start: new Date(String(x.starts_at)), end: new Date(String(x.ends_at ?? x.starts_at)), label: String(x.title) });
+      const plans = new Map(((pl ?? []) as Row[]).map((x) => [String(x.local_date), x]));
+      const windows = freeWindows(startMs, endMs, busy, min).map((w) => {
+        const d = localParts(w.start, ctx.tz).date, p = plans.get(d);
+        return { day: d, from: hhmm(w.start, ctx.tz), to: hhmm(w.end, ctx.tz), minutes: Math.round((w.end.getTime() - w.start.getTime()) / 60000), dayType: p ? (p.shift_kind ? `${p.shift_kind} shift day` : 'day off') : 'no plan yet' };
+      });
+      return { timezone: ctx.tz, windows, note: 'Sleep and naps follow the shift-aware day plans (about a week ahead). Calendar events may lag up to 3 hours.' };
     }
     case 'get_schedule': {
       const from = new Date(`${input.from}T00:00:00Z`).getTime() - 86400000;
