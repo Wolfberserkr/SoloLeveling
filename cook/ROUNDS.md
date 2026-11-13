@@ -353,3 +353,28 @@ Best round so far. The Sonnet critic gave 7 on every cell for the first time. Re
 - "Sleep window 07:11–13:11" replaces "asleep → awake"; Mark paid is the same secondary style on every bill; light tab bar gets a hairline
 
 Stills: `cook/stills/r13/` | Side by side: `cook/compare/r13/` (r12 left). Scores: pending (critics U, V).
+
+Round 13 scores (critics U, V), eyeballed median:
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 7 | 7 | 6.5 | 7 | 6 |
+| S02 Health | 7 | 6 | 6.5 | 7 | 6.5 |
+| S03 Agenda | 7.5 | 6.5 | 7 | 7 | 7 |
+| S04 Money | 7 | 6.5 | 6.5 | 7.5 | 7 |
+| S05 Sleep sheet | 7 | 6.5 | 6 | 6.5 | 7 |
+| S06 Desktop | 6 | 6.5 | 6.5 | 7 | 6 |
+| S07 Light | 7 | 7 | 6 | 7 | 6 |
+| S08 More | 7 | 6.5 | 7 | 7 | 6.5 |
+
+Depth is up (6 → 6.5–7). The weakest is now color meaning. Coral marks a fair score and urgent items alike, Deep sleep was green on the ring and blue in the stage bar, and amber means both "on budget" and "warning". The alert text was also truncated mid-word.
+
+## Round 14 (17:32–17:40 UTC)
+
+- One color map. Data hues are fixed per metric and per sleep stage (rings, tiles, stage bar). Status: good green, watch amber, act red. The score ring is banded: under 60 amber, 60–79 accent, 80+ green, never red. The "vs avg" chip that is worse than average is amber, not red.
+- Budgets: 75% amber, 90% red; API spend bar without the unexplained 80% tick
+- Alert row: "View" becomes a chevron on phones so the reason fits; the card is labelled "Now" while the shift runs
+- Agenda: a red "now" line with the time between past and upcoming items
+- Sleep note leads with "13h 48m sleep debt"; stronger sheet scrim and shadow; ring tracks one step stronger; light page #E7EBF0
+
+Stills: `cook/stills/r14/` | Side by side: `cook/compare/r14/` (r13 left). Scores: pending (critics W, X).
