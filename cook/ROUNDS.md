@@ -328,3 +328,28 @@ Flat against round 10. Measured: card pixels (22, 29, 38) on page (10, 14, 19); 
 - Selected day chip tinted with an accent ring, not solid cyan; budget bars keep only the pace marker; light-mode alert row on white
 
 Stills: `cook/stills/r12/` | Side by side: `cook/compare/r12/` (r11 left). Scores: pending (critics S, T).
+
+Round 12 scores (critics S, T), eyeballed median:
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 7 | 6.5 | 7 | 7 | 6.5 |
+| S02 Health | 7 | 6.5 | 7 | 7 | 7 |
+| S03 Agenda | 7 | 6.5 | 7 | 7 | 7 |
+| S04 Money | 7 | 6.5 | 6.5 | 8 | 7 |
+| S05 Sleep sheet | 6.5 | 6.5 | 7 | 7 | 6.5 |
+| S06 Desktop | 6 | 6 | 7 | 7 | 6.5 |
+| S07 Light | 7 | 6.5 | 7 | 7 | 6.5 |
+| S08 More | 6.5 | 6.5 | 6.5 | 7 | 7 |
+
+Best round so far. The Sonnet critic gave 7 on every cell for the first time. Remaining: desktop ragged grid, Sleep plan inside Next up, an alert row that reads as disabled, the Health sleep tile raised for no reason, low-contrast secondary text.
+
+## Round 13 (17:22–17:31 UTC)
+
+- Desktop: a 12-column grid with the sleep hero at 5/12 (128px ring), Next up at 4/12 and the session at 3/12; rows fill the viewport
+- Sleep plan moves into the sleep card as one "Tonight · lights out · wake" row; Next up is the shift only
+- Alert row: coral 11% surface, a 3px coral edge, a bold "View ›", and a one-line ellipsis (warn-amber variant when nothing is urgent)
+- Dark muted text raised to #9AA6B6; settings group headers share one muted style; the Health sleep tile is back to peer elevation
+- "Sleep window 07:11–13:11" replaces "asleep → awake"; Mark paid is the same secondary style on every bill; light tab bar gets a hairline
+
+Stills: `cook/stills/r13/` | Side by side: `cook/compare/r13/` (r12 left). Scores: pending (critics U, V).
