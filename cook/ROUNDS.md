@@ -62,3 +62,42 @@ Top gaps from critics:
 Progress note sent: 16:45
 Stop check: bar no | cap not reached | stills approved no -> next round
 Next focus: neutral chrome + attention dots, Home hero, one icon set, Money hero, light-mode depth, desktop grid
+---
+
+## Round 02
+
+Time: 16:45 to 17:05 | total elapsed 1.0h
+Usage: not readable
+Focus: color/accent system and hero metrics (both critics' weakest area in r01)
+
+Changes:
+- Neutral card chrome; attention is a pulsing dot by the card title
+- Home: "Good afternoon" heading, quieter status text, readiness hero ring; desktop 12-column grid, rail top-aligned
+- One stroke icon set replaces emoji in the UI; Money hero (spent this month + budget ring + savings line); smooth sparklines with gradient fill
+- Copy: "Mark paid", "Apply suggestion", no debug-style command text; light-mode depth tokens
+- Harness: waits for number count-up before capturing (r01 numbers were caught mid-roll)
+
+Stills: `cook/stills/r02/` | Side by side: `cook/compare/r02/` (r01 left)
+
+Scores, eyeballed: critic median (2 fresh critics: same model + Sonnet)
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 7 | 6 | 7 | 7 | 6 |
+| S02 Health | 6.5 | 6 | 7 | 7 | 6 |
+| S03 Agenda | 6 | 5.5 | 6.5 | 6 | 6 |
+| S04 Money | 6.5 | 6 | 7 | 6.5 | 6 |
+| S05 Sleep sheet | 7 | 7 | 6 | 7 | 7 |
+| S06 Desktop | 5.5 | 6 | 7 | 7 | 5.5 |
+| S07 Light | 7 | 6 | 7 | 7 | 6 |
+| S08 More | 7 | 6 | 7 | 6.5 | 7 |
+
+Measured: 0 page errors in the harness. Found and fixed after scoring: sparkline strokes were truncated by the dash-based draw-in (non-scaling stroke vs pathLength); sparklines now fade in.
+
+Top gaps from critics:
+1. Depth: every card the same flat surface; needs page, card and raised hero levels.
+2. Secondary text: long "·" chains truncate or wrap and compete with hero numbers; readiness ring label unclear (readiness vs sleep score).
+3. Agenda rows inconsistent; desktop row has empty cards; doubled nav badges; sheet header order inverted.
+
+Stop check: bar no | cap not reached | stills approved no -> next round
+Next focus: surface levels + hero cards, secondary-text hierarchy, agenda row system, desktop row heights
