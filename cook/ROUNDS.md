@@ -378,3 +378,29 @@ Depth is up (6 → 6.5–7). The weakest is now color meaning. Coral marks a fai
 - Sleep note leads with "13h 48m sleep debt"; stronger sheet scrim and shadow; ring tracks one step stronger; light page #E7EBF0
 
 Stills: `cook/stills/r14/` | Side by side: `cook/compare/r14/` (r13 left). Scores: pending (critics W, X).
+
+Round 14 scores (critics W, X), eyeballed median:
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 7 | 6.5 | 6.5 | 7 | 7 |
+| S02 Health | 7 | 6.5 | 6.5 | 7 | 6.5 |
+| S03 Agenda | 7 | 6.5 | 7 | 7 | 6.5 |
+| S04 Money | 7 | 6.5 | 6.5 | 7 | 7 |
+| S05 Sleep sheet | 7 | 7 | 7 | 7 | 6.5 |
+| S06 Desktop | 6 | 6.5 | 7 | 7 | 6 |
+| S07 Light | 7 | 7 | 6 | 7 | 7 |
+| S08 More | 7 | 6.5 | 7 | 7 | 6.5 |
+
+Holding at about 7. Specific misses: the amber ring sits on an amber-tinted track that reads as olive, the alert tint looks dirty on navy, the solid cyan Ask pill is the loudest thing on screen, the active tab shows its own badge, the selected segment is too faint, and the budget rows lead with a ratio instead of what's left.
+
+## Round 15 (17:41–17:51 UTC)
+
+- Ring tracks neutral (fg 11%) on every ring; light-mode amber ring #E09A16
+- Alert row on the plain card surface with only the coral edge and icon
+- Ask is a tinted accent pill; the active tab hides its badge; the selected segment is accent-tinted with an accent ring
+- Advisory pill tinted to its status; agenda now line thinner and quieter
+- Budgets lead with "ƒ20 left of ƒ500" (or "over"); Dining at 96% is red; the hero bar's pace marker is labelled "today"; durations never break inside "1h 55m"
+- Desktop header loses its hairline
+
+Stills: `cook/stills/r15/` | Side by side: `cook/compare/r15/` (r14 left). Scores: pending (critics Y, Z).
