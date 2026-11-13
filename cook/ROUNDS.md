@@ -26,7 +26,7 @@ Exact words. Close an item only when a still or clip proves it.
 
 ## Round 01
 
-Time: 16:06 to 16:40 | total elapsed 0.6h
+Time: 16:06 to 16:15 | total elapsed 0.15h (clock)
 Usage: not readable
 Focus: whole system (the user's request), because r00 carried the HUD noise the brief bans
 
@@ -59,14 +59,14 @@ Top gaps from critics:
 2. No hero metric: Home leads with a paragraph, Money with no big number.
 3. Emoji as icons; light mode flat (no elevation, weak secondary text); desktop grid has dead areas and a centered rail.
 
-Progress note sent: 16:45
+Progress note sent: 16:15
 Stop check: bar no | cap not reached | stills approved no -> next round
 Next focus: neutral chrome + attention dots, Home hero, one icon set, Money hero, light-mode depth, desktop grid
 ---
 
 ## Round 02
 
-Time: 16:45 to 17:05 | total elapsed 1.0h
+Time: 16:15 to 16:23 | total elapsed 0.3h (clock)
 Usage: not readable
 Focus: color/accent system and hero metrics (both critics' weakest area in r01)
 
