@@ -101,3 +101,43 @@ Top gaps from critics:
 
 Stop check: bar no | cap not reached | stills approved no -> next round
 Next focus: surface levels + hero cards, secondary-text hierarchy, agenda row system, desktop row heights
+---
+
+## Round 03
+
+Time: 16:23 to 16:28 | total elapsed 0.4h (clock)
+Usage: not readable
+Focus: depth (surface levels) and secondary-text hierarchy, both critics' weakest areas in r02
+
+Changes:
+- Raised hero cards (readiness, money), quieter secondary cards
+- Readiness: ring caption, labelled values, no repeated paragraph; HRV on desktop
+- Money hero: consistent numbers; budgets card without legend; bills actions stacked
+- Health streaks rewritten (no money in Health), date labels under trend tiles, fade cue on the ring row
+- Agenda: one task row component (title, meta line), emoji stripped from event titles, solid hairlines
+- Sheets: handle, title first; light mode top bar; alert line wraps instead of truncating; no doubled nav badges
+
+Stills: `cook/stills/r03/` | Side by side: `cook/compare/r03/` (r02 left)
+
+Scores, eyeballed: critic median (2 fresh critics: same model + Sonnet)
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 7 | 6 | 7 | 7 | 6.5 |
+| S02 Health | 6.5 | 6 | 6.5 | 6.5 | 6.5 |
+| S03 Agenda | 7 | 5.5 | 6.5 | 7 | 7 |
+| S04 Money | 7 | 6 | 7 | 7 | 7.5 |
+| S05 Sleep sheet | 7 | 7 | 6 | 7.5 | 7 |
+| S06 Desktop | 5.5 | 6 | 7 | 6.5 | 5.5 |
+| S07 Light | 7 | 6 | 6.5 | 7 | 6.5 |
+| S08 More | 7 | 6 | 7 | 7 | 7 |
+
+Measured: 0 page errors in the harness.
+
+Top gaps from critics:
+1. Depth still flat: concrete tokens suggested (base #0A0F14, borderless surface about 4% lighter, hero about 8% lighter with top highlight and 0 12px 32px shadow; light: white on #F1F3F6, tinted header).
+2. Hero ambiguity (Readiness title vs Sleep score ring); greeting paragraph and alert banner too loud; zero streaks in the lead slot.
+3. Desktop row voids; agenda gutter and checkbox styling; money ring repeats the headline, pace marker needs a caption; settings rows inconsistent.
+
+Stop check: bar no | cap not reached | stills approved no -> next round
+Next focus: elevation tokens, one metric per hero, quieter greeting and alerts, desktop grid, agenda checkbox and gutter, money pace
