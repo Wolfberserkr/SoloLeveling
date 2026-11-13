@@ -180,3 +180,44 @@ Top gaps from critics:
 
 Stop check: bar no | cap not reached | stills approved no -> next round
 Next focus: one chart component (y labels, gridlines, target band, latest dot, 4 x ticks, legend), hero label, pace chip, light shadows
+
+## Round 05 (16:34–16:42 UTC)
+
+Focus: one chart component.
+- Sparklines: latest dot, hi/lo scale, target zone, 4 x ticks, a color per metric
+- Bar charts: y gridlines with a right gutter, legend option
+- Hero named after its ring ("Last night"); pace chip reads "on plan for day N" / "spending faster than planned"; heart-rate line labelled
+
+Stills: `cook/stills/r05/` | Side by side: `cook/compare/r05/`
+
+Scores, eyeballed: 2 fresh critics (I, J), median
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 7 | 7 | 7 | 7 | 7 |
+| S02 Health | 7 | 7 | 7 | 7 | 6.5 |
+| S03 Agenda | 6.5 | 7 | 7 | 6.5 | 7 |
+| S04 Money | 7 | 7 | 6.5 | 7 | 7.5 |
+| S05 Sleep sheet | 7 | 7.5 | 6.5 | 7 | 6.5 |
+| S06 Desktop | 6.5 | 7 | 7 | 7 | 6.5 |
+| S07 Light | 7 | 6.5 | 7 | 7 | 7 |
+| S08 More | 6.5 | 7 | 7 | 7 | 6.5 |
+
+Top gaps: no surface hierarchy beyond the hero; muddy tinted status fills (pace chip olive, notes brown); legend shows a color that is not in the chart; alerts are a run-on list; settings are stacked buttons, not list cells; briefing preview shows raw emoji and a faded cut line.
+
+## Round 06 (16:42–16:44 UTC)
+
+- Sleep and steps tiles as mini bar charts with a dashed target; a "vs avg" chip on every trend tile (good/bad by metric direction)
+- Sleep sheet: the first fact is a full-width hero, plus the stage bar (deep / light / REM / awake)
+- Legends list only the classes present; alert row reads "N need you · top item and N−1 more"; pace chip neutral with a status dot; nav dots hidden (counts only)
+
+Stills: `cook/stills/r06/` | Side by side: `cook/compare/r06/` (r05 left). Not scored separately: folded into round 07.
+
+## Round 07 (16:44–16:46 UTC)
+
+- Notes: neutral surface with a 3px status edge (no more brown/maroon tints)
+- Briefing preview: emoji stripped, three clean lines, no fade
+- Settings: hairline list rows, whole row tappable with a chevron, full-width range control; Agenda mode control full width
+- Desktop: Read aloud sits beside the status line; light mode gets 1px hairlines on cards, header and nav
+
+Stills: `cook/stills/r07/` | Side by side: `cook/compare/r07/` (r06 left). Scores: pending (critics K, L).
