@@ -528,3 +528,30 @@ Decision (logged): a worker restart paused the session from about 18:55 to 21:30
 - Budget flag says what it means: "ƒ263 over pace for day 13"
 
 Stills: `cook/stills/r20/` | Side by side: `cook/compare/r20/` (r19 left). Scores: pending (critics AI, AJ).
+
+Round 20 scores (critics AI, AJ), eyeballed median:
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 7 | 6 | 7 | 7 | 7 |
+| S02 Health | 7 | 6 | 6.5 | 7 | 7 |
+| S03 Agenda | 7 | 6 | 7 | 7 | 6 |
+| S04 Money | 7 | 6.5 | 6.5 | 7.5 | 7 |
+| S05 Sleep sheet | 6.5 | 6 | 7 | 7 | 6.5 |
+| S06 Desktop | 5.5 | 6 | 7 | 7 | 7 |
+| S07 Light | 7 | 7 | 6.5 | 7 | 7 |
+| S08 More | 7 | 6 | 7 | 7 | 6.5 |
+
+## Stop check (final)
+
+- Bar (9 on every cell): **not met**. Medians sat at about 7 from round 12 to round 20; depth is about 6 and is the weakest dimension by critic consensus, desktop layout 5.5–7 depending on the critic.
+- Time: the 4 h cap (20:06 UTC) was passed during a worker restart; round 20 was finished and logged as the last round.
+- Stills approved by the user: **not yet**. The live dashboard is still the pre-cook v14; nothing was published.
+
+What is still below the bar, honestly:
+1. Depth: critics keep reading cards as one plane, even with measured steps (page 10,14,19 / card 22,29,38 / hero 33,43,55). The next lever would be fewer cards (dividers instead of nested cards) rather than more steps.
+2. Desktop: the masonry fixed the half-empty cards, but the columns end at uneven heights.
+3. Recurring asks not done: a hypnogram with a time axis (needs per-minute stage data the sync doesn't store), leading icons and current values on settings rows, a "Tomorrow" divider before after-midnight agenda items, untimed tasks as their own group.
+4. Critic disagreements left as decided: the ECG/heart-rate strip stays (user-requested live HR); fixed data hues per metric plus status colors only for warnings.
+
+Start (pre-cook live v14) → end: critic medians about 5.5–7 → about 7, with 7.5–8 on Money type and clarity.
