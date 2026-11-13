@@ -503,3 +503,28 @@ Desktop layout split: one critic gives the masonry 7 (up from 5.5), the other 5 
 - Sheets: 50% scrim with an 8px blur, raised sheet surface #131A22 with a top highlight
 
 Stills: `cook/stills/r19/` | Side by side: `cook/compare/r19/` (r18 left). Scores: pending (critics AG, AH).
+
+Round 19 scores (critics AG, AH), eyeballed median:
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 7 | 7 | 6.5 | 7 | 6.5 |
+| S02 Health | 7 | 6 | 6.5 | 7 | 6.5 |
+| S03 Agenda | 7 | 7 | 6.5 | 6.5 | 6.5 |
+| S04 Money | 7 | 7 | 6 | 7.5 | 7 |
+| S05 Sleep sheet | 7 | 6.5 | 7 | 6.5 | 7 |
+| S06 Desktop | 6.5 | 6 | 6.5 | 7 | 6.5 |
+| S07 Light | 7 | 6.5 | 6.5 | 7 | 7 |
+| S08 More | 7 | 6.5 | 6.5 | 7 | 6.5 |
+
+Small secondary text and low contrast is the shared note. "Ahead of pace" reads as good news. The "grey stub" bars in S05 were checked in a live browser: they measure 83–122px tall, so this is the viewport cropping the tops of tall bars, not a bug. The ECG strip that several critics call decoration is the live heart-rate feature the user asked for (Garmin polling), so it stays.
+
+Decision (logged): a worker restart paused the session from about 18:55 to 21:30 UTC, past the 20:06 cap. Per the cap rule, round 20 is the last round.
+
+## Round 20 (18:50–21:35 UTC, paused by the restart)
+
+- Secondary text at least 13px (meta lines, captions, legends, kv labels) and one step brighter (dark muted #A3AEBD, light #44505F); axis labels 11.5px
+- Delta chips larger; week-strip markers 4px with 6px task dots; settings group titles larger and brighter
+- Budget flag says what it means: "ƒ263 over pace for day 13"
+
+Stills: `cook/stills/r20/` | Side by side: `cook/compare/r20/` (r19 left). Scores: pending (critics AI, AJ).
