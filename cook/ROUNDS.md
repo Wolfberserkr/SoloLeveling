@@ -555,3 +555,7 @@ What is still below the bar, honestly:
 4. Critic disagreements left as decided: the ECG/heart-rate strip stays (user-requested live HR); fixed data hues per metric plus status colors only for warnings.
 
 Start (pre-cook live v14) → end: critic medians about 5.5–7 → about 7, with 7.5–8 on Money type and clarity.
+
+## Shipped
+
+User approved the round 20 stills ("Approve"). Published to the same artifact URL as version 15; the Supabase, Garmin and sample capabilities were carried forward, and the page stays private (owner only). The data-fetching code was unchanged by the cook (layout, CSS and render code only).
