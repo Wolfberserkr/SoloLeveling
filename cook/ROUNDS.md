@@ -429,3 +429,28 @@ Plateau at 7 for four rounds (12–15). New, specific misses: the active-tab bar
 - Sleep debt lead number 19px; light-mode Ask is solid accent with white text; inbox "Apply suggestion" is the one primary button
 
 Stills: `cook/stills/r16/` | Side by side: `cook/compare/r16/` (r15 left). Scores: pending (critics AA, AB).
+
+Round 16 scores (critics AA, AB), eyeballed median:
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 7 | 7 | 6.5 | 7 | 6.5 |
+| S02 Health | 6.5 | 6 | 6.5 | 7 | 6.5 |
+| S03 Agenda | 7 | 7 | 7 | 7.5 | 6.5 |
+| S04 Money | 7 | 7 | 6 | 8 | 7.5 |
+| S05 Sleep sheet | 6.5 | 6.5 | 6.5 | 7 | 6.5 |
+| S06 Desktop | 6 | 7 | 6.5 | 7 | 6.5 |
+| S07 Light | 7 | 6.5 | 6.5 | 7 | 6.5 |
+| S08 More | 7 | 7 | 7 | 7 | 7.5 |
+
+Depth is now 7 on four shots. Color is the split: one critic wants status-only color and neutral data, while the rounds 13–14 critics asked for fixed data hues. Concrete misses: the verdict has no reason; the Money hero leads with spend, not with what is left; the Dining bar is a wall of red; the sheet stat grid leaves an orphan; the "in bed" window reads as conflicting with hours asleep.
+
+## Round 17 (18:02–18:14 UTC)
+
+- Money hero leads with "ƒ610 left" and "about ƒ33 a day for 18 days · spent ƒ1,180"; the bar is neutral, with status in the dot line
+- Budget bars neutral until over 100%; a red "Ahead of pace for day 13" flag explains the risk in words
+- Sleep verdict: the values behind "Take it easy" (sleep, body battery, REM) get an amber dot and color, so the reason is on the numbers
+- Sleep sheet: score and restless side by side, "in bed 07:31 – 13:31" full width; sheet surface #0F141B so cards lift
+- Inbox "Apply" back to secondary; harness: sheet captured after 2.8 s so the bars have finished growing
+
+Stills: `cook/stills/r17/` | Side by side: `cook/compare/r17/` (r16 left). Scores: pending (critics AC, AD).
