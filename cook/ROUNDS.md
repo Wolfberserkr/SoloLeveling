@@ -303,3 +303,28 @@ Up about 0.5–1 from round 09 on most cells. Depth is still 6 on six of eight s
 - Desktop: cards size to their content, briefing button pinned to the card bottom; light mode: muted text #4A5566, accent text darker for contrast
 
 Stills: `cook/stills/r11/` | Side by side: `cook/compare/r11/` (r10 left). Scores: pending (critics Q, R).
+
+Round 11 scores (critics Q, R), eyeballed median:
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 7 | 6 | 7 | 7 | 6.5 |
+| S02 Health | 6 | 6 | 7 | 6 | 6 |
+| S03 Agenda | 7 | 6 | 6.5 | 7 | 6.5 |
+| S04 Money | 7 | 6 | 6 | 7.5 | 6.5 |
+| S05 Sleep sheet | 7 | 7 | 7 | 7 | 7 |
+| S06 Desktop | 5.5 | 6 | 7 | 6.5 | 6.5 |
+| S07 Light | 7 | 7 | 7 | 7 | 7 |
+| S08 More | 6 | 6 | 6 | 6.5 | 6.5 |
+
+Flat against round 10. Measured: card pixels (22, 29, 38) on page (10, 14, 19); tiles have no border pixels, yet critics still report "1px borders" and the same plane. Found a real regression: the round 11 baseline rule pushed the ring units ("h", "%") to the top of the arc (measured unit y 165 vs value y 190). Fixed in round 12 (unit y 191).
+
+## Round 12 (17:12–17:21 UTC)
+
+- Ring units back beside the value (regression fix)
+- More: section titles above grouped cards (iOS pattern); API spend smaller, one-line status
+- Read aloud is an icon button in the header beside refresh; the greeting row is text only; one timestamp (subtitle clock removed, "Updated" on desktop only)
+- A hero per screen: the Today card on Agenda and the Sleep tile on Health get the raised, accent-tinted surface
+- Selected day chip tinted with an accent ring, not solid cyan; budget bars keep only the pace marker; light-mode alert row on white
+
+Stills: `cook/stills/r12/` | Side by side: `cook/compare/r12/` (r11 left). Scores: pending (critics S, T).
