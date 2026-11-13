@@ -221,3 +221,35 @@ Stills: `cook/stills/r06/` | Side by side: `cook/compare/r06/` (r05 left). Not s
 - Desktop: Read aloud sits beside the status line; light mode gets 1px hairlines on cards, header and nav
 
 Stills: `cook/stills/r07/` | Side by side: `cook/compare/r07/` (r06 left). Scores: pending (critics K, L).
+
+Round 07 scores (critics K, L), eyeballed median:
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 7 | 6 | 7 | 7 | 6.5 |
+| S02 Health | 6.5 | 6 | 7 | 6.5 | 6.5 |
+| S03 Agenda | 6.5 | 6 | 6 | 7 | 6.5 |
+| S04 Money | 6.5 | 6.5 | 6.5 | 7 | 6.5 |
+| S05 Sleep sheet | 6 | 5.5 | 6.5 | 7 | 6 |
+| S06 Desktop | 6.5 | 6 | 7 | 7 | 6.5 |
+| S07 Light | 7 | 7 | 6.5 | 7 | 6.5 |
+| S08 More | 6.5 | 6 | 6.5 | 7 | 7 |
+
+Both critics: weakest is depth (cards on cards, no single raised hero, tiles nested in cards). Also the ring carousel reads as clipped, agenda rows mix four styles, and the cyan segmented control is the loudest thing on screen.
+Calibration note: scores dropped about 0.5 from round 05 with different critics on more polished stills, so critic spread is about ±0.5. Track medians across rounds, not single scores.
+
+## Round 08 (16:47–16:49 UTC)
+
+- Agenda: one row component (time gutter, 22px glyph or checkbox, title, meta) for shifts, events, training, lights out and tasks; overdue on its own line
+- Segmented controls neutral (raised grey), ring carousel sized for 3.3 cards
+- Delta chip only at 10% or more; overdue bill gets the filled button; "Sleep plan" subhead in Next up
+- Inset surfaces recessed (#0C1218), cards with a 4% top highlight; light mode coral #D9573F
+
+## Round 09 (16:49–16:52 UTC)
+
+- Stats inside cards: one surface with hairline rows instead of nested tiles; sheet hero card raised (surface-2 #1A2430)
+- Hero card per screen: surface-2 plus a deeper shadow; light mode hero gets the strongest lift and the header rule is gone
+- Ring carousel shows a visible peek of the 4th ring
+- Desktop: Read aloud on the heading line, right edge; nav active state is a filled pill (no glow); inbox actions in a footer row
+
+Stills: `cook/stills/r09/` | Side by side: `cook/compare/r09/` (r08 left). Scores: pending (critics M, N).
