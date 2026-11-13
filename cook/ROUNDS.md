@@ -278,3 +278,28 @@ Honest read: scores went down about 0.5 while the stills got visibly cleaner. Ea
 - Harness: shots render in the Aruba time zone, so the header clock and "Updated" agree
 
 Stills: `cook/stills/r10/` | Side by side: `cook/compare/r10/` (r09 left). Scores: pending (critics O, P).
+
+Round 10 scores (critics O, P), eyeballed median:
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 7 | 6 | 7 | 7 | 7 |
+| S02 Health | 7 | 6 | 7 | 7 | 6.5 |
+| S03 Agenda | 7 | 6 | 7 | 7 | 6.5 |
+| S04 Money | 7 | 6 | 6 | 8 | 6.5 |
+| S05 Sleep sheet | 7 | 7 | 7 | 6.5 | 6.5 |
+| S06 Desktop | 6 | 6 | 7 | 6.5 | 6.5 |
+| S07 Light | 7 | 7 | 7 | 7 | 7 |
+| S08 More | 7 | 6 | 6.5 | 7 | 7 |
+
+Up about 0.5–1 from round 09 on most cells. Depth is still 6 on six of eight shots. Found a harness bug: the sleep sheet was captured mid count-up (48 vs 50), so the sheet wait is now 1600 ms.
+
+## Round 11 (17:00–17:08 UTC)
+
+- Hero: accent-tinted top-left glow over surface-2; alert row on a faint warn surface; notes are plain insight cards (no red edge)
+- Durations read "50m", "3h 50m", "13h 48m" everywhere; a gridline label is dropped when it collides with the target label
+- Trend tiles always show the delta chip (neutral "≈ avg" under 10%); sleep and steps bars that hit target turn green
+- API spend: "% used" status line, the limit hint on its own row; systems rows shorter, status pills never wrap; ring units baseline-aligned
+- Desktop: cards size to their content, briefing button pinned to the card bottom; light mode: muted text #4A5566, accent text darker for contrast
+
+Stills: `cook/stills/r11/` | Side by side: `cook/compare/r11/` (r10 left). Scores: pending (critics Q, R).
