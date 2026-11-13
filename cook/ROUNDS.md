@@ -404,3 +404,28 @@ Holding at about 7. Specific misses: the amber ring sits on an amber-tinted trac
 - Desktop header loses its hairline
 
 Stills: `cook/stills/r15/` | Side by side: `cook/compare/r15/` (r14 left). Scores: pending (critics Y, Z).
+
+Round 15 scores (critics Y, Z), eyeballed median:
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 7 | 6.5 | 7 | 7 | 6.5 |
+| S02 Health | 7 | 6 | 6.5 | 7 | 7 |
+| S03 Agenda | 6.5 | 6.5 | 7 | 7 | 6.5 |
+| S04 Money | 7 | 6.5 | 6.5 | 8 | 7 |
+| S05 Sleep sheet | 6.5 | 6.5 | 7.5 | 7.5 | 6.5 |
+| S06 Desktop | 6 | 6.5 | 7 | 7 | 6.5 |
+| S07 Light | 7 | 7 | 7 | 7 | 7 |
+| S08 More | 7 | 6 | 6.5 | 7 | 7 |
+
+Plateau at 7 for four rounds (12–15). New, specific misses: the active-tab bar floats above the nav over content; "Morning shift" is as big as the greeting; an overdue task sits after the now line; Sleep and Deep share one blue; summary rings and detail charts share one surface; light-mode Ask pill too pale.
+
+## Round 16 (17:52–18:01 UTC)
+
+- Tab bar: the selected tab is a tinted pill behind its icon (nothing floats above the bar)
+- Overdue tasks pin to the top of the day with a red "Overdue" gutter
+- "Now" title 21px so the greeting leads; the "Last night" card drops the range average
+- Health: summary rings sit on the page (no card), the charts below are the cards; sleep duration is periwinkle #8AB4FF, deep sleep a deeper #3E62CC
+- Sleep debt lead number 19px; light-mode Ask is solid accent with white text; inbox "Apply suggestion" is the one primary button
+
+Stills: `cook/stills/r16/` | Side by side: `cook/compare/r16/` (r15 left). Scores: pending (critics AA, AB).
