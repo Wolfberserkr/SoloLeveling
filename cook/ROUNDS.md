@@ -454,3 +454,27 @@ Depth is now 7 on four shots. Color is the split: one critic wants status-only c
 - Inbox "Apply" back to secondary; harness: sheet captured after 2.8 s so the bars have finished growing
 
 Stills: `cook/stills/r17/` | Side by side: `cook/compare/r17/` (r16 left). Scores: pending (critics AC, AD).
+
+Round 17 scores (critics AC, AD), eyeballed median:
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 7 | 6 | 6.5 | 7 | 6.5 |
+| S02 Health | 7 | 6 | 6.5 | 7 | 6.5 |
+| S03 Agenda | 7.5 | 6.5 | 7 | 7 | 6.5 |
+| S04 Money | 7 | 6 | 5.5 | 7 | 6.5 |
+| S05 Sleep sheet | 7 | 6.5 | 7 | 6.5 | 7 |
+| S06 Desktop | 5.5 | 6 | 6.5 | 7 | 6 |
+| S07 Light | 7 | 7 | 7 | 7 | 6.5 |
+| S08 More | 7 | 6 | 6 | 7 | 7 |
+
+Neutral budget bars cost color points: both critics want the fill to carry status (round 16 asked for the opposite). Three amber dots read as noise. Desktop is the lowest shot for the eighth round running (equal-height rows leave dead space).
+
+## Round 18 (18:15–18:32 UTC)
+
+- Desktop masonry: 8px grid rows, each card spans rows by its measured height (ResizeObserver), dense packing, so every column stacks content-height cards with no voids
+- Budget and hero bars: neutral when on plan, amber once a category runs more than 10 points ahead of pace, red over 100%; the flag text is amber to match
+- Verdict: only the single worst value behind "Take it easy" gets the dot
+- Phone: the "need you" row sits directly under the greeting, above the sleep card
+
+Stills: `cook/stills/r18/` | Side by side: `cook/compare/r18/` (r17 left). Scores: pending (critics AE, AF).
