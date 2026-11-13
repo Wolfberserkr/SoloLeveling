@@ -253,3 +253,28 @@ Calibration note: scores dropped about 0.5 from round 05 with different critics 
 - Desktop: Read aloud on the heading line, right edge; nav active state is a filled pill (no glow); inbox actions in a footer row
 
 Stills: `cook/stills/r09/` | Side by side: `cook/compare/r09/` (r08 left). Scores: pending (critics M, N).
+
+Round 09 scores (critics M, N), eyeballed median:
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 6.5 | 6 | 6 | 6.5 | 6 |
+| S02 Health | 6.5 | 6 | 7 | 6.5 | 6.5 |
+| S03 Agenda | 6 | 5.5 | 6 | 6.5 | 6.5 |
+| S04 Money | 6 | 5.5 | 6 | 6.5 | 6 |
+| S05 Sleep sheet | 6 | 6.5 | 6 | 6 | 6 |
+| S06 Desktop | 5.5 | 6 | 6 | 6.5 | 6 |
+| S07 Light | 6.5 | 6.5 | 6.5 | 6.5 | 6 |
+| S08 More | 6 | 6 | 6 | 6 | 6 |
+
+Honest read: scores went down about 0.5 while the stills got visibly cleaner. Each round brings new critics, who find new things to dislike; the Sonnet critics sit near 6 whatever changes. Three rounds of critics agree on one thing: depth. Card vs page differs by only 2–3% lightness, and insets go darker than their parents.
+
+## Round 10 (16:52–16:59 UTC)
+
+- Surface tokens with visible steps: page #0A0E13, card #161D26, hero #212B37, insets lighter than their parent (#1B232D); light page #ECEFF3
+- Money hero: one full-width number, one meta line, a budget bar with a pace marker and a status line (no boxed chip)
+- One alarm color: the ring carries coral; the advisory pill and alert icon are neutral with a status dot
+- Sleep debt only in the note (no duplicate, no orphan tile); week strip gets a legend and one shift color
+- Harness: shots render in the Aruba time zone, so the header clock and "Updated" agree
+
+Stills: `cook/stills/r10/` | Side by side: `cook/compare/r10/` (r09 left). Scores: pending (critics O, P).
