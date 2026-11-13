@@ -141,3 +141,42 @@ Top gaps from critics:
 
 Stop check: bar no | cap not reached | stills approved no -> next round
 Next focus: elevation tokens, one metric per hero, quieter greeting and alerts, desktop grid, agenda checkbox and gutter, money pace
+---
+
+## Round 04
+
+Time: 16:28 to 16:34 | total elapsed 0.5h (clock)
+Usage: not readable
+Focus: depth (critics' elevation tokens), one metric per hero, desktop grid
+
+Changes:
+- Elevation tokens (base #0A0F14, borderless surface, hero with top highlight and 0 12px 32px shadow), light page #F1F3F6
+- One-sentence greeting, Voice moved to More, triage-style alert row
+- Rings: whole numbers from 10, inline units (fixed a centering regression); health streaks moved last; a color per metric in trend tiles
+- Agenda: "To do" gutter, light custom checkboxes; Money: pace chip instead of the duplicate ring, visible pace marker, bill status beside the name
+- Desktop: 3 x 2 grid of equal-height cards; settings rows with descriptions and plain-language system names
+
+Stills: `cook/stills/r04/` | Side by side: `cook/compare/r04/` (r03 left)
+
+Scores, eyeballed: critic median (2 fresh critics: same model + Sonnet)
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 7 | 6.5 | 6.5 | 7 | 6 |
+| S02 Health | 7 | 6 | 7.5 | 6.5 | 6 |
+| S03 Agenda | 7 | 5.5 | 6.5 | 7 | 7 |
+| S04 Money | 7 | 6.5 | 6 | 7 | 6.5 |
+| S05 Sleep sheet | 6.5 | 6.5 | 5.5 | 7 | 6.5 |
+| S06 Desktop | 6.5 | 6.5 | 7 | 7 | 6.5 |
+| S07 Light | 7 | 6.5 | 6.5 | 7 | 6 |
+| S08 More | 7 | 6 | 6.5 | 7 | 6.5 |
+
+Measured: 0 page errors in the harness.
+
+Top gaps from critics:
+1. Data visualisation: charts have no y-axis, no latest-value marker, no target band, no legend, only two x labels.
+2. Hero label still conflicts (Recovery title, Sleep score ring); pace chip reads muddy and "ahead of pace" is ambiguous.
+3. Light-mode shadows faint, ring track pinkish; settings not list cells; ECG strip reads as decoration.
+
+Stop check: bar no | cap not reached | stills approved no -> next round
+Next focus: one chart component (y labels, gridlines, target band, latest dot, 4 x ticks, legend), hero label, pace chip, light shadows
