@@ -478,3 +478,28 @@ Neutral budget bars cost color points: both critics want the fill to carry statu
 - Phone: the "need you" row sits directly under the greeting, above the sleep card
 
 Stills: `cook/stills/r18/` | Side by side: `cook/compare/r18/` (r17 left). Scores: pending (critics AE, AF).
+
+Round 18 scores (critics AE, AF), eyeballed median:
+
+| Shot | Layout | Depth | Color | Type | Clarity |
+|---|---|---|---|---|---|
+| S01 Home | 7 | 6 | 7 | 7 | 6.5 |
+| S02 Health | 7 | 6 | 6.5 | 7 | 6.5 |
+| S03 Agenda | 7 | 6.5 | 7 | 7 | 7 |
+| S04 Money | 7 | 6.5 | 6.5 | 7.5 | 7 |
+| S05 Sleep sheet | 7 | 6 | 6.5 | 7 | 7 |
+| S06 Desktop | 6 | 6 | 7 | 7 | 6.5 |
+| S07 Light | 7 | 7 | 6.5 | 7 | 7 |
+| S08 More | 7 | 6 | 6.5 | 7 | 7 |
+
+Desktop layout split: one critic gives the masonry 7 (up from 5.5), the other 5 (ragged column bottoms). Grey "on plan" bars read as disabled; light-mode amber is still low contrast; the score ring has no state word.
+
+## Round 19 (18:36–18:44 UTC)
+
+- Bars: green on plan, amber ahead of pace, red over budget (one bar spec everywhere)
+- Delta chips carry arrows ("↓ 19% vs avg"); overdue bill chip is solid red with white text
+- Score caption carries its state ("Sleep score · fair", from Garmin's own quality word when present)
+- Light mode: warn #9A6200 for text, ring amber #D98E0B, pale amber advisory pill, Ask outlined in both themes
+- Sheets: 50% scrim with an 8px blur, raised sheet surface #131A22 with a top highlight
+
+Stills: `cook/stills/r19/` | Side by side: `cook/compare/r19/` (r18 left). Scores: pending (critics AG, AH).
