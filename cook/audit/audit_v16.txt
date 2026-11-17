@@ -1,0 +1,119 @@
+PASS  A1 boot overlay gone
+PASS  A2 first query is the dashboard select   [queries=1]
+PASS  A3 range substituted
+PASS  A4 heart rate label live
+PASS  B tab health shows only its view   [{"vis":["health"],"sel":["health"]}]
+PASS  B tab money shows only its view   [{"vis":["money"],"sel":["money"]}]
+PASS  B tab agenda shows only its view   [{"vis":["agenda"],"sel":["agenda"]}]
+PASS  B tab more shows only its view   [{"vis":["more"],"sel":["more"]}]
+PASS  B tab home shows only its view   [{"vis":["home"],"sel":["home"]}]
+PASS  B6 tab remembered after reload   [money]
+PASS  B7 arrow keys move between tabs
+PASS  C sheet opens from #alertLine   [Needs your attention]
+PASS  C sheet closes with Escape (#alertLine)
+PASS  C sheet opens from #c-ready   [Readiness]
+PASS  C sheet closes with Escape (#c-ready)
+PASS  C sheet opens from #c-shift   [Shift & sleep plan]
+PASS  C sheet closes with Escape (#c-shift)
+PASS  C sheet opens from #c-session   [Today’s session]
+PASS  C sheet closes with Escape (#c-session)
+PASS  C sheet opens from #c-brief   [Morning briefing]
+PASS  C sheet closes with Escape (#c-brief)
+PASS  C6 alert sheet lists the items   [rows=6]
+PASS  C6b alert "Open" closes the sheet and goes to its tab   [!Bill overdue. Example rent was due 12 N → money]
+PASS  C6c closing animates then hides
+PASS  C7 backdrop tap closes the sheet
+PASS  C8 close button closes
+PASS  C9 focus returns to the trigger   [alertLine]
+PASS  C10 page behind the sheet is scroll-locked
+PASS  C11 focus stays inside the sheet on Tab
+PASS  C11b and on Shift+Tab
+PASS  C12 scroll unlocks after close
+PASS  C13 sheet has a grab handle
+PASS  C14 sheet follows the finger   [translateY(40px)]
+PASS  C15 a short, slow drag springs back
+PASS  C16 a long drag dismisses
+PASS  C17 a quick flick dismisses
+PASS  C18 dragging from a button inside does not move the sheet
+PASS  C19 pressing a control scales it   [matrix(0.985, 0, 0, 0.985, 0, 0)]
+PASS  D1 ticking a home task sends the update   [update life_tasks set done_at = now(), u | with p as (
+  select user_id as u, coale]
+PASS  D2 success toast shown   [Done · Google Tasks updates within 5 min]
+PASS  D3 data reloaded after the write
+PASS  D4 failed save tells the user   [No answer from Supabase. Refresh to check whether it saved.]
+PASS  D5 failed save unticks the box   [checked=false disabled=false]
+PASS  D6 a write that changes 0 rows is not reported as done   [sent=true toast=Nothing changed. It was already handled.]
+PASS  D7 toast sits above the tab bar
+PASS  E1 Keep shows Saving…   [Saving…]
+PASS  E2 Keep sends status=rejected + action=keep
+PASS  E3 Delete queues status=approved
+PASS  E4 Apply asks for a second tap first
+PASS  E5 second tap sends the bulk update
+PASS  F ring sleep opens a sheet   [Sleep]
+PASS  F ring rem opens a sheet   [REM sleep]
+PASS  F ring deep opens a sheet   [Deep sleep]
+PASS  F ring stress opens a sheet   [Stress]
+PASS  F ring bb opens a sheet   [Body battery (morning high)]
+PASS  F ring z2 opens a sheet   [Zone 2 minutes per plan week]
+PASS  F ring steps opens a sheet   [Steps]
+PASS  F tile sleep opens a sheet with content   [Sleep parts=4]
+PASS  F tile hrv opens a sheet with content   [HRV (ms, overnight) parts=2]
+PASS  F tile bb opens a sheet with content   [Body battery (morning high) parts=2]
+PASS  F tile steps opens a sheet with content   [Steps parts=2]
+PASS  F tile z2 opens a sheet with content   [Zone 2 minutes per plan week parts=2]
+PASS  F tile rhr opens a sheet with content   [Resting heart rate (bpm) parts=2]
+PASS  F tile rem opens a sheet with content   [REM sleep parts=4]
+PASS  F tile deep opens a sheet with content   [Deep sleep parts=4]
+PASS  F tile stress opens a sheet with content   [Stress parts=4]
+PASS  F tile sstress opens a sheet with content   [Sleep stress parts=4]
+PASS  F ride row opens the ride sheet   [13 Nov · H2]
+PASS  F tapping a bar shows its value   [1 Nov: 5.8 h]
+PASS  F tip hides when the sheet closes
+PASS  G hero budget opens a sheet   [Spending]
+PASS  G hero goals opens a sheet   [Savings goals]
+PASS  G card #m-budget opens a sheet   [Spending]
+PASS  G card #m-bills opens a sheet   [Bills & renewals]
+PASS  G card #m-goals opens a sheet   [Savings goals]
+PASS  G Mark paid sends the bill update and does not open the card sheet   [sheet=false]
+PASS  H mode month   [{"pressed":["month"],"cal":true,"strip":false,"lists":false}]
+PASS  H mode lists   [{"pressed":["lists"],"cal":false,"strip":false,"lists":true}]
+PASS  H mode week   [{"pressed":["week"],"cal":false,"strip":true,"lists":false}]
+PASS  H next month changes the calendar   [November 2026 → ‹December 2026›MoTuWeThFrSaSu1]
+PASS  H calendar day opens the day sheet   [Saturday 14 November]
+PASS  H pending roster shows Confirm/Discard   [buttons=2]
+PASS  H Confirm roster sends status=confirmed for the batch
+PASS  H Cancel shift asks for a second tap
+PASS  H second tap cancels the shift
+PASS  H day chip jumps to that day   [on=2026-11-18 idx4=2026-11-18 top=312]
+PASS  H day header opens the day sheet   [Saturday 14 November]
+PASS  H ticking an agenda task sends the update
+PASS  H "anytime → Lists" switches to Lists
+PASS  H ticking a Lists task sends the update
+PASS  I range 30d reloads with a 30-day window   [queries=1]
+PASS  I range remembered after reload
+PASS  I Refresh now reloads
+PASS  I header refresh reloads
+PASS  I Voice settings opens   [visible=true Jarvis voice]
+PASS  I card #j-spend opens a sheet   [Claude API spend]
+PASS  I card #j-sys opens a sheet   [Systems]
+PASS  I card #j-jobs opens a sheet   [Background requests]
+PASS  J Ask opens
+PASS  J Ask focuses the input
+PASS  J Ask sends the question and shows the answer   [lot in the next 3 days? What needs my attention today? Mock answer from Jarvis. ]
+PASS  J Ask prompt carries the question
+PASS  J Escape closes Ask
+PASS  J close button closes Ask
+PASS  K Read aloud speaks the greeting   [clicked Good morning.]
+PASS  K speaker button sits in the header
+PASS  Z no page errors (phone)
+PASS  L failed refresh shows the banner and keeps old data
+PASS  L Try again clears the banner
+PASS  O desktop cards do not overlap (1366)
+PASS  O no overlap after resize to 1040
+PASS  O no overlap at 600 (single column)
+PASS  O no overlap back at 1366
+PASS  O no overlap after a data reload
+PASS  O no horizontal scroll on desktop
+PASS  Z no page errors (desktop)
+
+116/116 passed

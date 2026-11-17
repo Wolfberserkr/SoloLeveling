@@ -91,7 +91,7 @@ Mirror into Project Viking's `viking_docs (user_id, coll, doc_id, data)`, mergin
 For each such day, build the briefing and insert it with `kind='briefing'`, `send_after = briefing_at`. Then set `briefing_composed = true`. Readiness data for a briefing that's hours away may not exist yet: use the latest Garmin data you have and say "as of HH:MM". Contents, in order, only lines with something to say:
 1. Shift and the day's sleep plan (wake, nap, lights-out tonight).
 2. Readiness: last night's sleep (with REM minutes and %), sleep stress, HRV status, body battery, and one line of verdict. Sleep stress of 30 or more makes the verdict at best "go moderate"; say so.
-3. Training. Today's Project Viking cycle day: the next cycle day after the latest `viking_docs` `cycle` doc. The 8-day cycle: 1 Upper A (+optional R1), 2 Lower A, 3 hard ride H1/H2, 4 Upper B, 5 Lower B, 6 E1 endurance, 7 H2/H3 (phase 1: optional R1), 8 rest. Fit it into the training window from `life_day_plan.train_window`, outside 11:00–16:00 heat. With HRV status LOW or UNBALANCED, readiness under 40, sleep under 6 h, body battery under 30 at wake, or straight after a night shift, a hard ride becomes Z2 ≤ 60 min or rest, and say why. No hard ride within 24 h before Lower A/B. Then create the session as a Garmin workout scheduled that day (unless one exists), so it's on the watch.
+3. Training. Today's Project Viking cycle day: the next cycle day after the latest `viking_docs` `cycle` doc, or, with no `cycle` docs, the day after the cycle day of the last logged `workouts` session (Upper A 1, Lower A 2, Upper B 4, Lower B 5). The 8-day cycle: 1 Upper A (+optional R1), 2 Lower A, 3 hard ride H1/H2, 4 Upper B, 5 Lower B, 6 E1 endurance, 7 H2/H3 (phase 1: optional R1), 8 rest. Fit it into the training window from `life_day_plan.train_window`, outside 11:00–16:00 heat. With HRV status LOW or UNBALANCED, readiness under 40, sleep under 6 h, body battery under 30 at wake, or straight after a night shift, a hard ride becomes Z2 ≤ 60 min or rest, and say why. No hard ride within 24 h before Lower A/B. Plan week = `floor((date − settings.startDate) / 7) + 1`; a week that's a multiple of 6 is a deload (lifts: same weights, half the sets; rides: Z1–Z2 only, ≤ 60 min). Then make sure the watch has today's session. Step 9 schedules the week ahead on Garmin every Sunday, as workouts named `Viking …`. If the `Viking` workout scheduled today is the session you just decided on, keep it. If it isn't (the cycle slipped, or readiness changed the ride), `unschedule_workout` it and schedule the right one; if none is scheduled, schedule one. Lifts: the library workout named exactly `Viking Upper A`/`Upper B`/`Lower A`/`Lower B` (never edit or delete those), or in a deload week a copy with every set count halved (rounded up), named `Viking <session> · deload (<Ddd D Mon>)`. Rides: a cycling workout named `Viking <code> · <name> (<Ddd D Mon>)` with custom HR targets in bpm (Z1 90–114, Z2 115–135, Z4 151–167, Z5 168–186). Reuse a workout with the same name instead of making a duplicate. Never touch workouts that don't start with `Viking`.
 4. Meals: the Viking meal plan for the phase. Note when the shift timing moves a meal.
 5. Calendar events that day (from Google Calendar, not the cache). Then tasks from `life_tasks` (open, `done_at is null`): overdue ones first (say "overdue"), then those due today, with their list (Errands, Groceries, Household, Work, Personal) and 🔁 for recurring ones. Suggest one concrete slot for errands from the day's free time (outside the shift and its prep time, the nap and sleep plan, and 11:00–16:00 heat for outdoor errands), and list grocery items if a shop fits the day. Tasks with a `remind_at` today get "⏰ HH:MM".
 6. Money: bills due within 3 days, and any budget at 80% or more this month.
@@ -109,8 +109,127 @@ For each such day, build the briefing and insert it with `kind='briefing'`, `sen
 9. **Last line, always: Claude API spend.** `select life_api_usage_summary(:uid);` returns `{yesterdayMsgs, yesterdayUsd, monthMsgs, monthUsd, budgetUsd, month}`. Render it exactly like `🤖 Jarvis API: yesterday 14 msgs · $0.38 · Nov so far $2.10 of $10 (21%)` (say `no chat yesterday` when yesterdayMsgs is 0; add ` 🟠` at 80% or more of the budget, ` 🔴` at 100% or more). Don't estimate or adjust the numbers.
 At most about 35 lines. Lead with what matters most that day; the news section comes after the email section.
 
-## 9. Finance sheet mirror (once a day)
+## 9. Viking week on the watch (Sundays)
+On the first run on a Sunday (local), if `prefs->>'vikingWeekLastSync'` isn't today, put the coming week of Project Viking training on the owner's Garmin calendar, so every session is on the watch before the week starts. Also run it whenever a `life_jobs` row of kind `garmin` asks for "viking week" (then the range is today through Saturday).
+Rules for this step: never delete or edit the four library workouts named exactly `Viking Upper A`, `Viking Upper B`, `Viking Lower A`, `Viking Lower B` (copy them instead); only unschedule workouts whose name starts with `Viking` and leave everything else on the Garmin calendar alone (Garmin's own training plans included); never create a second workout with a name that already exists, reuse it.
+
+**9.1 The range.**
+From today through the coming Saturday. On a Sunday that is 7 days (Sunday to Saturday).
+If today already has a logged session (a `workouts` or `rides` doc dated today), start tomorrow.
+
+**9.2 Where the plan stands.**
+`select coll, doc_id, data from viking_docs where user_id = :uid and coll in ('settings', 'cycle', 'workouts', 'rides') order by coll, doc_id;`
+- **Plan week** of a date: `floor((date − settings.startDate) / 7) + 1`.
+- **Phase:** `settings.phaseMode` when it isn't `auto`; else by week: ≤ 12 → `1`, ≤ 26 → `2`,
+  ≤ 28 → `B` (diet break), ≤ 38 → `3`, else `4`.
+- **Deload week:** the week number is a multiple of 6.
+- **Cycle day** for the first day of the range: the day after the latest `cycle` doc's `day`.
+  With no `cycle` docs, the day after the cycle day of the last logged gym session
+  (Upper A = 1, Lower A = 2, Upper B = 4, Lower B = 5). With nothing logged, day 1.
+- Then one cycle day per calendar day, wrapping 8 → 1.
+
+**9.3 The 8-day cycle.**
+| Day | Session |
+|---|---|
+| 1 | Upper A (optional R1 recovery spin the same day: don't schedule it) |
+| 2 | Lower A |
+| 3 | Hard ride: H1 hill repeats, or H2 trail session if an H1 was done in the last 8 days |
+| 4 | Upper B |
+| 5 | Lower B |
+| 6 | E1 endurance (in phase B: L1 long ride) |
+| 7 | Phase 1: optional R1 recovery spin. Later phases: H2 or H3 sprints |
+| 8 | Full rest: schedule nothing |
+
+Ride rules, checked in this order for every planned hard ride:
+- **Deload week:** every hard ride and L1 becomes E1 capped at 60 min, Z1–Z2 only.
+- **Hard-ride cap:** at most 1 hard ride in any 8 days in phase 1, 2 after. Count hard rides
+  already logged (`rides` docs with `type = 'hard'` or code H1/H2/H3) plus ones you planned this
+  week. Over the cap → E1.
+- **No hard ride within 24 h before Lower A or Lower B** (the cycle order already keeps this;
+  re-check after any swap).
+- **Shifts:** `select kind, starts_at, ends_at from life_shifts where user_id = :uid and status = 'confirmed' and ends_at > now() order by starts_at;`
+  On a day that starts straight after a night or double shift (one ending between 00:00 and
+  08:00), a hard ride becomes E1 capped at 60 min. Note the day's `life_day_plan.train_window`
+  in the description when there is one.
+
+**9.4 Build each day's workout.**
+Name dated workouts `Viking <session> (<Ddd D Mon>)`, e.g. `Viking E1 · Endurance 75 min (Thu 19 Nov)`
+or `Viking Lower A · deload (Wed 18 Nov)`. Before creating one, look it up by exact name
+(`get_workouts`) and reuse it if it exists.
+
+**Gym days.** Start from the library workout with the exact name (`Viking Upper A` etc.).
+- Normal week: schedule the library workout itself.
+- Deload week: read it with `get_workout_by_id` (`raw: true`), keep the same exercises and
+  weights, halve every set count, rounding up (a repeat group's iterations, or the number of
+  single sets for an exercise), upload it as `Viking <session> · deload (<date>)` with
+  `upload_workout`, and schedule that.
+- If the library workout is missing, schedule nothing for that day and say so in the message.
+- Every exercise step needs Garmin's `category` and `exerciseName` keys, or the watch shows the
+  exercise only as a note. Copies keep them. When you build a strength step yourself, use these
+  (from Garmin's FIT exercise list): bench press BENCH_PRESS/BARBELL_BENCH_PRESS · incline barbell
+  BENCH_PRESS/INCLINE_BARBELL_BENCH_PRESS · incline dumbbell BENCH_PRESS/INCLINE_DUMBBELL_BENCH_PRESS ·
+  seated cable row ROW/SEATED_CABLE_ROW · dumbbell shoulder press SHOULDER_PRESS/SEATED_DUMBBELL_SHOULDER_PRESS ·
+  machine shoulder press SHOULDER_PRESS (no exerciseName) · lat pulldown PULL_UP/LAT_PULLDOWN ·
+  pull-up PULL_UP/PULL_UP · cable lateral raise LATERAL_RAISE/ONE_ARM_CABLE_LATERAL_RAISE ·
+  dumbbell lateral raise LATERAL_RAISE/DUMBBELL_LATERAL_RAISE · EZ-bar curl CURL/STANDING_EZ_BAR_BICEPS_CURL ·
+  incline dumbbell curl CURL/INCLINE_DUMBBELL_BICEPS_CURL · rope/triceps pushdown TRICEPS_EXTENSION/TRICEPS_PRESSDOWN ·
+  overhead cable triceps TRICEPS_EXTENSION/CABLE_OVERHEAD_TRICEPS_EXTENSION · dumbbell shrug SHRUG/DUMBBELL_SHRUG ·
+  back squat SQUAT/BARBELL_BACK_SQUAT · leg press SQUAT/LEG_PRESS · Romanian deadlift DEADLIFT/ROMANIAN_DEADLIFT ·
+  trap-bar deadlift DEADLIFT/TRAP_BAR_DEADLIFT · leg curl LEG_CURL/LEG_CURL · standing calf raise
+  CALF_RAISE/STANDING_CALF_RAISE · seated calf raise CALF_RAISE/SEATED_CALF_RAISE · Bulgarian split squat
+  LUNGE/DUMBBELL_BULGARIAN_SPLIT_SQUAT · crunch CRUNCH/CRUNCH · cable crunch CRUNCH/CABLE_CRUNCH ·
+  hanging knee raise LEG_RAISE/HANGING_KNEE_RAISE · ab wheel CORE/KNEELING_AB_WHEEL · plank PLANK/PLANK ·
+  farmer's carry CARRY/FARMERS_CARRY · pec deck or cable fly FLYE/CABLE_CROSSOVER. Garmin has no key for a
+  machine leg extension: leave that step without a category. Read a new workout back with
+  `get_workout_by_id` and check the names were kept.
+
+**Ride days.** Build a cycling workout (`sportTypeId` 2) with `upload_workout`. Use custom HR
+targets in bpm (`workoutTargetTypeId` 4, `targetValueOne`/`targetValueTwo`). Never use a
+`zoneNumber`.
+Z1 90–114 · Z2 115–135 · Z3 136–150 · Z4 151–167 · Z5 168–186.
+- **E1 Endurance:** one step, all Z2. Length in phase 1: `60 + round((min(week, 12) − 1) / 11 × 6) × 5` min
+  (60 → 90 over the 12 weeks), 90 min after phase 1, at most 60 min in a deload or after a
+  night shift. Description: "All Z2. Cadence 80–90 rpm on flat ground. Bike lane, Pos Chikito
+  to the airport."
+- **R1 Recovery spin:** 30 min Z1. "Light gear, no efforts. Hotel-area loop."
+- **H1 Hill repeats:** 15 min Z2 warm-up. Then a repeat group (`RepeatGroupDTO`, conditionTypeId 7)
+  of N × (3 min Z4 climb + 3:30 easy Z1–Z2 back down), with N in phase 1 = `min(6, 4 + floor((week − 1) / 2))`.
+  After phase 1, use 5 × 4 min climbs. 10 min Z2 cool-down. "Alto Vista climbs or the
+  bike-lane climb."
+- **H2 Trail session:** 10 min Z2 warm-up, 45 min open effort with no target ("Push climbs Z4–Z5,
+  recover on flats. One skill focus: cornering, braking or line choice."), 5 min Z1 cool-down.
+  "Alto Vista trails."
+- **H3 Sprints** (phase 2 on): 15 min Z2 warm-up, 10 × (30 s all-out Z5 + 2:30 Z1), 5 min Z1
+  cool-down.
+- **L1 Long ride** (diet break): 120 min Z2. "Short Z3 on climbs is fine. Eat 30–60 g carbs per hour."
+
+**9.5 Put it on the calendar.**
+`get_scheduled_workouts` for the range first. For each day:
+- A `Viking` workout already scheduled that matches your plan: keep it.
+- A `Viking` workout scheduled that doesn't match: `unschedule_workout` it, then schedule yours.
+- Nothing planned (rest day) but a `Viking` workout is scheduled: unschedule it.
+- Then `schedule_workout` your workout for that date (it's a no-op if already there).
+Garmin Connect syncs the calendar to the watch on its own.
+
+**9.6 Tell the owner.**
+Insert one message (Telegram HTML, `kind = 'training'`, `send_after = now()`):
+```
+<b>🏋️ Viking week on your watch</b>
+Week 7 · Foundation cut
+• Sun 22 · E1 Endurance 75 min (Z2)
+• Mon 23 · Upper A
+…
+```
+Add one line when it's a deload week ("Deload: same weights, half the sets; rides easy"),
+one per swap you made and why ("Thu: hard ride → E1, cap of 1 hard ride per 8 days"), and one
+if Garmin's own training plan has workouts on the same days ("Garmin's Mountain Biking Plan also
+has workouts on Mon and Wed").
+Then record the run: when a job asked for it, that job's `result` is the record (step 1); otherwise
+`insert into life_jobs (user_id, kind, instruction, status, result, done_at) values (:uid, 'garmin', 'viking week', 'done', '<one line>', now());`
+Either way, merge `{"vikingWeekLastSync": "<today>"}` into `life_profile.prefs`.
+
+## 10. Finance sheet mirror (once a day)
 On the first run after 03:00 local, if `prefs->>'financeSheetLastSync'` isn't today, sync the Google Sheet named "Jarvis — Finance". Create it if `prefs->>'financeSheetId'` is empty and store its id there. Tabs: Transactions (the last 400, newest first), This month (category, spent, budget, %), Bills, Goals. Rewrite the tabs in full; don't append. Then set `prefs.financeSheetLastSync`.
 
-## 10. Wrap up
+## 11. Wrap up
 End your run with a short plain summary: what you did per step, and anything that failed. That summary is for the session log, not for Telegram.
