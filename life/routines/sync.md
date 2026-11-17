@@ -164,6 +164,24 @@ or `Viking Lower A · deload (Wed 18 Nov)`. Before creating one, look it up by e
   single sets for an exercise), upload it as `Viking <session> · deload (<date>)` with
   `upload_workout`, and schedule that.
 - If the library workout is missing, schedule nothing for that day and say so in the message.
+- Every exercise step needs Garmin's `category` and `exerciseName` keys, or the watch shows the
+  exercise only as a note. Copies keep them. When you build a strength step yourself, use these
+  (from Garmin's FIT exercise list): bench press BENCH_PRESS/BARBELL_BENCH_PRESS · incline barbell
+  BENCH_PRESS/INCLINE_BARBELL_BENCH_PRESS · incline dumbbell BENCH_PRESS/INCLINE_DUMBBELL_BENCH_PRESS ·
+  seated cable row ROW/SEATED_CABLE_ROW · dumbbell shoulder press SHOULDER_PRESS/SEATED_DUMBBELL_SHOULDER_PRESS ·
+  machine shoulder press SHOULDER_PRESS (no exerciseName) · lat pulldown PULL_UP/LAT_PULLDOWN ·
+  pull-up PULL_UP/PULL_UP · cable lateral raise LATERAL_RAISE/ONE_ARM_CABLE_LATERAL_RAISE ·
+  dumbbell lateral raise LATERAL_RAISE/DUMBBELL_LATERAL_RAISE · EZ-bar curl CURL/STANDING_EZ_BAR_BICEPS_CURL ·
+  incline dumbbell curl CURL/INCLINE_DUMBBELL_BICEPS_CURL · rope/triceps pushdown TRICEPS_EXTENSION/TRICEPS_PRESSDOWN ·
+  overhead cable triceps TRICEPS_EXTENSION/CABLE_OVERHEAD_TRICEPS_EXTENSION · dumbbell shrug SHRUG/DUMBBELL_SHRUG ·
+  back squat SQUAT/BARBELL_BACK_SQUAT · leg press SQUAT/LEG_PRESS · Romanian deadlift DEADLIFT/ROMANIAN_DEADLIFT ·
+  trap-bar deadlift DEADLIFT/TRAP_BAR_DEADLIFT · leg curl LEG_CURL/LEG_CURL · standing calf raise
+  CALF_RAISE/STANDING_CALF_RAISE · seated calf raise CALF_RAISE/SEATED_CALF_RAISE · Bulgarian split squat
+  LUNGE/DUMBBELL_BULGARIAN_SPLIT_SQUAT · crunch CRUNCH/CRUNCH · cable crunch CRUNCH/CABLE_CRUNCH ·
+  hanging knee raise LEG_RAISE/HANGING_KNEE_RAISE · ab wheel CORE/KNEELING_AB_WHEEL · plank PLANK/PLANK ·
+  farmer's carry CARRY/FARMERS_CARRY · pec deck or cable fly FLYE/CABLE_CROSSOVER. Garmin has no key for a
+  machine leg extension: leave that step without a category. Read a new workout back with
+  `get_workout_by_id` and check the names were kept.
 
 **Ride days.** Build a cycling workout (`sportTypeId` 2) with `upload_workout`. Use custom HR
 targets in bpm (`workoutTargetTypeId` 4, `targetValueOne`/`targetValueTwo`). Never use a
