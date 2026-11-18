@@ -227,7 +227,7 @@ async function handleCallback(cb: Row) {
       return answerCallback(String(cb.id));
     }
     // Claim the offer: only one tap (or Telegram redelivery) gets past this.
-    const { data: claimed } = await db.from('life_jobs').update({ status: 'running' }).eq('user_id', uid).eq('id', id).eq('status', 'offered')
+    const { data: claimed } = await db.from('life_jobs').update({ status: 'running', started_at: new Date().toISOString() }).eq('user_id', uid).eq('id', id).eq('status', 'offered')
       .gt('created_at', new Date(Date.now() - OFFER_TTL_MS).toISOString()).select('payload');
     const p = ((claimed ?? [])[0]?.payload ?? null) as Row | null;
     const slots = (p?.slots ?? []) as Array<{ start: string; end: string }>;
@@ -284,10 +284,9 @@ async function handleCallback(cb: Row) {
     if (!job) return settleButtons(chatId, messageId, 'Already gone');
     const p = (job.payload ?? {}) as Row;
     const title = String(p.title ?? 'Task'), due = String(p.local ?? '').slice(0, 10) || null;
-    let removedNow = job.status === 'pending';
-    if (Array.isArray(p.event_ids) && p.event_ids.length) removedNow = (await undoJob(db, uid, String(job.id))) !== 'queued';
-    else if (job.status === 'pending') await db.from('life_jobs').update({ status: 'cancelled', result: 'switched to a task', done_at: new Date().toISOString() }).eq('id', job.id);
-    else await db.from('life_jobs').insert({ user_id: uid, kind: 'calendar', instruction: `Delete the Jarvis-created event "${title}" on ${p.local ?? '?'} (and its travel blocks): the owner made it a task instead.`, payload: { type: 'delete_event', title, start: p.start ?? null, jid: job.id } });
+    let removedNow = true;
+    if ((Array.isArray(p.event_ids) && p.event_ids.length) || job.status === 'pending') removedNow = (await undoJob(db, uid, String(job.id))) !== 'queued';
+    else { removedNow = false; await db.from('life_jobs').insert({ user_id: uid, kind: 'calendar', instruction: `Delete the Jarvis-created event "${title}" on ${p.local ?? '?'} (and its travel blocks): the owner made it a task instead.`, payload: { type: 'delete_event', title, start: p.start ?? null, jid: job.id } }); }
     const rows = await addTasks(db, uid, owner.tz, [{ title, list: 'Personal', area: 'personal', due_on: due && /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null, notes: (p.notes as string | null) ?? null }]);
     await settleButtons(chatId, messageId, '↔ Made it a task');
     return sendMessage(chatId, `☑️ <b>${escapeHtml(title)}</b> is now a task in Personal${rows[0]?.due_on ? `, due ${rows[0].due_on}` : ''}${removedNow ? '' : '. The calendar event is removed at the next sync'}.`,

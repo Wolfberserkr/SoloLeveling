@@ -67,6 +67,12 @@ describe('pickSlots', () => {
     expect(pickSlots([win(THU, '20:00', '21:30')], base({ now }))).toEqual([]);
   });
 
+  it('pickSlots ranks daytime (08:00–20:00) before evening', () => {
+    const now = at('2026-11-18', '21:30');
+    const r = pickSlots([win('2026-11-18', '21:30', '23:30'), win(THU, '09:00', '12:00')], base({ now, max: 1 }));
+    expect(labels(r)).toEqual(['Thu 19 Nov 09:00']);
+  });
+
   it('defaults to three slots', () => {
     expect(pickSlots([...ws, win('2026-11-21', '09:00', '12:00')], base())).toHaveLength(3);
   });
@@ -104,7 +110,14 @@ describe('bookedText', () => {
 describe('matchJarvisEvents', () => {
   const mine = ev({ id: 'a', title: '🩺 Dentist', description: `[jarvis] medical · jid:${J}` });
   const theirs = ev({ id: 'b', title: 'Dentist', description: 'booked by phone' });
-  const other = ev({ id: 'c', title: '🩺 Dentist', start: at(FRI, '10:00').toISOString(), end: at(FRI, '11:00').toISOString(), description: '[jarvis] medical' });
+  const other = ev({ id: 'c', title: '🩺 Dentist', start: at(FRI, '10:00').toISOString(), end: at(FRI, '11:00').toISOString(), description: `[jarvis] medical · jid:${J.replace('0b6f', '1b6f')}` });
+
+  it('matchJarvisEvents never matches shift events or legacy events without a jid', () => {
+    const shift = ev({ id: 's', title: '🛡 Surveillance Shift — Mid', description: '[jarvis] shift 42' });
+    const legacy = ev({ id: 'l', title: '🩺 Dentist', description: '[jarvis] medical' });
+    expect(matchJarvisEvents([shift], 'shift', undefined, TZ)).toEqual([]);
+    expect(matchJarvisEvents([legacy, mine], 'dentist', THU, TZ).map((x) => x.id)).toEqual(['a']);
+  });
 
   it('matchJarvisEvents ignores events without [jarvis]', () => {
     expect(matchJarvisEvents([mine, theirs], 'dentist', undefined, TZ).map((x) => x.id)).toEqual(['a']);
@@ -125,10 +138,19 @@ describe('slot guards', () => {
   });
 
   it('nightBusy blocks 22:00–07:00 on days with no sleep plan', () => {
-    const n = nightBusy([THU], TZ);
+    const n = nightBusy([THU], new Set(), TZ);
     expect(n.map((x) => [x.start.toISOString(), x.end.toISOString()])).toEqual([
       [at(THU, '00:00').toISOString(), at(THU, '07:00').toISOString()],
       [at(THU, '22:00').toISOString(), at(FRI, '00:00').toISOString()],
     ]);
+  });
+
+  it('nightBusy covers the evening of the last planned day', () => {
+    // Thu has a plan (its night before), Fri has none: Thu 22:00–24:00 is still night.
+    const n = nightBusy([THU], new Set([THU]), TZ);
+    expect(n.map((x) => [x.start.toISOString(), x.end.toISOString()])).toEqual([
+      [at(THU, '22:00').toISOString(), at(FRI, '00:00').toISOString()],
+    ]);
+    expect(nightBusy([THU], new Set([THU, FRI]), TZ)).toEqual([]);
   });
 });

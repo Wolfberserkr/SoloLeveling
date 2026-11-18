@@ -3,7 +3,7 @@
 // or nothing. life-bot binds `Bridge` to the owner's Apps Script; tests use a
 // fake. No Deno or network APIs here.
 // ═════════════════════════════════════════════════════════════════════════
-import { eventTitle, jarvisDescription, type CalEvent } from './scheduling.ts';
+import { eventTitle, jarvisDescription, jobIdOf, type CalEvent } from './scheduling.ts';
 
 export type NewEvent = { title: string; start: string; end: string; allDay: boolean; location?: string | null; description: string; remindersMin: number[] };
 
@@ -19,7 +19,8 @@ export type BookSpec = {
   location?: string | null; notes?: string | null; remindersMin: number[]; travelMinutes: number;
 };
 
-export type BookResult = { ok: true; ids: string[]; created: CalEvent[] } | { ok: false; error: string };
+/** `clean` false: something this booking made may still be on the calendar (it carries the jid). */
+export type BookResult = { ok: true; ids: string[]; created: CalEvent[] } | { ok: false; error: string; clean: boolean };
 
 const TRAVEL = '🚗 Travel';
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -39,14 +40,29 @@ export async function bookEvent(b: Bridge, s: BookSpec): Promise<BookResult> {
     );
   }
   const res = await Promise.allSettled(evs.map((e) => b.create(e)));
-  const made = res.flatMap((r) => (r.status === 'fulfilled' ? [r.value.id] : []));
-  const bad = res.find((r): r is PromiseRejectedResult => r.status === 'rejected');
-  if (bad) {
+  const idOf = (r: PromiseSettledResult<{ id: string }>) => (r.status === 'fulfilled' && typeof r.value?.id === 'string' && r.value.id ? r.value.id : null);
+  const made = res.map(idOf).filter((x): x is string => !!x);
+  if (made.length < evs.length) {
+    const bad = res.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+    const error = bad ? msg(bad.reason) : 'the calendar returned no event id';
     await removeEvents(b, made);
-    return { ok: false, error: msg(bad.reason) };
+    // A call that timed out on our side may still have created its event: sweep by jid.
+    const clean = await sweepJob(b, s.jobId, new Date(s.start.getTime() - s.travelMinutes * 60000 - 3600000), new Date(s.end.getTime() + s.travelMinutes * 60000 + 3600000));
+    return { ok: false, error, clean };
   }
-  const ids = res.map((r) => (r as PromiseFulfilledResult<{ id: string }>).value.id);
+  const ids = made;
   return { ok: true, ids, created: evs.map((e, i) => ({ id: ids[i], title: e.title, start: e.start, end: e.end, allDay: e.allDay, description: e.description })) };
+}
+
+/** Remove every event carrying `jid:<jobId>` in [from, to), trying twice. True when none is left. */
+export async function sweepJob(b: Bridge, jobId: string, from: Date, to: Date): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let left: CalEvent[];
+    try { left = (await b.list(from.toISOString(), to.toISOString())).filter((e) => jobIdOf(e.description) === jobId); } catch { return false; }
+    if (!left.length) return true;
+    await removeEvents(b, left.map((e) => e.id));
+  }
+  try { return !(await b.list(from.toISOString(), to.toISOString())).some((e) => jobIdOf(e.description) === jobId); } catch { return false; }
 }
 
 /** Remove every id; a failure doesn't stop the rest. */

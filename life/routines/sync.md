@@ -25,17 +25,19 @@ Write outbox messages in Telegram HTML (`<b>`, `<i>`, `<a href>`), short, with `
 `buttons` is optional JSON: `[[{"text":"✅ Add","data":"rs:<batch>:ok"}]]`.
 
 ## 1. Jobs the owner asked for
-`select * from life_jobs where status = 'pending' or (status = 'running' and kind = 'calendar' and payload->>'via' = 'life-bot' and created_at < now() - interval '10 minutes') order by created_at;`
+`select * from life_jobs where status = 'pending' or (status = 'running' and kind = 'calendar' and payload->>'via' = 'life-bot' and started_at < now() - interval '10 minutes') order by created_at;`
 (The second half catches a booking life-bot started but didn't finish. Never touch `offered` jobs: those are slot buttons still waiting for the owner.)
 For each one, set `status='running'`, do it, then set `status='done'` (or `'failed'`), with a one-line `result` and `done_at = now()`. Insert one outbox line per job ("✅ Blocked Thu 14:00–15:30 · Groceries", or why it failed).
 - `calendar`: create, move or delete events on the primary calendar. Blocks you create get `[jarvis]` in the description. Use the owner's timezone. Check for clashes with shifts and say so if there is one. If a requested block's start time has already passed, create it anyway only if it hasn't ended, and say so.
-  life-bot books most events itself within seconds. A `calendar` job reaches you only when Google was out of reach. So first, for `payload.type = 'event'`: search the calendar around `start` for an event whose description contains `jid:<this job's id>`. If one exists, life-bot already made it: set the job `done` with result "already created by life-bot", create nothing and send no outbox line.
+  life-bot books most events itself within seconds. A `calendar` job reaches you only when Google was out of reach. So first, for `payload.type = 'event'`: search the calendar around `start` for events whose description contains `jid:<this job's id>`.
+  - The main event is there (a `jid` event whose description isn't `[jarvis] travel …`): life-bot already made it. Add any missing `🚗 Travel` block (below), set the job `done` with result "already created by life-bot", and send no outbox line.
+  - Only `🚗 Travel` blocks with that `jid` are there (left over from a failed attempt): delete them, then create the full set as below.
   When `payload.type = 'event'` (an appointment the owner asked for), use the payload exactly:
   - Title: put an emoji by `kind` in front (🩺 medical, 📌 personal, 👥 social, 🏋️ training, 📅 other). Use `start`/`end` (UTC ISO; `local` is the same in the owner's timezone), or an all-day event when `all_day` is true. Set `location` when given. The description is `notes`, a new line, then `[jarvis] <kind> · jid:<this job's id>` (just the marker when there are no notes).
   - Popup reminders: exactly the minutes in `reminders_min`, replacing the calendar's defaults.
   - When `travel_buffer_min` > 0, also create two `🚗 Travel` events of that length, ending at the start and starting at the end, with `[jarvis] travel · jid:<this job's id>` as their descriptions.
   - If `clashes` isn't empty, still create it, and repeat the clashes in your outbox line ("⚠️ overlaps your Mid shift 13:00–22:00").
-  When `payload.type = 'delete_event'`, delete the `[jarvis]` event with that title at `start`, and its travel blocks. When `payload.jid` is set, delete every event whose description contains `jid:<payload.jid>` instead. If none exists, that's done too. Never delete an event without `[jarvis]`.
+  When `payload.type = 'delete_event'`, delete the `[jarvis]` event with that title at `start`, and its travel blocks. When `payload.jid` is set, delete every event whose description contains `jid:<payload.jid>`; if none has it, fall back to the title at `start` (older events carry no `jid`), and if that finds nothing either, it's done. Never delete an event without `[jarvis]`.
   When `payload.type = 'edit_event'`, follow the instruction: move or delete the matching `[jarvis]` event, and move its `🚗 Travel` blocks with it (same `jid`).
   Tasks are not calendar items: they live in Google Tasks, which life-bot syncs itself. Never create calendar events for tasks.
 - `email`: as instructed (find, label, draft a reply, unsubscribe). Draft only.

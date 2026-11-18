@@ -66,7 +66,9 @@ export async function bookJob(db: Db, userId: string, jobId: string, spec: BookS
   const r = gcalEnabled() ? await bookEvent(bridge, spec) : ({ ok: false, error: 'Google Calendar bridge not linked' } as const);
   const payload = { ...(await jobPayload(db, jobId)), via: 'life-bot' };
   if (!r.ok) {
-    await db.from('life_jobs').update({ status: 'pending', payload }).eq('user_id', userId).eq('id', jobId);
+    // clean === false: a part may be left on the calendar; Undo/↔ then also queue a jid sweep.
+    const leftover = 'clean' in r && r.clean === false;
+    await db.from('life_jobs').update({ status: 'pending', payload: { ...payload, sweep_failed: leftover } }).eq('user_id', userId).eq('id', jobId);
     return { booked: false, ids: [], reason: r.error };
   }
   const { error } = await db.from('life_jobs').update({ status: 'done', result: 'created by life-bot', payload: { ...payload, event_ids: r.ids }, done_at: new Date().toISOString() })
@@ -88,8 +90,13 @@ export async function undoJob(db: Db, userId: string, jobId: string): Promise<'r
   const ids = Array.isArray(p.event_ids) ? (p.event_ids as string[]) : [];
   const cancel = (result: string) => db.from('life_jobs').update({ status: 'cancelled', result, done_at: new Date().toISOString() }).eq('id', job.id);
   if (!ids.length) {
-    if (job.status === 'pending' || job.status === 'offered') { await cancel('undone before it was created'); return 'removed'; }
-    return 'gone';
+    if (job.status === 'offered') { await cancel('no slot picked'); return 'removed'; }
+    if (job.status !== 'pending') return 'gone';
+    await cancel('undone before it was created');
+    if (!p.sweep_failed) return 'removed';
+    // A failed booking may have left a piece behind: have the sync remove everything with this jid.
+    await db.from('life_jobs').insert({ user_id: userId, kind: 'calendar', instruction: `Remove any leftover Jarvis events for "${p.title ?? '?'}" (jid ${job.id}): the owner undid it.`, payload: { type: 'delete_event', title: p.title ?? null, start: p.start ?? null, jid: job.id } });
+    return 'queued';
   }
   if (gcalEnabled()) {
     const r = await removeEvents(bridge, ids);

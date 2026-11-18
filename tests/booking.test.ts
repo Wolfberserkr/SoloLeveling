@@ -7,17 +7,20 @@ const TZ = 'America/Aruba';
 const at = (date: string, time: string) => zonedTime(date, time, TZ);
 const J = '0b6f7c2e-3d4a-4e5f-8a9b-1c2d3e4f5a6b';
 
-function fakeBridge(opts: { failCreateAt?: number; failRemove?: string[] } = {}) {
+function fakeBridge(opts: { failCreateAt?: number; failRemove?: string[]; ghostCreateAt?: number; noIdAt?: number } = {}) {
   const created: Array<NewEvent & { id: string }> = [], removed: string[] = [], updated: Array<{ id: string; patch: Partial<NewEvent> }> = [];
   let n = 0;
   const b: Bridge = {
-    list: async () => [],
+    // The calendar as Google sees it: everything created and not removed.
+    list: async () => created.filter((c) => !removed.includes(c.id)).map((c) => ({ id: c.id, title: c.title, start: c.start, end: c.end, allDay: c.allDay, description: c.description })),
     create: async (e) => {
       n++;
       if (n === opts.failCreateAt) throw new Error('bridge timeout');
       const id = `ev${n}`;
       created.push({ ...e, id });
-      return { id };
+      // A timeout on our side after Apps Script already made the event.
+      if (n === opts.ghostCreateAt) throw new Error('The signal has been aborted');
+      return { id: n === opts.noIdAt ? '' : id };
     },
     update: async (id, patch) => { updated.push({ id, patch }); return { id }; },
     remove: async (id) => { if (opts.failRemove?.includes(id)) throw new Error('nope'); removed.push(id); },
@@ -61,9 +64,32 @@ describe('bookEvent', () => {
   it('rolls back created events when any create fails', async () => {
     const f = fakeBridge({ failCreateAt: 2 });
     const r = await bookEvent(f.b, spec());
-    expect(r).toEqual({ ok: false, error: 'bridge timeout' });
+    expect(r).toEqual({ ok: false, error: 'bridge timeout', clean: true });
     expect(f.removed.sort()).toEqual(f.created.map((c) => c.id).sort());
     expect(f.created.length).toBeGreaterThan(0);
+  });
+});
+
+describe('bookEvent failure sweep', () => {
+  it('removes an event the bridge made even though our call timed out', async () => {
+    const f = fakeBridge({ ghostCreateAt: 2 });
+    const r = await bookEvent(f.b, spec());
+    expect(r.ok).toBe(false);
+    expect(await f.b.list('', '')).toEqual([]);
+    expect(r.ok === false && r.clean).toBe(true);
+  });
+
+  it('reports not clean when a leftover cannot be removed', async () => {
+    const f = fakeBridge({ ghostCreateAt: 2, failRemove: ['ev2'] });
+    const r = await bookEvent(f.b, spec());
+    expect(r.ok === false && r.clean).toBe(false);
+  });
+
+  it('a bridge answer without an id is a failure, rolled back', async () => {
+    const f = fakeBridge({ noIdAt: 1 });
+    const r = await bookEvent(f.b, spec());
+    expect(r.ok).toBe(false);
+    expect(await f.b.list('', '')).toEqual([]);
   });
 });
 

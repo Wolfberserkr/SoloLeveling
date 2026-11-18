@@ -55,7 +55,9 @@ export function pickSlots(windows: Interval[], o: SlotOpts): Interval[] {
     }
     if (s + len + pad <= w.end.getTime()) cands.push({ start: new Date(s), end: new Date(s + len), date: localParts(new Date(s), o.tz).date });
   }
-  const ordered = [...cands].sort((a, b) => Number(o.offDays.has(b.date)) - Number(o.offDays.has(a.date)) || a.start.getTime() - b.start.getTime());
+  const daytime = (c: Interval) => { const h = localParts(c.start, o.tz).hour; return h >= 8 && h < 20; };
+  const ordered = [...cands].sort((a, b) => Number(o.offDays.has(b.date)) - Number(o.offDays.has(a.date))
+    || Number(daytime(b)) - Number(daytime(a)) || a.start.getTime() - b.start.getTime());
   const max = o.max ?? 3, picked: typeof cands = [], days = new Set<string>();
   for (const c of ordered) if (picked.length < max && !days.has(c.date)) { picked.push(c); days.add(c.date); }
   for (const c of ordered) if (picked.length < max && !picked.includes(c)) picked.push(c);
@@ -90,10 +92,12 @@ export function bookedText(
 
 const plain = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
 
-/** Jarvis-owned events whose title holds every word, optionally on one local date. */
+/** Jarvis-booked events whose title holds every word, optionally on one local date. */
 export function matchJarvisEvents(evs: CalEvent[], words: string, date: string | undefined, tz: string): CalEvent[] {
   const want = plain(words).split(' ').filter(Boolean);
-  return evs.filter((e) => isJarvis(e.description)
+  // Only events life-bot booked (they carry a jid): never shifts, shift reminders or older sync-made events.
+  return evs.filter((e) => isJarvis(e.description) && !!jobIdOf(e.description)
+    && !/\[jarvis\] (travel|shift)\b/.test(e.description)
     && e.title !== '🚗 Travel'
     && want.every((w) => plain(e.title).split(' ').includes(w))
     && (!date || localParts(new Date(e.start), tz).date === date));
@@ -104,10 +108,14 @@ export function isOutdoorErrand(kind: unknown, title: string): boolean {
   return (kind === 'personal' || kind === 'other') && /errand|shop|bank|car|haircut|barber|groceries|post office|pick ?up/i.test(title);
 }
 
-/** Night hours (22:00–07:00) for days that have no shift-aware sleep plan yet, so auto-picked slots stay in the daytime. */
-export function nightBusy(dates: string[], tz: string): Interval[] {
+/**
+ * Night hours where no shift-aware sleep plan covers them, so auto-picked
+ * slots stay in the daytime. A day's plan covers the night before it, so
+ * 00:00–07:00 is blocked on unplanned days and 22:00–24:00 when the next day is unplanned.
+ */
+export function nightBusy(dates: string[], planned: Set<string>, tz: string): Interval[] {
   return dates.flatMap((d) => [
-    { start: zonedTime(d, '00:00', tz), end: zonedTime(d, '07:00', tz), label: 'night' },
-    { start: zonedTime(d, '22:00', tz), end: zonedTime(addDays(d, 1), '00:00', tz), label: 'night' },
+    ...(planned.has(d) ? [] : [{ start: zonedTime(d, '00:00', tz), end: zonedTime(d, '07:00', tz), label: 'night' }]),
+    ...(planned.has(addDays(d, 1)) ? [] : [{ start: zonedTime(d, '22:00', tz), end: zonedTime(addDays(d, 1), '00:00', tz), label: 'night' }]),
   ]);
 }

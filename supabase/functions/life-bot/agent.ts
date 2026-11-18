@@ -221,7 +221,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'edit_event',
-    description: 'Move or delete an event Jarvis created, instantly (its travel blocks follow). Finds it by title words and optionally its date. Never touches events the owner made.',
+    description: 'Move or delete an appointment or block Jarvis booked, instantly (its travel blocks follow). Finds it by title words and optionally its date. Never touches events the owner made, and never work shifts (those go through propose_shifts).',
     input_schema: {
       type: 'object',
       properties: {
@@ -354,7 +354,7 @@ async function busyFor(ctx: Ctx, from: Date, to: Date, fromDate: string, toDate:
   const busy: Interval[] = [];
   for (const x of (sh ?? []) as Row[]) busy.push({ start: new Date(Date.parse(String(x.starts_at)) - prefs.prepMinutes * 60000), end: new Date(Date.parse(String(x.ends_at)) + 30 * 60000), label: 'shift' });
   for (const x of (pl ?? []) as Row[]) {
-    busy.push({ start: new Date(String(x.bed_at)), end: new Date(String(x.wake_at)), label: 'sleep' });
+    busy.push({ start: new Date(Date.parse(String(x.bed_at)) - prefs.windDownMinutes * 60000), end: new Date(String(x.wake_at)), label: 'wind-down and sleep' });
     if (x.nap_from) busy.push({ start: new Date(String(x.nap_from)), end: new Date(String(x.nap_to)), label: 'nap' });
   }
   busy.push(...busyFromEvents(cal.events));
@@ -546,7 +546,7 @@ async function runTool(ctx: Ctx, name: string, input: Row): Promise<unknown> {
       const instruction = `Create calendar event "${input.title}" (${kind}) on ${when} ${ctx.tz}`
         + (location ? ` at ${location}, with ${travel}-min travel blocks before and after` : '')
         + (reminders.length ? `. Popup reminders: ${reminders.map((m) => (m >= 1440 ? `${m / 1440} day` : m >= 60 ? `${m / 60} h` : `${m} min`)).join(' and ')} before.` : '. No popup reminders.');
-      const row = must(await db.from('life_jobs').insert({ user_id: userId, kind: 'calendar', status: 'running', instruction, payload }).select('id').single()) as Row;
+      const row = must(await db.from('life_jobs').insert({ user_id: userId, kind: 'calendar', status: 'running', started_at: new Date().toISOString(), instruction, payload }).select('id').single()) as Row;
       const jobId = String(row.id);
       const res = await bookJob(db, userId, jobId, { jobId, kind, title: String(input.title), start, end, allDay, location, notes, remindersMin: reminders, travelMinutes: travel });
       if (res.booked) {
@@ -582,7 +582,7 @@ async function runTool(ctx: Ctx, name: string, input: Row): Promise<unknown> {
       const travel = input.location ? Math.min(Math.max(Number(prefsRaw?.travelMinutes ?? 20), 0), 120) : 0;
       const dates = Array.from({ length: span }, (_, i) => addDays(from, i));
       const planned = new Set(plans.map((x) => String(x.local_date)));
-      busy.push(...nightBusy(dates.filter((d) => !planned.has(d)), ctx.tz));
+      busy.push(...nightBusy(dates, planned, ctx.tz));
       const offDays = new Set(plans.filter((x) => !x.shift_kind).map((x) => String(x.local_date)));
       const outdoor = input.outdoor === undefined ? isOutdoorErrand(kind, title) : !!input.outdoor;
       const slots = pickSlots(freeWindows(startMs, endMs, busy, minutes + 2 * travel), { minutes, travelMinutes: travel, outdoor, tz: ctx.tz, now: new Date(), offDays });
@@ -610,7 +610,7 @@ async function runTool(ctx: Ctx, name: string, input: Row): Promise<unknown> {
       const { events, live } = await liveEvents(db, userId, from, to);
       if (!live) return queue('live calendar read failed');
       const hits = matchJarvisEvents(events, String(input.title), date, ctx.tz);
-      if (!hits.length) return { found: 0, note: 'No event Jarvis made matches. Events the owner made are never changed.' };
+      if (!hits.length) return { found: 0, note: 'No appointment Jarvis booked matches in that range. Events the owner made and work shifts are never changed here; for an older Jarvis event, offer to queue a calendar job.' };
       if (hits.length > 1) return { candidates: hits.map((h) => ({ title: h.title, start: `${localParts(new Date(h.start), ctx.tz).date} ${hhmm(new Date(h.start), ctx.tz)}` })) };
       const main = hits[0], jid = jobIdOf(main.description);
       const travel = jid ? events.filter((e) => e.id !== main.id && e.title === '🚗 Travel' && jobIdOf(e.description) === jid) : [];
