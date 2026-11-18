@@ -164,7 +164,7 @@ calendar is rewritten. `queue_job` kind `calendar` stays for anything unusual, s
   - the description marker and `jid` parsing
   - offer expiry
 - **Bridge:** a `ping` round-trip and a create → update → delete of a test event dated in the past. This is run once by
-  the owner from the Apps Script editor with a small `selfTest_()` function in the script. No test event is left on the calendar.
+  the owner from the Apps Script editor with a small `selfTest()` function in the script. No test event is left on the calendar.
 - **life-bot:** a mocked `gcall` covering the cases below. life-bot runs on Deno with `npm:` imports, so the
   booking, undo and claim logic is written as pure functions that take the bridge calls as parameters, which vitest can test:
   - booked path

@@ -93,7 +93,7 @@ lives in Supabase is instant: money, tasks, shifts, schedule questions and memor
        The approval covers Google Tasks and your calendar.
     5. In Supabase → Edge Functions → Secrets, add `GTASKS_URL` (the URL) and `GTASKS_SECRET`
        (the same value as `JARVIS_SECRET`).
-    6. In the editor, pick `selfTest_` and press ▶ Run. The log should say `selftest ok`. It
+    6. In the editor, pick `selfTest` and press ▶ Run. The log should say `selftest ok`. It
        creates, moves and deletes a test event from yesterday, and checks that the script refuses
        to delete an event Jarvis didn't make.
     Updating the script later: paste the new code, then **Deploy → Manage deployments → ✏️ →
