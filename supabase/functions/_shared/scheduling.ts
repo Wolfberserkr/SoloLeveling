@@ -3,7 +3,7 @@
 // Titles, the [jarvis] ownership marker, live busy time, slot picking and the
 // Telegram confirmation line. No Deno or network APIs here.
 // ═════════════════════════════════════════════════════════════════════════
-import { escapeHtml, hhmm, localParts, zonedTime, type EventKind, type Interval } from './lifeLogic.ts';
+import { addDays, escapeHtml, hhmm, localParts, zonedTime, type EventKind, type Interval } from './lifeLogic.ts';
 
 export const KIND_EMOJI: Record<EventKind, string> = { medical: '🩺', personal: '📌', social: '👥', training: '🏋️', other: '📅' };
 
@@ -97,4 +97,17 @@ export function matchJarvisEvents(evs: CalEvent[], words: string, date: string |
     && e.title !== '🚗 Travel'
     && want.every((w) => plain(e.title).split(' ').includes(w))
     && (!date || localParts(new Date(e.start), tz).date === date));
+}
+
+/** Errands done out and about: these skip the 11:00–16:00 heat. */
+export function isOutdoorErrand(kind: unknown, title: string): boolean {
+  return (kind === 'personal' || kind === 'other') && /errand|shop|bank|car|haircut|barber|groceries|post office|pick ?up/i.test(title);
+}
+
+/** Night hours (22:00–07:00) for days that have no shift-aware sleep plan yet, so auto-picked slots stay in the daytime. */
+export function nightBusy(dates: string[], tz: string): Interval[] {
+  return dates.flatMap((d) => [
+    { start: zonedTime(d, '00:00', tz), end: zonedTime(d, '07:00', tz), label: 'night' },
+    { start: zonedTime(d, '22:00', tz), end: zonedTime(addDays(d, 1), '00:00', tz), label: 'night' },
+  ]);
 }

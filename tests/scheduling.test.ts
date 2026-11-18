@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { zonedTime } from '../supabase/functions/_shared/lifeLogic';
 import {
-  bookedText, busyFromEvents, eventTitle, isJarvis, jarvisDescription, jobIdOf, matchJarvisEvents, offerExpired,
+  bookedText, busyFromEvents, isOutdoorErrand, nightBusy, eventTitle, isJarvis, jarvisDescription, jobIdOf, matchJarvisEvents, offerExpired,
   pickSlots, slotLabel, type CalEvent, type SlotOpts,
 } from '../supabase/functions/_shared/scheduling';
 
@@ -113,5 +113,22 @@ describe('matchJarvisEvents', () => {
   it('limits by local date', () => {
     expect(matchJarvisEvents([mine, other], 'Dentist', FRI, TZ).map((x) => x.id)).toEqual(['c']);
     expect(matchJarvisEvents([mine, other], 'dentist', undefined, TZ)).toHaveLength(2);
+  });
+});
+
+describe('slot guards', () => {
+  it('isOutdoorErrand spots errands', () => {
+    expect(isOutdoorErrand('personal', 'Haircut')).toBe(true);
+    expect(isOutdoorErrand('other', 'bank run')).toBe(true);
+    expect(isOutdoorErrand('medical', 'Dentist')).toBe(false);
+    expect(isOutdoorErrand('social', 'Dinner with D')).toBe(false);
+  });
+
+  it('nightBusy blocks 22:00–07:00 on days with no sleep plan', () => {
+    const n = nightBusy([THU], TZ);
+    expect(n.map((x) => [x.start.toISOString(), x.end.toISOString()])).toEqual([
+      [at(THU, '00:00').toISOString(), at(THU, '07:00').toISOString()],
+      [at(THU, '22:00').toISOString(), at(FRI, '00:00').toISOString()],
+    ]);
   });
 });

@@ -11,6 +11,9 @@ import {
 import type { Keyboard } from './telegram.ts';
 import { addTasks, completeTask, deleteTask, pushTask } from './tasks.ts';
 import { gtasksEnabled } from './gtasks.ts';
+import { bookedText, eventTitle, isOutdoorErrand, jobIdOf, matchJarvisEvents, nightBusy, pickSlots, slotLabel, busyFromEvents } from '../_shared/scheduling.ts';
+import { moveEvent, removeEvents } from '../_shared/booking.ts';
+import { bookJob, bridge, gcalEnabled, liveEvents } from './calendar.ts';
 
 // deno-lint-ignore no-explicit-any
 export type Db = any;
@@ -26,9 +29,12 @@ meals and groceries, household and errands, family, learning and habits, email, 
 
 How you work
 - You have tools over the owner's own database (finance, bills, goals, tasks, shifts, schedule, health, memory).
-- Google Calendar, Gmail, Garmin, Strava and Google Sheets are handled by scheduled background routines.
-  To change any of them, call queue_job with a precise instruction. Tell the owner it is queued and the
-  routine picks it up at its next run, within 3 hours. Never claim a calendar, email or Garmin change is already done.
+- Google Calendar: add_event, edit_event and offer_slots work instantly when Google is linked. Say "booked" only when
+  the tool returned booked: true (or moved/deleted for edit_event). If a result says queued, tell the owner it lands
+  within 3 hours. Never claim a calendar change the tool didn't confirm.
+- Gmail, Garmin, Strava and Google Sheets are handled by scheduled background routines. To change any of them, call
+  queue_job with a precise instruction. Tell the owner it is queued and the routine picks it up at its next run,
+  within 3 hours. Never claim an email or Garmin change is already done.
 - News: when the owner asks for the news or what's happening in Aruba, queue_job kind "news" (instruction:
   "Send me the Aruba news now"). It arrives as its own message with 6–8 grouped local stories at the next sync.
   Don't make up or recall news yourself.
@@ -46,12 +52,17 @@ How you work
   weekly:<0-6>[,…] (0 = Sunday) | monthly:<day> | every:<n>d. A reminder time goes in remind_at (Telegram nudge).
 - Events: give kind (medical, personal, social, training, other), exact local date/start/end (1 h if no end is given),
   and the location if known. Reminders by type, a travel buffer and the shift/sleep clash check are added automatically.
-  If add_event reports clashes, tell the owner plainly and offer to move it.
+  If add_event reports clashes, tell the owner plainly and offer to move it. When it returns text, reply with that text.
+- An event without a time ("find me an hour for a haircut this week", "when can I see the dentist?"): call offer_slots
+  for that range and reply with one short line like "Three openings for a 1 h haircut:". The slot buttons are attached;
+  one tap books it. Don't list the slots again in your text.
+- Moving or cancelling an appointment: edit_event. If it returns candidates, ask which one. It can only change events
+  Jarvis made; for any other event say so and offer to queue a calendar job only if the owner insists.
 - "When should I do X?", "fit my tasks in", "plan my errands": call free_time for those days and suggest specific
   slots: off days and daytime first, outdoor errands outside 11:00–16:00 heat, never in planned sleep, a nap, or the
   prep time before a shift. Group errands into one trip when they fit.
-- Blocking time: when the owner asks to block a slot (focus time, an errand, a ride), queue a calendar job
-  with exact local start/end times. Default timezone is the owner's (usually America/Aruba).
+- Blocking time: when the owner asks to block a slot (focus time, an errand, a ride), call add_event with block: true,
+  kind other and the exact local start/end. Default timezone is the owner's (usually America/Aruba).
 - Finance: amounts are AWG unless "$"/USD is given. USD converts at the fixed 1.79 rate. Spending is negative.
   Log receipts from photos with log_transaction. Bank or card statements (photo, PDF, pasted text) go through
   import_statement in one call with every line, so lines already logged from bank emails aren't counted twice.
@@ -203,8 +214,43 @@ const TOOLS: Anthropic.Tool[] = [
         all_day: { type: 'boolean' },
         location: { type: 'string' },
         notes: { type: 'string' },
+        block: { type: 'boolean', description: 'A time block (focus time, an errand, a ride) rather than an appointment: no popup reminders' },
       },
       required: ['title', 'kind', 'date'],
+    },
+  },
+  {
+    name: 'edit_event',
+    description: 'Move or delete an event Jarvis created, instantly (its travel blocks follow). Finds it by title words and optionally its date. Never touches events the owner made.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string', description: 'Words from the event title, e.g. "dentist"' },
+        date: { type: 'string', description: 'YYYY-MM-DD local date the event is on now, if known' },
+        action: { type: 'string', enum: ['move', 'delete'] },
+        new_date: { type: 'string', description: 'move: YYYY-MM-DD local; default the same day' },
+        start: { type: 'string', description: 'move: HH:MM local; default the same time' },
+        end: { type: 'string', description: 'move: HH:MM local; default keeps the length' },
+      },
+      required: ['title', 'action'],
+    },
+  },
+  {
+    name: 'offer_slots',
+    description: 'Find up to three free slots for an event that has no time yet and attach them as buttons; one tap books it. Avoids shifts and their prep, sleep, naps and calendar events, spreads over different days, and keeps errands out of the 11:00–16:00 heat.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        title: { type: 'string' },
+        kind: { type: 'string', enum: ['medical', 'personal', 'social', 'training', 'other'] },
+        minutes: { type: 'number', description: 'Length; default 60' },
+        from: { type: 'string', description: 'YYYY-MM-DD local, first day to search' },
+        to: { type: 'string', description: 'YYYY-MM-DD local, last day to search (max 14 days)' },
+        location: { type: 'string' },
+        notes: { type: 'string' },
+        outdoor: { type: 'boolean', description: 'Out and about in the heat (errands); default guessed from the title' },
+      },
+      required: ['title', 'kind', 'from', 'to'],
     },
   },
   {
@@ -243,7 +289,7 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'queue_job',
-    description: 'Hand work to the background routines (Google Calendar, Gmail, Garmin, Strava, Sheets, and kind "news" for a fresh Aruba news roundup).',
+    description: 'Hand work to the background routines (Gmail, Garmin, Strava, Sheets, kind "news" for a fresh Aruba news roundup, and kind "calendar" only for events the owner made themselves when they explicitly ask). Appointments and blocks go through add_event/edit_event instead.',
     input_schema: {
       type: 'object',
       properties: {
@@ -294,6 +340,26 @@ const must = <T>(r: { data: T; error: unknown }): T => {
   if (r.error) throw new Error(String((r.error as { message?: string }).message ?? r.error));
   return r.data;
 };
+
+/** Busy time between two instants: shifts with prep, planned sleep and naps, and calendar events (live when linked). */
+async function busyFor(ctx: Ctx, from: Date, to: Date, fromDate: string, toDate: string) {
+  const { db, userId } = ctx;
+  const { data: prof } = await db.from('life_profile').select('prefs').eq('user_id', userId).maybeSingle();
+  const prefs = readPrefs(prof?.prefs);
+  const [{ data: sh }, { data: pl }, cal] = await Promise.all([
+    db.from('life_shifts').select('starts_at,ends_at,kind').eq('user_id', userId).eq('status', 'confirmed').gte('ends_at', from.toISOString()).lte('starts_at', to.toISOString()),
+    db.from('life_day_plan').select('local_date,wake_at,bed_at,nap_from,nap_to,shift_kind').eq('user_id', userId).gte('local_date', fromDate).lte('local_date', toDate),
+    liveEvents(db, userId, from, to),
+  ]);
+  const busy: Interval[] = [];
+  for (const x of (sh ?? []) as Row[]) busy.push({ start: new Date(Date.parse(String(x.starts_at)) - prefs.prepMinutes * 60000), end: new Date(Date.parse(String(x.ends_at)) + 30 * 60000), label: 'shift' });
+  for (const x of (pl ?? []) as Row[]) {
+    busy.push({ start: new Date(String(x.bed_at)), end: new Date(String(x.wake_at)), label: 'sleep' });
+    if (x.nap_from) busy.push({ start: new Date(String(x.nap_from)), end: new Date(String(x.nap_to)), label: 'nap' });
+  }
+  busy.push(...busyFromEvents(cal.events));
+  return { busy, plans: (pl ?? []) as Row[], live: cal.live, prefsRaw: prof?.prefs as Row | undefined };
+}
 
 async function runTool(ctx: Ctx, name: string, input: Row): Promise<unknown> {
   const { db, userId, today } = ctx;
@@ -468,54 +534,115 @@ async function runTool(ctx: Ctx, name: string, input: Row): Promise<unknown> {
         ((sh ?? []) as Row[]).map((x) => ({ startsAt: new Date(String(x.starts_at)), endsAt: new Date(String(x.ends_at)), label: String(x.kind ?? '') })),
         ((pl ?? []) as Row[]).map((x) => ({ date: String(x.local_date), wakeAt: new Date(String(x.wake_at)), bedAt: new Date(String(x.bed_at)), napFrom: x.nap_from ? new Date(String(x.nap_from)) : undefined, napTo: x.nap_to ? new Date(String(x.nap_to)) : undefined })),
         { prepMinutes: prefs.prepMinutes, travelMinutes: travel, tz: ctx.tz });
-      const reminders = eventReminders(input.kind);
+      const block = !!input.block;
+      const kind = block ? 'other' : String(input.kind ?? 'other');
+      const reminders = block ? [] : eventReminders(kind);
       const when = allDay ? `${date} (all day)` : `${date} ${hhmm(start, ctx.tz)}–${hhmm(end, ctx.tz)}`;
+      const location = (input.location as string | undefined) ?? null, notes = (input.notes as string | undefined) ?? null;
       const payload = {
-        type: 'event', title: input.title, kind: input.kind, all_day: allDay, start: start.toISOString(), end: end.toISOString(),
-        local: when, timezone: ctx.tz, location: input.location ?? null, notes: input.notes ?? null,
-        reminders_min: reminders, travel_buffer_min: travel, clashes,
+        type: 'event', via: 'life-bot', title: input.title, kind, block, all_day: allDay, start: start.toISOString(), end: end.toISOString(),
+        local: when, timezone: ctx.tz, location, notes, reminders_min: reminders, travel_buffer_min: travel, clashes,
       };
-      const instruction = `Create calendar event "${input.title}" (${input.kind}) on ${when} ${ctx.tz}`
-        + (input.location ? ` at ${input.location}, with ${travel}-min travel blocks before and after` : '')
-        + `. Popup reminders: ${reminders.map((m) => (m >= 1440 ? `${m / 1440} day` : m >= 60 ? `${m / 60} h` : `${m} min`)).join(' and ')} before.`;
-      const row = must(await db.from('life_jobs').insert({ user_id: userId, kind: 'calendar', instruction, payload }).select('id').single()) as Row;
-      ctx.keyboard = [[{ text: '↔ Make it a task', data: `sw:e:${row.id}` }]];
-      return { ok: true, queued: when, reminders: payload.reminders_min, travelBufferMin: travel, clashes, note: 'The background sync adds it to Google Calendar within 3 hours.' };
+      const instruction = `Create calendar event "${input.title}" (${kind}) on ${when} ${ctx.tz}`
+        + (location ? ` at ${location}, with ${travel}-min travel blocks before and after` : '')
+        + (reminders.length ? `. Popup reminders: ${reminders.map((m) => (m >= 1440 ? `${m / 1440} day` : m >= 60 ? `${m / 60} h` : `${m} min`)).join(' and ')} before.` : '. No popup reminders.');
+      const row = must(await db.from('life_jobs').insert({ user_id: userId, kind: 'calendar', status: 'running', instruction, payload }).select('id').single()) as Row;
+      const jobId = String(row.id);
+      const res = await bookJob(db, userId, jobId, { jobId, kind, title: String(input.title), start, end, allDay, location, notes, remindersMin: reminders, travelMinutes: travel });
+      if (res.booked) {
+        ctx.keyboard = [[{ text: '↩️ Undo', data: `ev:${jobId}:undo` }, { text: '↔ Make it a task', data: `sw:e:${jobId}` }]];
+        return {
+          booked: true, when, reminders, travelBufferMin: travel, clashes,
+          text: bookedText({ title: eventTitle(kind, String(input.title)), start, end, allDay, location, travelMinutes: travel, remindersMin: reminders, clashes }, ctx.tz),
+          note: 'It is in Google Calendar now. Undo and ↔ buttons are attached.',
+        };
+      }
+      ctx.keyboard = [[{ text: '↔ Make it a task', data: `sw:e:${jobId}` }]];
+      return { queued: true, when, reminders, travelBufferMin: travel, clashes, reason: res.reason, note: 'Google Calendar is out of reach right now, so it is queued: the sync adds it within 3 hours.' };
     }
     case 'free_time': {
       const from = String(input.from), to = String(input.to);
       const span = Math.min(Math.max(Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1, 1), 14);
       const min = Math.min(Math.max(Number(input.min_minutes ?? 30), 15), 600);
       const startMs = zonedTime(from, '00:00', ctx.tz), endMs = zonedTime(addDays(from, span), '00:00', ctx.tz);
-      const { data: prof } = await db.from('life_profile').select('prefs').eq('user_id', userId).maybeSingle();
-      const prefs = readPrefs(prof?.prefs);
-      const [{ data: sh }, { data: pl }, { data: ev }] = await Promise.all([
-        db.from('life_shifts').select('starts_at,ends_at,kind').eq('user_id', userId).eq('status', 'confirmed').gte('ends_at', startMs.toISOString()).lte('starts_at', endMs.toISOString()),
-        db.from('life_day_plan').select('local_date,wake_at,bed_at,nap_from,nap_to,shift_kind').eq('user_id', userId).gte('local_date', from).lte('local_date', addDays(from, span)),
-        db.from('life_calendar_cache').select('starts_at,ends_at,title,all_day').eq('user_id', userId).eq('all_day', false).gte('ends_at', startMs.toISOString()).lte('starts_at', endMs.toISOString()),
-      ]);
-      const busy: Interval[] = [];
-      for (const x of (sh ?? []) as Row[]) busy.push({ start: new Date(Date.parse(String(x.starts_at)) - prefs.prepMinutes * 60000), end: new Date(Date.parse(String(x.ends_at)) + 30 * 60000), label: 'shift' });
-      for (const x of (pl ?? []) as Row[]) {
-        busy.push({ start: new Date(String(x.bed_at)), end: new Date(String(x.wake_at)), label: 'sleep' });
-        if (x.nap_from) busy.push({ start: new Date(String(x.nap_from)), end: new Date(String(x.nap_to)), label: 'nap' });
-      }
-      for (const x of (ev ?? []) as Row[]) busy.push({ start: new Date(String(x.starts_at)), end: new Date(String(x.ends_at ?? x.starts_at)), label: String(x.title) });
-      const plans = new Map(((pl ?? []) as Row[]).map((x) => [String(x.local_date), x]));
+      const { busy, plans, live } = await busyFor(ctx, startMs, endMs, from, addDays(from, span));
+      const byDate = new Map(plans.map((x) => [String(x.local_date), x]));
       const windows = freeWindows(startMs, endMs, busy, min).map((w) => {
-        const d = localParts(w.start, ctx.tz).date, p = plans.get(d);
+        const d = localParts(w.start, ctx.tz).date, p = byDate.get(d);
         return { day: d, from: hhmm(w.start, ctx.tz), to: hhmm(w.end, ctx.tz), minutes: Math.round((w.end.getTime() - w.start.getTime()) / 60000), dayType: p ? (p.shift_kind ? `${p.shift_kind} shift day` : 'day off') : 'no plan yet' };
       });
-      return { timezone: ctx.tz, windows, note: 'Sleep and naps follow the shift-aware day plans (about a week ahead). Calendar events may lag up to 3 hours.' };
+      return { timezone: ctx.tz, windows, note: `Sleep and naps follow the shift-aware day plans (about a week ahead). ${live ? 'Calendar events are live from Google Calendar.' : 'Calendar events may lag up to 3 hours.'}` };
+    }
+    case 'offer_slots': {
+      const title = String(input.title), kind = String(input.kind ?? 'other'), from = String(input.from);
+      const span = Math.min(Math.max(Math.round((Date.parse(String(input.to ?? from)) - Date.parse(from)) / 86400000) + 1, 1), 14);
+      const minutes = Math.min(Math.max(Number(input.minutes ?? 60), 15), 600);
+      const startMs = zonedTime(from, '00:00', ctx.tz), endMs = zonedTime(addDays(from, span), '00:00', ctx.tz);
+      const { busy, plans, prefsRaw } = await busyFor(ctx, startMs, endMs, from, addDays(from, span));
+      const travel = input.location ? Math.min(Math.max(Number(prefsRaw?.travelMinutes ?? 20), 0), 120) : 0;
+      const dates = Array.from({ length: span }, (_, i) => addDays(from, i));
+      const planned = new Set(plans.map((x) => String(x.local_date)));
+      busy.push(...nightBusy(dates.filter((d) => !planned.has(d)), ctx.tz));
+      const offDays = new Set(plans.filter((x) => !x.shift_kind).map((x) => String(x.local_date)));
+      const outdoor = input.outdoor === undefined ? isOutdoorErrand(kind, title) : !!input.outdoor;
+      const slots = pickSlots(freeWindows(startMs, endMs, busy, minutes + 2 * travel), { minutes, travelMinutes: travel, outdoor, tz: ctx.tz, now: new Date(), offDays });
+      if (!slots.length) return { offered: 0, note: 'No free slot of that length in that range. Suggest another range or a shorter slot.' };
+      const reminders = eventReminders(kind);
+      const row = must(await db.from('life_jobs').insert({
+        user_id: userId, kind: 'calendar', status: 'offered', instruction: `Slot offer: ${title}`,
+        payload: { type: 'event', via: 'life-bot', title, kind, location: input.location ?? null, notes: input.notes ?? null, reminders_min: reminders, travel_buffer_min: travel, timezone: ctx.tz, slots: slots.map((x) => ({ start: x.start.toISOString(), end: x.end.toISOString() })) },
+      }).select('id').single()) as Row;
+      const labels = slots.map((x) => slotLabel(x, ctx.tz));
+      ctx.keyboard = [labels.map((l, i) => ({ text: l, data: `sl:${row.id}:${i}` })), [{ text: '✖️ None', data: `sl:${row.id}:x` }]];
+      return { offered: slots.length, slots: labels, minutes, outdoor, note: 'The slot buttons are attached; one tap books it. Do not repeat the slots in your text.' };
+    }
+    case 'edit_event': {
+      const date = input.date ? String(input.date) : undefined;
+      const queue = async (why: string) => {
+        const instruction = input.action === 'delete'
+          ? `Delete the Jarvis-created event matching "${input.title}"${date ? ` on ${date}` : ''} (and its travel blocks).`
+          : `Move the Jarvis-created event matching "${input.title}"${date ? ` on ${date}` : ''} to ${input.new_date ?? 'the same day'} ${input.start ?? ''}${input.end ? `–${input.end}` : ''} ${ctx.tz} (travel blocks follow).`;
+        const j = must(await db.from('life_jobs').insert({ user_id: userId, kind: 'calendar', instruction, payload: { type: 'edit_event', ...input } }).select('id').single()) as Row;
+        return { queued: true, id: j.id, reason: why, note: 'Google Calendar is out of reach right now; the sync does it within 3 hours.' };
+      };
+      if (!gcalEnabled()) return queue('Google Calendar bridge not linked');
+      const from = zonedTime(addDays(date ?? today, -1), '00:00', ctx.tz), to = zonedTime(addDays(date ?? today, date ? 2 : 15), '00:00', ctx.tz);
+      const { events, live } = await liveEvents(db, userId, from, to);
+      if (!live) return queue('live calendar read failed');
+      const hits = matchJarvisEvents(events, String(input.title), date, ctx.tz);
+      if (!hits.length) return { found: 0, note: 'No event Jarvis made matches. Events the owner made are never changed.' };
+      if (hits.length > 1) return { candidates: hits.map((h) => ({ title: h.title, start: `${localParts(new Date(h.start), ctx.tz).date} ${hhmm(new Date(h.start), ctx.tz)}` })) };
+      const main = hits[0], jid = jobIdOf(main.description);
+      const travel = jid ? events.filter((e) => e.id !== main.id && e.title === '🚗 Travel' && jobIdOf(e.description) === jid) : [];
+      if (input.action === 'delete') {
+        const ids = [main.id, ...travel.map((t) => t.id)];
+        const r = await removeEvents(bridge, ids);
+        const gone = ids.filter((id) => !r.failed.includes(id));
+        if (gone.length) await db.from('life_calendar_cache').delete().eq('user_id', userId).in('event_id', gone);
+        if (jid && r.ok) await db.from('life_jobs').update({ status: 'cancelled', result: 'deleted by the owner', done_at: new Date().toISOString() }).eq('user_id', userId).eq('id', jid);
+        return r.ok ? { deleted: main.title } : { error: 'Some parts could not be removed; try again in a minute.', failed: r.failed };
+      }
+      const newDate = String(input.new_date ?? localParts(new Date(main.start), ctx.tz).date);
+      const start = zonedTime(newDate, String(input.start ?? hhmm(new Date(main.start), ctx.tz)), ctx.tz);
+      let end = input.end ? zonedTime(newDate, String(input.end), ctx.tz) : new Date(start.getTime() + Date.parse(main.end) - Date.parse(main.start));
+      if (end <= start) end = new Date(end.getTime() + 86400000);
+      const r = await moveEvent(bridge, { main, travel }, start, end);
+      if (!r.ok) return { error: r.error };
+      const local = `${newDate} ${hhmm(start, ctx.tz)}–${hhmm(end, ctx.tz)}`;
+      if (jid) {
+        const { data: j } = await db.from('life_jobs').select('payload').eq('user_id', userId).eq('id', jid).maybeSingle();
+        if (j) await db.from('life_jobs').update({ payload: { ...(j.payload as Row ?? {}), start: start.toISOString(), end: end.toISOString(), local } }).eq('id', jid);
+      }
+      await liveEvents(db, userId, new Date(start.getTime() - 86400000), new Date(end.getTime() + 86400000)); // refresh the mirror
+      return { moved: main.title, to: local };
     }
     case 'get_schedule': {
       const from = new Date(`${input.from}T00:00:00Z`).getTime() - 86400000;
       const to = new Date(`${input.to}T23:59:59Z`).getTime() + 86400000;
-      const [shifts, events, plans] = await Promise.all([
+      const [shifts, cal, plans] = await Promise.all([
         db.from('life_shifts').select('id,starts_at,ends_at,kind,status').eq('user_id', userId).neq('status', 'cancelled')
           .gte('starts_at', new Date(from).toISOString()).lte('starts_at', new Date(to).toISOString()).order('starts_at'),
-        db.from('life_calendar_cache').select('starts_at,ends_at,title,all_day').eq('user_id', userId)
-          .gte('starts_at', new Date(from).toISOString()).lte('starts_at', new Date(to).toISOString()).order('starts_at'),
+        liveEvents(db, userId, new Date(from), new Date(to)),
         db.from('life_day_plan').select('local_date,shift_kind,wake_at,bed_at,nap_from,nap_to,briefing_at,train_window')
           .eq('user_id', userId).gte('local_date', input.from).lte('local_date', input.to).order('local_date'),
       ]);
@@ -523,9 +650,9 @@ async function runTool(ctx: Ctx, name: string, input: Row): Promise<unknown> {
       return {
         timezone: ctx.tz,
         shifts: (must(shifts) as Row[]).map((s) => ({ id: s.id, kind: s.kind, status: s.status, start: loc(s.starts_at), end: loc(s.ends_at) })),
-        events: (must(events) as Row[]).map((e) => ({ title: e.title, start: loc(e.starts_at), end: loc(e.ends_at), allDay: e.all_day })),
+        events: cal.events.map((e) => ({ title: e.title, start: loc(e.start), end: loc(e.end), allDay: e.allDay })),
         dayPlans: (must(plans) as Row[]).map((p) => ({ date: p.local_date, shift: p.shift_kind ?? 'off', bed: loc(p.bed_at), wake: loc(p.wake_at), nap: p.nap_from ? `${loc(p.nap_from)}–${loc(p.nap_to)}` : null, briefing: loc(p.briefing_at), train: p.train_window })),
-        note: 'Calendar events are mirrored by the background sync every 3 hours and may lag up to 3 hours.',
+        note: cal.live ? 'Calendar events are live from Google Calendar.' : 'Calendar events are mirrored by the background sync every 3 hours and may lag up to 3 hours.',
       };
     }
     case 'propose_shifts': {
