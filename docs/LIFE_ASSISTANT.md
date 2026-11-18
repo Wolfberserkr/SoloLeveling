@@ -81,24 +81,35 @@ lives in Supabase is instant: money, tasks, shifts, schedule questions and memor
    evenings, with the Gmail, Google Calendar, Garmin, Strava, Supabase, Google Sheets and
    Google Drive connectors.
 
-10. **Google Tasks** (optional; until it's linked, tasks stay in Jarvis and the dashboard).
-    No Google Tasks connector exists, so Jarvis reaches it through a small Apps Script that runs
-    in your own Google account:
+10. **Google Tasks and Calendar** (optional, but needed for instant booking). Until it's linked,
+    tasks stay in Jarvis and the dashboard, and calendar changes wait for the 3-hourly sync.
+    Jarvis reaches both through a small Apps Script that runs in your own Google account:
     1. Open **script.google.com** → **New project**. Replace the code with
        `life/google-tasks-bridge.gs` and save.
     2. **Services (+)** → **Google Tasks API** → **Add**.
     3. **Project Settings** → **Script properties** → add `JARVIS_SECRET` with a long random value.
     4. **Deploy** → **New deployment** → type **Web app** · Execute as **Me** · Who has access
        **Anyone** → **Deploy** → authorise → copy the **Web app URL**.
+       The approval covers Google Tasks and your calendar.
     5. In Supabase → Edge Functions → Secrets, add `GTASKS_URL` (the URL) and `GTASKS_SECRET`
        (the same value as `JARVIS_SECRET`).
+    6. In the editor, pick `selfTest_` and press ▶ Run. The log should say `selftest ok`. It
+       creates, moves and deletes a test event from yesterday, and checks that the script refuses
+       to delete an event Jarvis didn't make.
+    Updating the script later: paste the new code, then **Deploy → Manage deployments → ✏️ →
+    Version: New version → Deploy**. The URL stays the same.
+    From then on, events, blocks, moves and cancellations from Telegram happen within seconds,
+    and "free time" and "my week" read your live calendar. Jarvis only ever changes or deletes
+    events it made (`[jarvis]` in the description).
     The next tick creates the lists Errands, Groceries, Household, Work and Personal, pushes
     your open tasks, and from then on pulls changes from the Tasks app every 5 minutes.
 
 ## Tasks vs events
 
 - **Event:** a fixed time slot, such as a doctor's appointment, dinner, a class or a work shift.
-  Events go to Google Calendar. Work shifts go through the roster flow; other events through
+  Events go to Google Calendar instantly when the bridge (step 10) is linked, otherwise at the
+  next sync. With no time given ("find me an hour for a haircut"), Jarvis offers three slot
+  buttons, and one tap books it. Every booking has ↩️ Undo. Work shifts go through the roster flow; other events through
   `add_event`, which:
   - checks them against shifts, prep time, naps and planned sleep
   - adds reminders by type (medical: a day before and 2 h before; social and personal: 1 h)
