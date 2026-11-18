@@ -10,11 +10,13 @@
 // gets a polite refusal and nothing else.
 // ═════════════════════════════════════════════════════════════════════════
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { advanceDue, formatMoney, isConfidentQuickLog, localParts, parseQuickLog, safeTz, toAwgMinor, escapeHtml } from '../_shared/lifeLogic.ts';
+import { advanceDue, formatMoney, hhmm, isConfidentQuickLog, localParts, parseQuickLog, safeTz, toAwgMinor, escapeHtml } from '../_shared/lifeLogic.ts';
 import { converse, type Attachment, type Db } from './agent.ts';
 import { addTasks, completeTask, tomorrowSameTime } from './tasks.ts';
 import { answerCallback, downloadFile, sendMessage, settleButtons, typing } from './telegram.ts';
 import { tick } from './tick.ts';
+import { bookJob, liveEvents, undoJob } from './calendar.ts';
+import { bookedText, busyFromEvents, eventTitle, OFFER_TTL_MS, slotLabel } from '../_shared/scheduling.ts';
 
 type Row = Record<string, unknown>;
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
@@ -217,6 +219,54 @@ async function handleCallback(cb: Row) {
     }
     return answerCallback(String(cb.id));
   }
+  if (kind === 'sl') {
+    const tz = owner.tz;
+    if (verb === 'x') {
+      await db.from('life_jobs').update({ status: 'cancelled', result: 'no slot picked', done_at: new Date().toISOString() }).eq('user_id', uid).eq('id', id).eq('status', 'offered');
+      await settleButtons(chatId, messageId, '✖️ No slot picked');
+      return answerCallback(String(cb.id));
+    }
+    // Claim the offer: only one tap (or Telegram redelivery) gets past this.
+    const { data: claimed } = await db.from('life_jobs').update({ status: 'running' }).eq('user_id', uid).eq('id', id).eq('status', 'offered')
+      .gt('created_at', new Date(Date.now() - OFFER_TTL_MS).toISOString()).select('payload');
+    const p = ((claimed ?? [])[0]?.payload ?? null) as Row | null;
+    const slots = (p?.slots ?? []) as Array<{ start: string; end: string }>;
+    const slot = slots[Number(verb)];
+    if (!p || !slot) {
+      if (p) await db.from('life_jobs').update({ status: 'offered' }).eq('id', id);
+      return answerCallback(String(cb.id), 'Already booked or expired. Ask me again.');
+    }
+    await answerCallback(String(cb.id), 'Booking…');
+    const start = new Date(slot.start), end = new Date(slot.end), travel = Number(p.travel_buffer_min ?? 0), title = String(p.title ?? 'Event');
+    const label = slotLabel({ start, end }, tz);
+    const pad = travel * 60000;
+    const { events } = await liveEvents(db, uid, new Date(start.getTime() - 86400000), new Date(end.getTime() + 86400000));
+    const taken = busyFromEvents(events).some((b) => b.start.getTime() < end.getTime() + pad && b.end.getTime() > start.getTime() - pad);
+    if (taken) {
+      await db.from('life_jobs').update({ status: 'offered' }).eq('id', id);
+      await settleButtons(chatId, messageId, `${label} just filled`);
+      const rest = slots.map((s, i) => ({ s, i })).filter((x) => x.i !== Number(verb));
+      return sendMessage(chatId, `${label} just filled up.${rest.length ? ' Still open:' : ' Ask me for new times.'}`,
+        rest.length ? [rest.map((x) => ({ text: slotLabel({ start: new Date(x.s.start), end: new Date(x.s.end) }, tz), data: `sl:${id}:${x.i}` })), [{ text: '✖️ None', data: `sl:${id}:x` }]] : null);
+    }
+    const kindStr = String(p.kind ?? 'other'), reminders = (p.reminders_min ?? []) as number[];
+    const location = (p.location as string | null) ?? null;
+    const local = `${localParts(start, tz).date} ${hhmm(start, tz)}–${hhmm(end, tz)}`;
+    await db.from('life_jobs').update({
+      instruction: `Create calendar event "${title}" (${kindStr}) on ${local} ${tz}${location ? ` at ${location}, with ${travel}-min travel blocks before and after` : ''}.`,
+      payload: { ...p, start: start.toISOString(), end: end.toISOString(), local, all_day: false, clashes: [] },
+    }).eq('id', id);
+    const res = await bookJob(db, uid, id, { jobId: id, kind: kindStr, title, start, end, allDay: false, location, notes: (p.notes as string | null) ?? null, remindersMin: reminders, travelMinutes: travel });
+    if (!res.booked) return settleButtons(chatId, messageId, `📅 ${label} · queued (within 3 h)`);
+    await settleButtons(chatId, messageId, `📅 Booked ${label} · ${title}`);
+    return sendMessage(chatId, bookedText({ title: eventTitle(kindStr, title), start, end, allDay: false, location, travelMinutes: travel, remindersMin: reminders, clashes: [] }, tz),
+      [[{ text: '↩️ Undo', data: `ev:${id}:undo` }, { text: '↔ Make it a task', data: `sw:e:${id}` }]]);
+  }
+  if (kind === 'ev' && verb === 'undo') {
+    await answerCallback(String(cb.id), 'Undoing…');
+    const r = await undoJob(db, uid, id);
+    return settleButtons(chatId, messageId, r === 'removed' ? '↩️ Removed' : r === 'queued' ? '↩️ Removed at the next sync' : 'Already gone');
+  }
   if (kind === 'sw') {
     await answerCallback(String(cb.id), 'Switching…');
     const today = localParts(new Date(), owner.tz).date;
@@ -234,11 +284,13 @@ async function handleCallback(cb: Row) {
     if (!job) return settleButtons(chatId, messageId, 'Already gone');
     const p = (job.payload ?? {}) as Row;
     const title = String(p.title ?? 'Task'), due = String(p.local ?? '').slice(0, 10) || null;
-    if (job.status === 'pending') await db.from('life_jobs').update({ status: 'cancelled', result: 'switched to a task', done_at: new Date().toISOString() }).eq('id', job.id);
-    else await db.from('life_jobs').insert({ user_id: uid, kind: 'calendar', instruction: `Delete the Jarvis-created event "${title}" on ${p.local ?? '?'} (and its travel blocks): the owner made it a task instead.`, payload: { type: 'delete_event', title, start: p.start ?? null } });
+    let removedNow = job.status === 'pending';
+    if (Array.isArray(p.event_ids) && p.event_ids.length) removedNow = (await undoJob(db, uid, String(job.id))) !== 'queued';
+    else if (job.status === 'pending') await db.from('life_jobs').update({ status: 'cancelled', result: 'switched to a task', done_at: new Date().toISOString() }).eq('id', job.id);
+    else await db.from('life_jobs').insert({ user_id: uid, kind: 'calendar', instruction: `Delete the Jarvis-created event "${title}" on ${p.local ?? '?'} (and its travel blocks): the owner made it a task instead.`, payload: { type: 'delete_event', title, start: p.start ?? null, jid: job.id } });
     const rows = await addTasks(db, uid, owner.tz, [{ title, list: 'Personal', area: 'personal', due_on: due && /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : null, notes: (p.notes as string | null) ?? null }]);
     await settleButtons(chatId, messageId, '↔ Made it a task');
-    return sendMessage(chatId, `☑️ <b>${escapeHtml(title)}</b> is now a task in Personal${rows[0]?.due_on ? `, due ${rows[0].due_on}` : ''}${job.status === 'pending' ? '' : '. The calendar event is removed at the next sync'}.`,
+    return sendMessage(chatId, `☑️ <b>${escapeHtml(title)}</b> is now a task in Personal${rows[0]?.due_on ? `, due ${rows[0].due_on}` : ''}${removedNow ? '' : '. The calendar event is removed at the next sync'}.`,
       [[{ text: '↔ Back to an event', data: `sw:t:${rows[0]?.id}` }]]);
   }
   if (kind === 'tx' && verb === 'undo') {
