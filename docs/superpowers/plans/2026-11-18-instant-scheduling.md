@@ -139,11 +139,11 @@
     - Throw `'not a jarvis event'` unless the description contains `[jarvis]`.
     - Update applies `setTime`, `setTitle`, `setLocation`, `setDescription` and the reminders when given.
   - Rename the header comment and `doGet` service to `jarvis-google`. Update the setup comment to add Calendar, which `CalendarApp` uses with no Advanced Service needed.
-- [ ] **Step 2: Add `selfTest_()`.** It creates `[jarvis] selftest` yesterday 10:00–10:15, updates it to 10:15–10:30, checks `calEvents` finds it, deletes it, and `Logger.log('selftest ok')`. Also check that `calDelete` on an event without `[jarvis]` throws: create a plain one, try, then delete it directly with `ev.deleteEvent()`.
+- [ ] **Step 2: Add `selfTest()`.** It creates `[jarvis] selftest` yesterday 10:00–10:15, updates it to 10:15–10:30, checks `calEvents` finds it, deletes it, and `Logger.log('selftest ok')`. Also check that `calDelete` on an event without `[jarvis]` throws: create a plain one, try, then delete it directly with `ev.deleteEvent()`.
 - [ ] **Step 3: Check the syntax.** Run `node --check` on a copy: `cp life/google-tasks-bridge.gs "$SCRATCH/bridge.js" && node --check "$SCRATCH/bridge.js"`. Expected: no output.
 - [ ] **Step 4: Update `docs/LIFE_ASSISTANT.md` step 10.**
   - Retitle it "Google Tasks and Calendar".
-  - Add a sub-step: "Run `selfTest_` once from the editor (▶) and check the log says `selftest ok`."
+  - Add a sub-step: "Run `selfTest` once from the editor (▶) and check the log says `selftest ok`."
   - Note that the deploy approval now covers Calendar.
   - Note that an existing deployment needs **Manage deployments → edit → New version**, which keeps the same URL.
   - In "Tasks vs events", replace "within 3 hours" wording with "instantly when the bridge is linked, otherwise at the next sync".
@@ -251,7 +251,7 @@
 ### Task 8: Ship and verify live
 
 - [ ] **Step 1: Push.** Open a PR to `main` and get the owner's OK to merge. The merge runs `deploy.yml`, which applies migration 0034 and deploys life-bot. Check the Deploy run is green.
-- [ ] **Step 2: The owner does the setup** (docs step 10): paste the script, enable the Tasks service, set the script property, deploy as a web app, approve, set the `GTASKS_URL`/`GTASKS_SECRET` Supabase secrets, and run `selfTest_` → `selftest ok`. Secrets are entered only in the dashboard.
+- [ ] **Step 2: The owner does the setup** (docs step 10): paste the script, enable the Tasks service, set the script property, deploy as a web app, approve, set the `GTASKS_URL`/`GTASKS_SECRET` Supabase secrets, and run `selfTest` → `selftest ok`. Secrets are entered only in the dashboard.
 - [ ] **Step 3: Verify the bridge from life-bot.** Send "what's my week" in Telegram: the reply note says live. In SQL, `select max(synced_at) from life_calendar_cache` must be within the last minute.
 - [ ] **Step 4: Booking test.**
   1. Send "Test appointment tomorrow 10:00 at Oranjestad, medical". Expected: `📅 Booked` within about 5 s.

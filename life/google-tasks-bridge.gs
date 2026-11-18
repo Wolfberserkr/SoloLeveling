@@ -8,7 +8,7 @@
  *      value you save as the GTASKS_SECRET Supabase secret>.
  *   4. Deploy → New deployment → Web app · Execute as: Me · Who has access: Anyone
  *      → Authorize → copy the Web app URL into the GTASKS_URL Supabase secret.
- *   5. Run selfTest_ once from the editor (▶). The log should say "selftest ok".
+ *   5. Run selfTest once from the editor (▶). The log should say "selftest ok".
  * Updating an existing deployment: Deploy → Manage deployments → edit (✏️) →
  * Version: New version → Deploy. The URL stays the same.
  *
@@ -128,7 +128,7 @@ function setReminders_(ev, mins) {
 }
 
 /** Run once from the editor after deploying. Leaves nothing on the calendar. */
-function selfTest_() {
+function selfTest() {
   var y = new Date(Date.now() - 86400000); y.setHours(10, 0, 0, 0);
   var at = function (min) { return new Date(y.getTime() + min * 60000).toISOString(); };
   var made = run_({ op: 'calCreate', event: { title: 'Jarvis selftest', start: at(0), end: at(15), allDay: false, description: '[jarvis] selftest', remindersMin: [10] } });
