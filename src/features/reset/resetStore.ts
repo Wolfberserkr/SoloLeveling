@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import { todayInTz } from '@/lib/dates';
-import { dayById, exerciseById, pickIdFor, weekPrescription, type Exercise } from './resetData';
+import {
+  LOAD_RULES, MAX_WEEK, clampWeek, cleanDeloadWeeks, dayById, exerciseById, pickIdFor,
+  weekPhase, weekPrescription, type Exercise, type WeekPhase,
+} from './resetData';
 import type { TrainedEntry } from '@/lib/sessionPick';
 import {
   defaultState, loadCache, saveCache, flushQueue, fetchAll,
@@ -15,6 +18,9 @@ type ResetStore = {
   s: ResetState;
   init: (uid: string) => Promise<void>;
   bumpWeek: (n: number) => void;
+  /** Switch the current week to a deload (or back). No-op on a scheduled
+   *  deload week — that one is not optional. */
+  toggleDeload: () => void;
   toggleSet: (dayId: string, slotId: string, i: number) => void;
   logVal: (dayId: string, slotId: string, k: 'reps' | 'weight', v: string) => void;
   finishSession: (dayId: string) => { done: number; total: number; dayName: string; exercisesCompleted: number };
@@ -71,6 +77,20 @@ function ensureDay(s: ResetState, dayId: string): ResetState['progress'] {
   return next;
 }
 
+/** Save a change of week or deload. The phase sets the set count (ramp-in,
+ *  deload), so every day in progress is re-sized first, keeping the ticks
+ *  that still fit, exactly like a swap does. Shared by bumpWeek and
+ *  toggleDeload so the two can never resize differently. */
+function commitPhaseChange(
+  uid: string, s: ResetState, set: (p: { s: ResetState }) => void,
+): void {
+  const next = { ...s };
+  Object.keys(next.progress).forEach((dayId) => { next.progress = ensureDay(next, dayId); });
+  saveCache(uid, next);
+  void upsertAppState(uid, next);
+  set({ s: next });
+}
+
 /** Blank per-set arrays for a day, sized like ensureDay. */
 function clearedDay(s: ResetState, dayId: string): Record<string, boolean[]> {
   const out: Record<string, boolean[]> = {};
@@ -97,7 +117,10 @@ export const useResetStore = create<ResetStore>((set, get) => ({
     const cur = get().s;
     const next: ResetState = { ...cur };
     if (cloud.appState) {
-      next.week = cloud.appState.week ?? cur.week;
+      next.week = clampWeek(cloud.appState.week ?? cur.week);
+      // Same rule as the week: the cloud row wins. Null means the column is
+      // missing (old schema), so the local list stands.
+      next.deloadWeeks = cloud.appState.deloadWeeks ?? cleanDeloadWeeks(cur.deloadWeeks);
       next.progress = cloud.appState.progress ?? cur.progress;
       // The cloud row's last write dates its progress (the row is rewritten
       // on every tick, and the rollover itself rewrites it each new day).
@@ -122,14 +145,23 @@ export const useResetStore = create<ResetStore>((set, get) => ({
   bumpWeek: (n) => {
     const { uid, s } = get();
     if (!uid) return;
-    const week = Math.min(12, Math.max(1, s.week + n));
-    const next = { ...s, week };
-    // The week sets the set count (deload, ramp-in), so re-size any day in
-    // progress now — keeping the ticks that still fit, like a swap does.
-    Object.keys(next.progress).forEach((dayId) => { next.progress = ensureDay(next, dayId); });
-    saveCache(uid, next);
-    void upsertAppState(uid, next);
-    set({ s: next });
+    // No 12-week ceiling any more: the blocks repeat, so the counter keeps
+    // counting (the database row checks the same 1..99 range).
+    const week = Math.min(MAX_WEEK, Math.max(1, clampWeek(s.week) + n));
+    if (week === s.week) return;
+    commitPhaseChange(uid, { ...s, week }, set);
+  },
+
+  toggleDeload: () => {
+    const { uid, s } = get();
+    if (!uid) return;
+    const phase = phaseOf(s);
+    if (phase.scheduled) return;
+    const weeks = cleanDeloadWeeks(s.deloadWeeks);
+    const deloadWeeks = phase.manual
+      ? weeks.filter((w) => w !== phase.week)
+      : cleanDeloadWeeks([...weeks, phase.week]);
+    commitPhaseChange(uid, { ...s, deloadWeeks }, set);
   },
 
   toggleSet: (dayId, slotId, i) => {
@@ -397,13 +429,21 @@ export function buildRetroSession(dayId: string, dateISO: string, exercises: Ses
 }
 
 // ── Pure selectors (take the state slice) ────────────────────────────────────
+/** Where the current program week sits in the block cycle. Every consumer
+ *  of the week (boxes, card notes, estimates, logged sessions, swap menu)
+ *  reads it through here, so they all see the same phase. */
+export function phaseOf(s: ResetState): WeekPhase {
+  return weekPhase(s.week ?? 2, s.deloadWeeks);
+}
+
 /** The exercise she performs in a slot today: the swapped-in alternative
- *  when there is one, with the program week applied (week-1 half sets, the
- *  week-5 deload, density rests, peak intervals — see weekPrescription). The
- *  boxes, the rings and the logged session all size from this, so a deload
- *  week automatically asks for 2 sets everywhere. */
+ *  when there is one, with the phase applied (ramp-in half sets, the deload,
+ *  density rests, peak intervals — see weekPrescription). The boxes, the
+ *  rings and the logged session all size from this, so a deload week
+ *  automatically asks for half the sets everywhere, and a mobility day
+ *  automatically doesn't. */
 export function resolvedExercise(s: ResetState, dayId: string, exId: string): Exercise {
-  return weekPrescription(slotExercise(s, dayId, exId), s.week ?? 2);
+  return weekPrescription(slotExercise(s, dayId, exId), phaseOf(s), dayById(dayId)?.kind);
 }
 
 function slotExercise(s: ResetState, dayId: string, exId: string): Exercise {
@@ -486,6 +526,35 @@ export function relDate(iso: string): string {
 
 export function effectiveVideo(s: ResetState, e: Exercise): string {
   return (s.videos[e.id] || e.video || '').trim();
+}
+
+/** Her best weight for an exercise over the last LOAD_RULES.windowDays —
+ *  the base the deload aim and the new-block start are worked out from.
+ *  Reads the cloud log rows only: they are the one record that carries both
+ *  the exercise id she actually did (so after a swap it is the alternative's
+ *  own history) and a date. The local draft log is keyed by slot and undated,
+ *  so it cannot say which exercise or how recent. The max, so the light
+ *  deload weights never pull the next block's start down.
+ *
+ *  Today is left out on purpose: after a reload mid-session the weight she
+ *  just typed would otherwise move the target on the card she is reading
+ *  (start at 42.5, log 42.5, card now says 45). Null when nothing is in
+ *  the window. */
+export function recentBest(s: ResetState, exId: string, now: Date = new Date()): number | null {
+  const today = localDate(now);
+  const from = localDate(new Date(+now - LOAD_RULES.windowDays * 86400000));
+  let best: number | null = null;
+  for (const r of s.cloudLogs || []) {
+    if (r.exercise_id !== exId) continue;
+    const kg = Number(r.weight);
+    if (!Number.isFinite(kg) || kg <= 0) continue;
+    const t = new Date(r.logged_at);
+    if (isNaN(+t)) continue;
+    const day = localDate(t);
+    if (day < from || day >= today) continue;
+    if (best == null || kg > best) best = kg;
+  }
+  return best;
 }
 
 export type PR = { weight: number; reps: string; date: string | null };

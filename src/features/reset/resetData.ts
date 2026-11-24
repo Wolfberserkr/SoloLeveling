@@ -23,7 +23,11 @@
 //   • Every session fits inside an hour — and that is enforced by code, not
 //     by a comment: see estimateMinutes() below. Every Day.estMin is computed
 //     from the day's own exercise data, and tests/resetPlan.test.ts asserts
-//     the function's output (at week 2 AND at week 8) never exceeds 60.
+//     the function's output never exceeds 60 in any phase of the block.
+//   • The program runs in repeating 6-week blocks (see weekPhase): base, two
+//     load weeks, density, peak, then a deload. A deload can also be taken
+//     early by hand, which starts the next block a week sooner. The week
+//     counter keeps counting block after block.
 
 import type { PickOption, Region } from '@/lib/sessionPick';
 
@@ -49,8 +53,13 @@ export type Exercise = {
   /** Set 1 is a light ramp set, not a working set. Counted in `sets` so the
    *  checkboxes match reality, and labelled "Ramp" in the day view. */
   ramp?: boolean;
-  /** Timed conditioning block — the week 7–8 progression retunes these. */
+  /** Timed conditioning block — the peak week retunes these; a deload leaves
+   *  them exactly as written. */
   conditioning?: boolean;
+  /** No external load to aim at, so the load guidance never prints a kg
+   *  target for it, only effort advice. (Assisted machines are detected by
+   *  name instead — see isAssisted — since their advice is about the assist.) */
+  bodyweight?: boolean;
   /** Only ever set on the stubs exerciseById() synthesises for RETIRED ids. */
   retired?: boolean;
 };
@@ -73,9 +82,10 @@ export type Day = {
 // ── SESSION TIME MODEL ───────────────────────────────────────────────────────
 // The one-hour cap is a hard constraint, so it is executable: estimateMinutes()
 // costs a day out of its own data, PLAN derives every estMin from it, and the
-// test suite asserts the result stays under 60 both at week 2 (full volume,
-// 60-sec rests) and at week 8 (density rests + the longer interval block).
-// Change the plan and the number moves with it; add sets and the test fails.
+// test suite asserts the result stays under 60 in every phase of the block:
+// full volume with 60-sec rests, density rests, and the peak week's longer
+// interval block. Change the plan and the number moves with it; add sets and
+// the test fails.
 //
 // The model is deliberately pessimistic — this is a real gym floor:
 //   • work set   = reps × tempo, where a "12 / side" prescription is 24 reps.
@@ -120,11 +130,9 @@ export const TIME_MODEL = {
   defaultRest: 60,
   /** Unrack, walk out, re-rack — a barbell set is not a leg-extension set. */
   barbellHandlingSec: 15,
-  /** Weeks 6+ pull superset rests down to this (see WEEK_TIPS). */
+  /** Density and peak weeks pull superset rests down to this (see WEEK_TIPS). */
   densityRestSec: 45,
-  /** Week 5 deload: at most this many sets per exercise (see WEEK_TIPS). */
-  deloadSets: 2,
-  /** Weeks 7–8 intervals: more rounds bought with shorter recoveries. */
+  /** Peak-week intervals: more rounds bought with shorter recoveries. */
   peakIntervalRounds: 6,
   peakIntervalWorkSec: 40,
   peakIntervalRestSec: 30,
@@ -153,31 +161,126 @@ export function setSeconds(ex: Exercise): number {
   return reps + (ex.rack ? TIME_MODEL.barbellHandlingSec : 0);
 }
 
-export type EstimateOpts = {
-  /** Program week — 1 is the half-volume ramp-in, 6+ runs density rests,
-   *  7+ runs the longer interval block. Defaults to 2 (full volume). */
-  week?: number;
+// ── PROGRAM CALENDAR ─────────────────────────────────────────────────────────
+// The program runs in 6-week blocks that repeat for as long as she trains:
+//   wk 1 base     — full sets (block 1 only: the half-set ramp-in); from
+//                   block 2 on, each loaded card shows a heavier start weight
+//   wk 2–3 load   — add load
+//   wk 4 density  — superset rests drop to 45 sec
+//   wk 5 peak     — density + the 6 × 40 sec interval block
+//   wk 6 deload   — half the sets, about 65% weight, same reps
+// She can also switch any week to a deload by hand (`deloadWeeks`). That ends
+// the block early, and the next block — and so its scheduled deload — counts
+// from the week after it. The week itself still only moves on − / +.
+export const BLOCK_WEEKS = 6;
+/** The program week runs 1..MAX_WEEK (the database checks the same range). */
+export const MAX_WEEK = 99;
+
+export type PhaseKind = 'base' | 'load' | 'density' | 'peak' | 'deload';
+export type WeekPhase = {
+  week: number;
+  /** 1-based block number. */
+  block: number;
+  /** Week within the block, 1..BLOCK_WEEKS. */
+  blockWeek: number;
+  kind: PhaseKind;
+  /** Block 1, week 1: the half-set week for learning the machines. */
+  rampIn: boolean;
+  /** A deload only because she switched it on (never true on a block's 6th week). */
+  manual: boolean;
+  /** The block's own 6th-week deload — on whatever she does, so the switch is locked. */
+  scheduled: boolean;
 };
 
-/** One exercise as it is actually performed in a given program week — the
- *  prescription the day view shows, the boxes she ticks and the session that
- *  gets logged, and the numbers the time model costs. One rule set, so the
- *  plan she sees can never disagree with the WEEK_TIPS or the hour cap:
- *    • week 1  ramp-in — half the sets (rounded up), same reps
- *    • week 5  deload  — at most 2 sets, same reps, same loads
- *    • week 6+ density — superset rests drop to 45 sec
- *    • week 7+ peak    — intervals run 6 × 40 sec hard / 30 sec easy
- *  Reps never change for the strength work: the deload cuts volume, not
- *  the rep target. Retired stubs (no prescription) pass through untouched. */
-export function weekPrescription(ex: Exercise, week: number): Exercise {
+/** Clamp a program week into 1..MAX_WEEK. The cache and the cloud row are
+ *  both outside the type system, so anything non-numeric falls back to 1. */
+export function clampWeek(week: unknown): number {
+  const n = Math.floor(Number(week));
+  return Number.isFinite(n) ? Math.min(MAX_WEEK, Math.max(1, n)) : 1;
+}
+
+/** The manual-deload list, cleaned: a sorted, de-duplicated array of whole
+ *  weeks in 1..MAX_WEEK. A stale cache or an odd cloud row can hand us
+ *  anything — a non-array is no deloads, and junk entries are dropped rather
+ *  than allowed to shift the block calendar. */
+export function cleanDeloadWeeks(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  const weeks = raw.filter((w): w is number => Number.isInteger(w) && w >= 1 && w <= MAX_WEEK);
+  return [...new Set(weeks)].sort((a, b) => a - b);
+}
+
+/** Where a program week sits in the block cycle. Walks the weeks before it:
+ *  a block ends on its 6th week or on a week she switched to a deload, and
+ *  the next block starts the week after. A manual deload on a block's 6th
+ *  week changes nothing — that week was a deload already. */
+export function weekPhase(week: number, deloadWeeks: readonly number[] = []): WeekPhase {
+  const w = clampWeek(week);
+  const manualWeeks = new Set(cleanDeloadWeeks(deloadWeeks));
+  let block = 1;
+  let blockStart = 1;
+  for (let past = 1; past < w; past++) {
+    const bw = past - blockStart + 1;
+    if (bw === BLOCK_WEEKS || manualWeeks.has(past)) {
+      block++;
+      blockStart = past + 1;
+    }
+  }
+  const blockWeek = w - blockStart + 1;
+  const scheduled = blockWeek === BLOCK_WEEKS;
+  const manual = !scheduled && manualWeeks.has(w);
+  const kind: PhaseKind = scheduled || manual ? 'deload'
+    : blockWeek === 1 ? 'base'
+    : blockWeek <= 3 ? 'load'
+    : blockWeek === 4 ? 'density'
+    : 'peak';
+  return { week: w, block, blockWeek, kind, rampIn: block === 1 && blockWeek === 1, manual, scheduled };
+}
+
+const PHASE_NAME: Record<PhaseKind, string> = {
+  base: 'Base', load: 'Add load', density: 'Density', peak: 'Peak', deload: 'Deload week',
+};
+
+/** The one-line "where am I" under the week number on the plan tab, e.g.
+ *  "Block 2 · Deload week" or "Block 3 · Week 1 of 6 · Base". */
+export function phaseLabel(p: WeekPhase): string {
+  if (p.kind === 'deload') return `Block ${p.block} · Deload week`;
+  const name = p.rampIn ? 'Ramp-in' : PHASE_NAME[p.kind];
+  return `Block ${p.block} · Week ${p.blockWeek} of ${BLOCK_WEEKS} · ${name}`;
+}
+
+export type EstimateOpts = {
+  /** Where the week sits in the block. Defaults to block 1, week 2: full
+   *  volume, as-written rests — the baseline every Day.estMin is quoted at. */
+  phase?: WeekPhase;
+};
+
+/** One exercise as it is actually performed in a given phase of the block —
+ *  the prescription the day view shows, the boxes she ticks and the session
+ *  that gets logged, and the numbers the time model costs. One rule set, so
+ *  the plan she sees can never disagree with the WEEK_TIPS or the hour cap:
+ *    • ramp-in (block 1, week 1) — half the sets (rounded up), same reps
+ *    • density + peak — superset rests drop to 45 sec
+ *    • peak    — intervals run 6 × 40 sec hard / 30 sec easy
+ *    • deload  — half the sets (rounded up, min 1), same reps, rests and
+ *                intervals as written. A ramp exercise keeps its ramp set as
+ *                set 1, so the squat becomes ramp + one working set.
+ *  Mobility days never change for the deload: they are recovery work
+ *  already. That is why the day kind is a required argument — the store, the
+ *  day view and the time model all pass it, so none of them can forget it
+ *  and disagree with the others. Reps never change for the strength work:
+ *  the deload cuts volume and load, not the rep target. Retired stubs (no
+ *  prescription) pass through untouched. */
+export function weekPrescription(ex: Exercise, phase: WeekPhase, dayKind: DayKind | undefined): Exercise {
   if (ex.retired) return ex;
   const T = TIME_MODEL;
   let { sets, reps } = ex;
   let rest = ex.rest ?? T.defaultRest;
-  if (week <= 1) sets = Math.max(1, Math.ceil(sets / 2));
-  if (week === 5) sets = Math.min(sets, T.deloadSets);
-  if (week >= 6 && ex.pair) rest = Math.min(rest, T.densityRestSec);
-  if (week >= 7 && ex.conditioning) {
+  // A deload taken in the ramp-in week halves once, not twice: both rules
+  // mean "half the sets", and a quarter of a session is not a deload.
+  const deloadCut = phase.kind === 'deload' && dayKind !== 'mobility' && !ex.conditioning;
+  if (phase.rampIn || deloadCut) sets = halfSets(sets);
+  if ((phase.kind === 'density' || phase.kind === 'peak') && ex.pair) rest = Math.min(rest, T.densityRestSec);
+  if (phase.kind === 'peak' && ex.conditioning) {
     sets = T.peakIntervalRounds;
     reps = `${T.peakIntervalWorkSec} sec`;
     rest = T.peakIntervalRestSec;
@@ -186,31 +289,120 @@ export function weekPrescription(ex: Exercise, week: number): Exercise {
   return { ...ex, sets, reps, rest };
 }
 
-/** A one-line note on what this program week changed for an exercise, or
- *  null when it runs as written. Shown on the exercise card. */
-export function weekNote(ex: Exercise, week: number): string | null {
-  const w = weekPrescription(ex, week);
+function halfSets(sets: number): number {
+  return Math.max(1, Math.ceil(sets / 2));
+}
+
+// ── LOAD GUIDANCE ────────────────────────────────────────────────────────────
+// The deload and the heavier start of a new block are both about the weight on
+// the pin, so the card turns her own logs into a number. The base is her best
+// recent weight for that exercise (see recentBest in resetStore.ts): the max,
+// so the light deload weeks never drag the next block's start down.
+export const LOAD_RULES = {
+  /** Deload weeks aim for about this share of the recent best (RPE 5–6). */
+  deloadPct: 0.65,
+  /** Week 1 of block 2+ starts about this far over the recent best... */
+  newBlockPct: 1.05,
+  /** ...and always at least one step up. Targets round to this step too. */
+  stepKg: 2.5,
+  /** How far back "recent best" looks. */
+  windowDays: 56,
+} as const;
+
+/** An assisted machine: the kg she logs is the help, so lower is harder and
+ *  a percentage of it points the wrong way. */
+export function isAssisted(ex: Exercise): boolean {
+  return /assisted/i.test(ex.id) || /assisted/i.test(ex.name);
+}
+
+/** Whether an exercise takes a kg target: not intervals, not holds or other
+ *  timed work, not bodyweight or assisted moves. */
+export function takesLoadTarget(ex: Exercise): boolean {
+  return !ex.retired && !ex.conditioning && !ex.bodyweight && !isAssisted(ex) && !isTimedReps(ex.reps);
+}
+
+const roundToStep = (kg: number) => Math.round(kg / LOAD_RULES.stepKg) * LOAD_RULES.stepKg;
+
+/** Weights read like the ones she types: 42.5, never 42.50. */
+export function formatKg(kg: number): string {
+  return String(Number(kg.toFixed(2)));
+}
+
+/** The deload weight to aim for: ~65% of the recent best on the 2.5 kg grid,
+ *  never below one 2.5 kg step (65% of a very light weight rounds to 0).
+ *  Null when there is no base to work from. */
+export function deloadTargetKg(recentBestKg: number | null): number | null {
+  if (recentBestKg == null || !(recentBestKg > 0)) return null;
+  return Math.max(LOAD_RULES.stepKg, roundToStep(recentBestKg * LOAD_RULES.deloadPct));
+}
+
+/** The new block's start weight: ~5% over the recent best on the 2.5 kg grid,
+ *  and never less than one 2.5 kg step over it (5% of a light machine rounds
+ *  away to nothing, and "start heavier" has to mean heavier). */
+export function newBlockStartKg(recentBestKg: number | null): number | null {
+  if (recentBestKg == null || !(recentBestKg > 0)) return null;
+  return Math.max(
+    roundToStep(recentBestKg * LOAD_RULES.newBlockPct),
+    roundToStep(recentBestKg) + LOAD_RULES.stepKg,
+  );
+}
+
+/** A one-line note on what this phase changed for an exercise, or null when
+ *  it runs as written. Shown on the exercise card. `ex` is the exercise as
+ *  written; `recentBestKg` is her recent best for it (null when none logged),
+ *  which turns the deload and the new-block start into a real number.
+ *
+ *  Load text by kind of move: a loaded machine gets a kg number from her
+ *  logs (or plain effort advice with none); bodyweight moves get the same
+ *  plain advice; assisted machines get it in assistance terms, because there
+ *  lower is harder; timed holds and intervals get no load text at all. */
+export function weekNote(
+  ex: Exercise, phase: WeekPhase, dayKind: DayKind | undefined, recentBestKg: number | null = null,
+): string | null {
+  if (ex.retired) return null;
+  const w = weekPrescription(ex, phase, dayKind);
+  const mobility = dayKind === 'mobility';
+  const timed = ex.conditioning || isTimedReps(ex.reps);
+  const assisted = isAssisted(ex);
+
+  if (phase.kind === 'deload' && !mobility && !ex.conditioning) {
+    const sets = w.sets !== ex.sets ? `${w.sets} of ${ex.sets} sets` : null;
+    let load: string | null;
+    if (timed) load = null;
+    else if (assisted) load = 'use a bit more assistance';
+    else {
+      const aim = takesLoadTarget(ex) ? deloadTargetKg(recentBestKg) : null;
+      load = aim != null
+        ? `~65% weight, aim ${formatKg(aim)} kg (recent best ${formatKg(recentBestKg!)} kg)`
+        : 'easy effort, RPE 5–6, 4+ reps in the tank';
+    }
+    const parts = [sets, load].filter(Boolean);
+    return parts.length ? `Deload: ${parts.join(' · ')}` : null;
+  }
+
+  if (phase.kind === 'base' && phase.block >= 2 && !mobility && !timed) {
+    if (assisted) return 'New block: take a little less assistance than last block';
+    const start = takesLoadTarget(ex) ? newBlockStartKg(recentBestKg) : null;
+    return start != null
+      ? `New block: start at ${formatKg(start)} kg (recent best ${formatKg(recentBestKg!)} kg)`
+      : 'New block: go a little heavier than last block';
+  }
+
   if (w === ex) return null;
-  if (week >= 7 && ex.conditioning) {
-    return `Weeks 7–8: ${w.sets} rounds of ${TIME_MODEL.peakIntervalWorkSec} sec hard / ${w.rest} sec easy`;
+  if (phase.kind === 'peak' && ex.conditioning) {
+    return `Peak week: ${w.sets} rounds of ${TIME_MODEL.peakIntervalWorkSec} sec hard / ${w.rest} sec easy`;
   }
   const parts: string[] = [];
-  if (w.sets !== ex.sets) {
-    const why = week === 5 ? 'Deload week — same weight, same reps' : 'Week 1 ramp-in — learn the machine';
-    parts.push(`${why}: ${w.sets} of ${ex.sets} sets`);
-  }
+  if (w.sets !== ex.sets) parts.push(`Week 1 ramp-in: ${w.sets} of ${ex.sets} sets while you learn the machine`);
   if (w.rest !== (ex.rest ?? TIME_MODEL.defaultRest)) parts.push(`Density: rest ${w.rest} sec after the pair`);
   return parts.join(' · ') || null;
 }
 
-function weekView(ex: Exercise, week: number): { sets: number; work: number; rest: number } {
-  const w = weekPrescription(ex, week);
-  const conditioningPeak = week >= 7 && ex.conditioning;
-  return {
-    sets: w.sets,
-    work: conditioningPeak ? TIME_MODEL.peakIntervalWorkSec : setSeconds(ex),
-    rest: w.rest ?? TIME_MODEL.defaultRest,
-  };
+function weekView(ex: Exercise, phase: WeekPhase, dayKind: DayKind | undefined): { sets: number; work: number; rest: number } {
+  const w = weekPrescription(ex, phase, dayKind);
+  // setSeconds of the prescription, not the plan row: the peak week's
+  // intervals run for their own (shorter) work time.
+  return { sets: w.sets, work: setSeconds(w), rest: w.rest ?? TIME_MODEL.defaultRest };
 }
 
 /** Split a day into blocks: consecutive exercises sharing a `pair` key run as
@@ -228,12 +420,12 @@ function blocksOf(day: Day): Exercise[][] {
 /** Door-to-door session length in seconds, costed from the day's own data. */
 export function estimateSeconds(day: Day, opts: EstimateOpts = {}): number {
   if (day.kind === 'rest' || day.ex.length === 0) return 0;
-  const week = opts.week ?? 2;
+  const phase = opts.phase ?? weekPhase(2);
   const T = TIME_MODEL;
   let total = (day.kind === 'mobility' ? T.lymphSec : T.warmupSec) + T.cooldownSec + T.contingencySec;
 
   for (const block of blocksOf(day)) {
-    const views = block.map((ex) => weekView(ex, week));
+    const views = block.map((ex) => weekView(ex, phase, day.kind));
     const rounds = Math.max(...views.map((v) => v.sets));
     // The pair rests as long as its most demanding member asks for — taking
     // the minimum would silently under-count a 45/90 pairing.
@@ -303,7 +495,7 @@ export const MOBILITY_COOLDOWN = [
 // rep logs (the log map is keyed by exercise id across the whole program).
 // Short setup/rest values: these moves flow one into the next on a mat.
 function shadowJumpDay(sfx: string): Exercise[] {
-  return [
+  const moves: Exercise[] = [
     { id: `jump-rope-${sfx}`,  name: 'Shadow Jump Rope',         sets: 5, reps: '45 sec',         load: 'No rope · light bounce · rest 20 sec between rounds', video: 'https://youtu.be/Fdw--dqQAzA', rest: 20, setup: 20 },
     { id: `ankle-circ-${sfx}`, name: 'Ankle Circles',            sets: 2, reps: '20 / side',      load: 'Slow, controlled circles both directions',           video: 'https://youtu.be/om1IAdzpKsg', tempo: 1,   rest: 20, setup: 20 },
     { id: `hip-circ-${sfx}`,   name: 'Hip Circles',              sets: 2, reps: '20 / direction', load: 'Hands on hips · big smooth circles',                 video: 'https://youtu.be/JYqLwajOGjI', tempo: 1,   rest: 20, setup: 20 },
@@ -313,6 +505,8 @@ function shadowJumpDay(sfx: string): Exercise[] {
     { id: `hip-9090-${sfx}`,   name: '90/90 Hip Switches',       sets: 2, reps: '10 total',       load: 'Tall chest · rotate the hips slowly',                video: 'https://youtu.be/wnFTIPhNySI', tempo: 3,   rest: 20, setup: 20 },
     { id: `squat-hold-${sfx}`, name: 'Deep Squat Hold',          sets: 2, reps: '45 sec',         load: 'Sink low · pry the knees out',                       video: 'https://youtu.be/0wzrgyAurT8', rest: 20, setup: 20 },
   ];
+  // All bodyweight: nothing here ever takes a kg target.
+  return moves.map((m) => ({ ...m, bodyweight: true }));
 }
 
 // Rest-day tips (legacy rest-sun id). Optional light recovery — nothing to log.
@@ -345,7 +539,7 @@ const PLAN_SPEC: Day[] = [
     { id: 'leg-curl-seated', name: 'Seated Leg Curl',    sets: 3, reps: '12–15 reps', tempo: 3.5, rest: 60, pair: 'A', load: 'SUPERSET A1 · knee joint on the machine pivot · 2-sec lower, no swinging',                                  video: 'https://youtu.be/Wy1SwoY2aaQ' },
     { id: 'leg-extension',   name: 'Leg Extension',      sets: 3, reps: '12–15 reps', tempo: 3,   rest: 60, pair: 'A', load: 'SUPERSET A2 · 1-sec squeeze at the top · rest 45–60 sec after the pair, then straight back to A1',          video: 'https://youtu.be/3zWKiW9BBpo' },
     { id: 'glute-drive',     name: 'Hip Thrust Machine', sets: 3, reps: '12–15 reps', tempo: 3.5, rest: 60, pair: 'B', load: 'SUPERSET B1 · pad low on the hips · drive through the heels, 1-sec squeeze at lockout',                     video: 'https://youtu.be/tztHvSLdXLA' },
-    { id: 'dead-bug',        name: 'Dead Bug',           sets: 3, reps: '8 / side',   tempo: 3,   rest: 60, pair: 'B', load: 'SUPERSET B2 · anti-extension core — lower back glued to the mat, exhale as the leg lowers · this is the back insurance', video: 'https://youtu.be/bxn9FBrt4-A' },
+    { id: 'dead-bug',        name: 'Dead Bug',           sets: 3, reps: '8 / side',   tempo: 3,   rest: 60, pair: 'B', bodyweight: true, load: 'SUPERSET B2 · anti-extension core — lower back glued to the mat, exhale as the leg lowers · this is the back insurance', video: 'https://youtu.be/bxn9FBrt4-A' },
     { id: 'back-squat-mon',  name: 'Barbell Back Squat', sets: 4, reps: '6–8 reps',   tempo: 4,   rest: 90, rack: true, ramp: true, load: 'FINISHER · set 1 is a ramp at ~50% · then 3 working sets at RPE 7 — leave 3 reps in the tank · brace before every rep · rest 90 sec', video: 'https://youtu.be/f-KL4VNN96E' },
   ]},
   { id: 'upper-a', name: 'Upper A', focus: 'Push, shoulders & intervals', kind: 'strength', region: 'upper', ex: [
@@ -362,7 +556,7 @@ const PLAN_SPEC: Day[] = [
     { id: 'smith-rdl',      name: 'Smith Machine RDL',     sets: 3, reps: '10–12 reps', tempo: 4,   rest: 90, load: 'STRAIGHT SETS, full 90-sec rest — the one hinge in the week is never rushed · bar grazing the legs, hips back, flat back · stop at mid-shin', video: 'https://youtu.be/nmGzbW15qYo' },
     { id: 'hip-adduction',  name: 'Hip Adduction Machine', sets: 3, reps: '12–15 reps', tempo: 3,   rest: 60, pair: 'A', load: 'SUPERSET A1 · controlled squeeze, never bounce out of the stretch',                                          video: 'https://youtu.be/CjAVezAggkI' },
     { id: 'hip-abduction',  name: 'Hip Abduction Machine', sets: 3, reps: '12–15 reps', tempo: 3,   rest: 60, pair: 'A', load: 'SUPERSET A2 · same seat, opposite job · lean the torso slightly forward · rest 45–60 sec after the pair',    video: 'https://youtu.be/OjI5OpV6IWA' },
-    { id: 'bird-dog',       name: 'Bird Dog',              sets: 3, reps: '8 / side',   tempo: 3,   rest: 45, load: 'Anti-extension core · pause each rep, hips level, no rotation · rest 45 sec',                                           video: 'https://youtu.be/ZdAHe9_HeEw' },
+    { id: 'bird-dog',       name: 'Bird Dog',              sets: 3, reps: '8 / side',   tempo: 3,   rest: 45, bodyweight: true, load: 'Anti-extension core · pause each rep, hips level, no rotation · rest 45 sec',                                           video: 'https://youtu.be/ZdAHe9_HeEw' },
     { id: 'back-squat-thu', name: 'Barbell Back Squat',    sets: 4, reps: '6–8 reps',   tempo: 4,   rest: 90, rack: true, ramp: true, load: 'FINISHER · set 1 is a ramp at ~50% · then 3 working sets at RPE 7 — leave 3 reps in the tank · same weight as Lower A, no hero sets after the hinge · rest 90 sec', video: 'https://youtu.be/f-KL4VNN96E' },
   ]},
   { id: 'upper-b', name: 'Upper B', focus: 'Pull, arms & intervals', kind: 'strength', region: 'upper', ex: [
@@ -382,20 +576,22 @@ export const PLAN: Day[] = PLAN_SPEC.map((d) =>
   d.kind === 'rest' ? d : { ...d, estMin: estimateMinutes(d) },
 );
 
-// An 8-week fat-loss progression for machine training: learn the machines and
-// record the settings → add load → deload, then raise density → intervals.
-// Every step is TIME-NEUTRAL: intensity is bought with shorter rests, never
-// with extra rounds, because the hour is the constraint that never moves.
-export const WEEK_TIPS: Record<number, [string, string]> = {
-  1: ['Weeks 1–2', 'Week 1 is a ramp-in: <b>half the sets</b> (the boxes already show it — ramp + one working set on the squat) while you learn the machines — write down every seat height and pin. Week 2: full sets, 2–3 reps in reserve.'],
-  3: ['Weeks 3–4', '<b>Add load.</b> Hit the top of the rep range on every set and the pin moves one notch deeper next session. Last set of each main machine goes close to failure — the squat stays at RPE 7.'],
-  5: ['Weeks 5–6', '<b>Week 5 is a deload</b>: 2 sets per exercise, same loads, same reps — each exercise already shows 2 sets, and the plan card shows the shorter session. Week 6 raises density instead of volume: superset rests down to <b>45 sec</b> at the loads you deloaded from.'],
-  7: ['Weeks 7–8', 'Intervals go to <b>6 rounds of 40 sec hard / 30 sec easy</b> — intensity bought with shorter recoveries, not extra rounds, so the session still fits the hour. Squat stays at three working sets; in week 8, re-test your week-1 loads.'],
+// The plan-tab tip for each phase of the 6-week block (see weekPhase): learn
+// the machines → add load → density → intervals → deload, then a fresh block
+// that starts heavier. Every hard step is TIME-NEUTRAL: intensity is bought
+// with shorter rests, never with extra rounds, because the hour is the
+// constraint that never moves. The deload is the one week that is shorter.
+export type TipKey = 'rampIn' | PhaseKind;
+export const WEEK_TIPS: Record<TipKey, [string, string]> = {
+  rampIn: ['Ramp-in week', 'This week is a ramp-in: <b>half the sets</b> (the boxes already show it, ramp + one working set on the squat) while you learn the machines. Write down every seat height and pin. Next week: full sets, 2–3 reps in reserve.'],
+  base: ['New block, heavier start', 'You are rested, so this block starts a little heavier. Each machine card shows <b>a start weight about 5% over your recent best</b>, always at least 2.5 kg more. No weight logged for one yet? Go one pin heavier than last block. Full sets, 2–3 reps in reserve.'],
+  load: ['Add load', 'Hit the top of the rep range on every set and <b>the pin moves one notch deeper</b> next session. Last set of each main machine goes close to failure; the squat stays at RPE 7.'],
+  density: ['Density week', 'Same loads, less waiting: superset rests drop to <b>45 sec</b>. The boxes and the session time already show it.'],
+  peak: ['Peak week', 'Superset rests stay at <b>45 sec</b> and the intervals go to <b>6 rounds of 40 sec hard / 30 sec easy</b>: intensity from shorter recoveries, not extra rounds, so the session still fits the hour. The squat stays at three working sets. Next week is a deload.'],
+  deload: ['Deload week', 'This week is for recovery. <b>Half the sets</b> (the boxes already show it), <b>about 65% of your recent best weight</b>, same reps, RPE 5–6: stop every set with 4 or more reps in the tank. Intervals run as written. Leave each session fresher than you came in. Sleep and protein matter more this week. Next week starts a new, heavier block.'],
 };
-export function tipForWeek(w: number): [string, string] {
-  let key = 1;
-  [1, 3, 5, 7].forEach((k) => { if (w >= k) key = k; });
-  return WEEK_TIPS[key];
+export function tipForWeek(phase: WeekPhase): [string, string] {
+  return WEEK_TIPS[phase.rampIn ? 'rampIn' : phase.kind];
 }
 
 // Sensitive lower back + tennis-elbow-prone elbows. Flags follow the movement,
@@ -464,7 +660,7 @@ export const RESERVE: Exercise[] = [
   { id: 'hack-squat',       name: 'Hack Squat',           sets: 3, reps: '10–12 reps',  tempo: 3.5, load: 'Feet mid-platform · down to parallel, no deeper · back flat on the pad',                          video: 'https://youtu.be/-lAnEGH2blE' },
   { id: 'leg-press-single', name: 'Single-leg Leg Press', sets: 3, reps: '10 / leg',    tempo: 3,   load: 'Foot centred on the platform · half the load, twice the glute · slow, hips level',                video: 'https://youtu.be/FU7FqGTtCMk' },
   { id: 'glute-kickback',   name: 'Cable Glute Kickback', sets: 3, reps: '12–15 / leg', tempo: 2.5, load: 'Ankle strap · push back and up, no arching the lower back',                                       video: 'https://youtu.be/5jJNfIlKTmg' },
-  { id: 'back-extension',   name: '45° Back Extension',   sets: 3, reps: '12–15 reps',  tempo: 3,   load: 'Bodyweight only · rise to a straight line and stop — do not arch past it',                        video: 'https://youtu.be/1TAbsYDMZS4' },
+  { id: 'back-extension',   name: '45° Back Extension',   sets: 3, reps: '12–15 reps',  tempo: 3,   bodyweight: true, load: 'Bodyweight only · rise to a straight line and stop — do not arch past it',                        video: 'https://youtu.be/1TAbsYDMZS4' },
   { id: 'wall-sit',         name: 'Wall Sit',             sets: 3, reps: '30–45 sec',   load: 'Thighs parallel · hold a plate on the lap to progress',                                                       video: 'https://youtu.be/JaZNYM3zAP0' },
   { id: 'calf-standing',    name: 'Standing Calf Raise',  sets: 3, reps: '12–15 reps',  tempo: 4,   load: 'Full stretch at the bottom, 1-sec hold at the top · the first thing to add if a day runs short',  video: 'https://youtu.be/SVtg-1loH4c' },
   { id: 'calf-seated',      name: 'Seated Calf Raise',    sets: 3, reps: '12–15 reps',  tempo: 4,   load: '2-sec lower, 1-sec squeeze · soleus work, easy on everything else',                               video: 'https://youtu.be/I1uQtobaNRQ' },
@@ -473,7 +669,7 @@ export const RESERVE: Exercise[] = [
   { id: 'incline-press-machine', name: 'Incline Chest Press Machine', sets: 3, reps: '10–12 reps', tempo: 3,   load: 'Upper-chest bias · handles at collarbone height · 1-sec pause off the chest',     video: 'https://youtu.be/LiDArz1R2NU' },
   { id: 'db-flat-press',         name: 'Dumbbell Bench Press',        sets: 3, reps: '10–12 reps', tempo: 3,   load: 'When every press machine is taken · elbows ~45°, control the lower',              video: 'https://youtu.be/5Y3VZsLb1Ys' },
   { id: 'cable-fly',             name: 'Cable Chest Fly',             sets: 3, reps: '12–15 reps', tempo: 3,   load: 'Soft elbows, hug a barrel · 1-sec squeeze in front of the sternum',               video: 'https://youtu.be/ovFc-5YdcXw' },
-  { id: 'pushup',                name: 'Push-up',                     sets: 3, reps: '8–12 reps',  tempo: 3,   load: 'Zero-equipment fallback · hands on a bench to scale · body in one line',          video: 'https://youtu.be/WDIpL0pjun0' },
+  { id: 'pushup',                name: 'Push-up',                     sets: 3, reps: '8–12 reps',  tempo: 3,   bodyweight: true, load: 'Zero-equipment fallback · hands on a bench to scale · body in one line',          video: 'https://youtu.be/WDIpL0pjun0' },
   { id: 'db-shoulder-press',     name: 'Dumbbell Shoulder Press',     sets: 3, reps: '10–12 reps', tempo: 3,   load: 'Seated with back support · ribs down, press to just short of lockout',            video: 'https://youtu.be/vlFGTI5JzjI' },
   { id: 'cable-lateral-raise',   name: 'Cable Lateral Raise',         sets: 3, reps: '12–15 / side', tempo: 2.5, load: 'Light · lead with the elbow to shoulder height, no shrugging',                  video: 'https://youtu.be/zpbm-xRHB6k' },
   { id: 'face-pull',             name: 'Cable Face Pull',             sets: 3, reps: '15–20 reps', tempo: 2.5, load: 'Rope at eye height · pull to the forehead, thumbs back · great posture work',     video: 'https://youtu.be/eTCBSFlCJ_s' },
@@ -500,13 +696,13 @@ export const RESERVE: Exercise[] = [
   { id: 'high-knees',        name: 'High Knees',        sets: 5, reps: '45 sec',    rest: 20, setup: 20, load: 'Drive knees to hip height · fast, light feet',           video: 'https://youtu.be/D0GwAezTvtg' },
   { id: 'jumping-jacks',     name: 'Jumping Jacks',     sets: 5, reps: '45 sec',    rest: 20, setup: 20, load: 'Full range · soft, quiet landings',                      video: 'https://youtu.be/7L-5wpilwv4' },
   { id: 'mountain-climbers', name: 'Mountain Climbers', sets: 5, reps: '45 sec',    rest: 20, setup: 20, load: 'Plank · brace the core · quick knee drive',              video: 'https://youtu.be/hq_0YlyfqGM' },
-  { id: 'calf-raises',       name: 'Calf Raises',       sets: 2, reps: '15 reps',   tempo: 3, rest: 20, setup: 20, load: 'Bodyweight on a step · full range, slow',      video: 'https://youtu.be/k8ipHzKeAkQ' },
-  { id: 'ankle-rockers',     name: 'Ankle Rockers',     sets: 2, reps: '10 / side', tempo: 2, rest: 20, setup: 20, load: 'Half-kneel · knee over toe, heel down',        video: 'https://youtu.be/Hm_Iu72bJJg' },
-  { id: 'leg-swings',        name: 'Leg Swings',        sets: 2, reps: '12 / side', tempo: 1.5, rest: 20, setup: 20, load: 'Front-to-back · relaxed, controlled swing',  video: 'https://youtu.be/0XvKtEZ4i38' },
-  { id: 'fire-hydrants',     name: 'Fire Hydrants',     sets: 2, reps: '12 / side', tempo: 2, rest: 20, setup: 20, load: 'Quadruped · lift the knee out, hips square',   video: 'https://youtu.be/1zjVNfeKvyI' },
-  { id: 'thread-needle',     name: 'Thread the Needle', sets: 2, reps: '8 / side',  tempo: 3, rest: 20, setup: 20, load: 'Quadruped · reach an arm under, rotate',       video: 'https://youtu.be/MfUx9FCOb1E' },
-  { id: 'open-book',         name: 'Open Book',         sets: 2, reps: '8 / side',  tempo: 3, rest: 20, setup: 20, load: 'Side-lying · open the top arm and follow it',  video: 'https://youtu.be/rDviWORCWEw' },
-  { id: 'cossack-squat',     name: 'Cossack Squat',     sets: 2, reps: '6 / side',  tempo: 4, rest: 20, setup: 20, load: 'Shift side to side · heel down, chest tall',   video: 'https://youtu.be/tpczTeSkHz0' },
+  { id: 'calf-raises',       name: 'Calf Raises',       sets: 2, reps: '15 reps',   tempo: 3, rest: 20, setup: 20, bodyweight: true, load: 'Bodyweight on a step · full range, slow',      video: 'https://youtu.be/k8ipHzKeAkQ' },
+  { id: 'ankle-rockers',     name: 'Ankle Rockers',     sets: 2, reps: '10 / side', tempo: 2, rest: 20, setup: 20, bodyweight: true, load: 'Half-kneel · knee over toe, heel down',        video: 'https://youtu.be/Hm_Iu72bJJg' },
+  { id: 'leg-swings',        name: 'Leg Swings',        sets: 2, reps: '12 / side', tempo: 1.5, rest: 20, setup: 20, bodyweight: true, load: 'Front-to-back · relaxed, controlled swing',  video: 'https://youtu.be/0XvKtEZ4i38' },
+  { id: 'fire-hydrants',     name: 'Fire Hydrants',     sets: 2, reps: '12 / side', tempo: 2, rest: 20, setup: 20, bodyweight: true, load: 'Quadruped · lift the knee out, hips square',   video: 'https://youtu.be/1zjVNfeKvyI' },
+  { id: 'thread-needle',     name: 'Thread the Needle', sets: 2, reps: '8 / side',  tempo: 3, rest: 20, setup: 20, bodyweight: true, load: 'Quadruped · reach an arm under, rotate',       video: 'https://youtu.be/MfUx9FCOb1E' },
+  { id: 'open-book',         name: 'Open Book',         sets: 2, reps: '8 / side',  tempo: 3, rest: 20, setup: 20, bodyweight: true, load: 'Side-lying · open the top arm and follow it',  video: 'https://youtu.be/rDviWORCWEw' },
+  { id: 'cossack-squat',     name: 'Cossack Squat',     sets: 2, reps: '6 / side',  tempo: 4, rest: 20, setup: 20, bodyweight: true, load: 'Shift side to side · heel down, chest tall',   video: 'https://youtu.be/tpczTeSkHz0' },
   { id: 'frog-stretch',      name: 'Frog Stretch',      sets: 2, reps: '30 sec',    rest: 20, setup: 20, load: 'Knees wide · rock the hips back gently',                 video: 'https://youtu.be/NHEPdNlHF2c' },
 ];
 

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   PLAN, RESERVE, RETIRED, SWAPS, INJURY_FLAGS, WEEK_TIPS, TIME_MODEL,
   estimateMinutes, estimateSeconds, setSeconds, repCount,
-  exerciseById, isTimedReps, videoSearchUrl, tipForWeek,
+  exerciseById, isTimedReps, videoSearchUrl, tipForWeek, weekPhase,
   dayById, pickableDays, pickOptions, pickIdFor,
   type Day,
 } from '../src/features/reset/resetData';
@@ -122,24 +122,42 @@ describe('reset gym plan — the one-hour cap is computed, not asserted', () => 
     }
   });
 
-  it('still fits at week 8, when the progression is at its longest', () => {
+  it('still fits in the peak week, when the block is at its longest', () => {
     for (const d of trainingDays) {
-      expect(estimateMinutes(d, { week: 8 }), `${d.id} at week 8`).toBeLessThanOrEqual(60);
+      expect(estimateMinutes(d, { phase: weekPhase(5) }), `${d.id} at peak`).toBeLessThanOrEqual(60);
     }
   });
 
-  it('fits in every week of the eight-week progression', () => {
-    for (let week = 1; week <= 8; week++) {
-      for (const d of trainingDays) {
-        expect(estimateMinutes(d, { week }), `${d.id} at week ${week}`).toBeLessThanOrEqual(60);
+  it('fits in every phase kind of every block, manual deloads included', () => {
+    const kinds = new Set<string>();
+    for (const deloads of [[], [3], [9, 14]]) {
+      for (let week = 1; week <= 24; week++) {
+        const phase = weekPhase(week, deloads);
+        kinds.add(phase.rampIn ? 'rampIn' : phase.kind);
+        for (const d of trainingDays) {
+          expect(estimateMinutes(d, { phase }), `${d.id} at week ${week} (${phase.kind})`).toBeLessThanOrEqual(60);
+        }
       }
     }
+    expect([...kinds].sort()).toEqual(['base', 'deload', 'density', 'load', 'peak', 'rampIn']);
   });
 
   it('models the ramp-in and the deload as genuinely shorter sessions', () => {
     for (const d of strengthDays) {
-      expect(estimateMinutes(d, { week: 1 }), `${d.id} week 1`).toBeLessThan(estimateMinutes(d, { week: 2 }));
-      expect(estimateMinutes(d, { week: 5 }), `${d.id} week 5 deload`).toBeLessThan(estimateMinutes(d, { week: 4 }));
+      expect(estimateMinutes(d, { phase: weekPhase(1) }), `${d.id} ramp-in`)
+        .toBeLessThan(estimateMinutes(d, { phase: weekPhase(2) }));
+      for (const [deload, before] of [[6, 5], [12, 11], [9, 8]]) {
+        const ph = weekPhase(deload, deload === 9 ? [9] : []);
+        expect(ph.kind).toBe('deload');
+        expect(estimateMinutes(d, { phase: ph }), `${d.id} week ${deload} deload`)
+          .toBeLessThan(estimateMinutes(d, { phase: weekPhase(before) }));
+      }
+    }
+  });
+
+  it('leaves the mobility day\'s length alone in a deload', () => {
+    for (const d of PLAN.filter((x) => x.kind === 'mobility')) {
+      expect(estimateSeconds(d, { phase: weekPhase(6) })).toBe(estimateSeconds(d, { phase: weekPhase(2) }));
     }
   });
 
@@ -181,7 +199,8 @@ describe('reset gym plan — the one-hour cap is computed, not asserted', () => 
     expect(TIME_MODEL.defaultTempo).toBeGreaterThanOrEqual(3);
     expect(TIME_MODEL.defaultRest).toBeGreaterThanOrEqual(60);
     // The density weeks promise the rest that densityRestSec actually models.
-    expect(WEEK_TIPS[5][1]).toContain(`${TIME_MODEL.densityRestSec} sec`);
+    expect(WEEK_TIPS.density[1]).toContain(`${TIME_MODEL.densityRestSec} sec`);
+    expect(WEEK_TIPS.peak[1]).toContain(`${TIME_MODEL.densityRestSec} sec`);
   });
 
   it('lets no exercise undercut the station cost with a per-row setup override', () => {
@@ -361,23 +380,38 @@ describe('reset gym plan — fat-loss programming', () => {
     expect(rdl.rest).toBeGreaterThanOrEqual(90);
   });
 
-  it('runs an eight-week progression that never buys volume with time', () => {
-    expect(Object.keys(WEEK_TIPS)).toEqual(['1', '3', '5', '7']);
-    expect(tipForWeek(2)).toBe(WEEK_TIPS[1]);
-    expect(tipForWeek(8)).toBe(WEEK_TIPS[7]);
-    expect(tipForWeek(12)).toBe(WEEK_TIPS[7]);
-    expect(WEEK_TIPS[1][1]).toMatch(/half the sets/i);   // week 1 ramp-in
-    expect(WEEK_TIPS[5][1]).toMatch(/deload/i);          // a real deload week
+  it('runs a repeating 6-week block that never buys volume with time', () => {
+    expect(Object.keys(WEEK_TIPS).sort()).toEqual(['base', 'deload', 'density', 'load', 'peak', 'rampIn']);
+    // The tip follows the phase, block after block.
+    expect(tipForWeek(weekPhase(1))).toBe(WEEK_TIPS.rampIn);
+    expect(tipForWeek(weekPhase(2))).toBe(WEEK_TIPS.load);
+    expect(tipForWeek(weekPhase(4))).toBe(WEEK_TIPS.density);
+    expect(tipForWeek(weekPhase(5))).toBe(WEEK_TIPS.peak);
+    expect(tipForWeek(weekPhase(6))).toBe(WEEK_TIPS.deload);
+    expect(tipForWeek(weekPhase(7))).toBe(WEEK_TIPS.base);
+    expect(tipForWeek(weekPhase(12))).toBe(WEEK_TIPS.deload);
+    expect(tipForWeek(weekPhase(9, [9]))).toBe(WEEK_TIPS.deload);
+    expect(WEEK_TIPS.rampIn[1]).toMatch(/half the sets/i);
+    // The deload tip carries everything she needs to run the week.
+    const deload = WEEK_TIPS.deload[1];
+    for (const bit of [/half the sets/i, /65%/, /same reps/i, /RPE 5–6/, /4 or more reps in the tank/i,
+      /fresher than you came in/i, /sleep and protein/i, /new, heavier block/i]) {
+      expect(deload).toMatch(bit);
+    }
+    expect(WEEK_TIPS.base[1]).toMatch(/heavier/i);
+    expect(WEEK_TIPS.base[1]).toMatch(/5%/);
     // The tip and the model must not drift apart: the numbers she reads are
     // the numbers estimateMinutes() plans for.
-    const peak = WEEK_TIPS[7][1];
+    const peak = WEEK_TIPS.peak[1];
     expect(peak).toContain(`${TIME_MODEL.peakIntervalRounds} rounds`);
     expect(peak).toContain(`${TIME_MODEL.peakIntervalWorkSec} sec hard`);
     expect(peak).toContain(`${TIME_MODEL.peakIntervalRestSec} sec easy`);
-    expect(WEEK_TIPS[5][1]).toContain(`${TIME_MODEL.deloadSets} sets per exercise`);
-    // Weeks 7–8 must not make the session longer than the full-volume weeks.
+    // New copy: no em dashes.
+    for (const [head, body] of Object.values(WEEK_TIPS)) expect(head + body).not.toContain('—');
+    // The peak week must not make the session longer than the full-volume weeks.
     for (const d of strengthDays) {
-      expect(estimateSeconds(d, { week: 8 })).toBeLessThanOrEqual(estimateSeconds(d, { week: 2 }) + 60);
+      expect(estimateSeconds(d, { phase: weekPhase(5) }))
+        .toBeLessThanOrEqual(estimateSeconds(d, { phase: weekPhase(2) }) + 60);
     }
   });
 });

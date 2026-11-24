@@ -3,7 +3,9 @@ import {
   LYMPH_VIDEO, WARMUP, COOLDOWN, MOBILITY_COOLDOWN, TRIM_ORDER, REST_TIPS, INJURY_FLAGS,
   dayById, estimateMinutes, exerciseById, isTimedReps, pickOptions, videoSearchUrl, weekNote, weekPrescription, type Exercise,
 } from './resetData';
-import { dayCount, effectiveVideo, resolvedExercise, setsArray, trainedHistory, useResetStore } from './resetStore';
+import {
+  dayCount, effectiveVideo, phaseOf, recentBest, resolvedExercise, setsArray, trainedHistory, useResetStore,
+} from './resetStore';
 import { recoveryWarning } from '@/lib/sessionPick';
 import { parseVideo } from './resetVideo';
 import { SwapModal } from './SwapModal';
@@ -91,8 +93,9 @@ function ExerciseCard({ dayId, slotId, onSwap }: { dayId: string; slotId: string
   const flag = INJURY_FLAGS[e.id];
   const lg = s.log[slotId] || { reps: '', weight: '' };
   const timed = isTimedReps(e.reps);
-  // What this program week changed, measured against the exercise as written.
-  const note = weekNote(exerciseById(e.id)!, s.week);
+  // What this phase changed, measured against the exercise as written, with
+  // the load guidance worked out from her logs for the exercise she is doing.
+  const note = weekNote(exerciseById(e.id)!, phaseOf(s), dayById(dayId)?.kind, recentBest(s, e.id));
 
   return (
     <div className={`ex ${done ? 'done' : ''}`}>
@@ -221,13 +224,14 @@ export function DayView({
   // Rest range comes from the plan data (conditioning rounds excluded — their
   // recovery is part of the prescription), so the header can never drift from
   // what the exercises actually say.
-  const rests = d.ex.filter((e) => !e.conditioning).map((e) => weekPrescription(e, s.week).rest ?? 60);
+  const phase = phaseOf(s);
+  const rests = d.ex.filter((e) => !e.conditioning).map((e) => weekPrescription(e, phase, d.kind).rest ?? 60);
   const restLabel = rests.length
     ? `rest ${Math.min(...rests)}–${Math.max(...rests)} sec`
     : 'easy pace';
-  // Length for the week she is in, not a fixed baseline (week 1 is a ramp-in,
-  // week 5 a deload — both genuinely shorter).
-  const estMin = estimateMinutes(d, { week: s.week });
+  // Length for the phase she is in, not a fixed baseline (the ramp-in and
+  // the deload are both genuinely shorter).
+  const estMin = estimateMinutes(d, { phase });
   // Soft 48h reminder — shown, never enforced. Once she has ticked a set the
   // session is under way, and the note has done its job.
   const warn = c.done === 0 ? recoveryWarning(pickOptions(), trainedHistory(s), dayId, Date.now()) : null;
@@ -241,6 +245,13 @@ export function DayView({
           {d.focus} · {d.ex.length} exercises · {mobility ? 'easy pace' : restLabel}
           {estMin ? ` · ≈ ${estMin} min` : ''}
         </div>
+        {phase.kind === 'deload' && (
+          <div className="deload-day">
+            {mobility
+              ? 'Deload week: this mobility session runs as normal.'
+              : 'Deload week: half the sets, about 65% weight, same reps, RPE 5–6. Leave fresher than you came in.'}
+          </div>
+        )}
       </div>
 
       {warn && <div className="recovery-note" style={{ marginBottom: 12 }}>{warn} You can still train it — just go lighter.</div>}
