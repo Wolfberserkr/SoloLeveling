@@ -327,3 +327,10 @@
 @keyframes reset-slideUp{from{transform:translateY(40px);opacity:.5}to{transform:translateY(0);opacity:1}}
 @keyframes reset-pulse{to{opacity:.4}}
 @media (prefers-reduced-motion:reduce){.reset-root *{animation:none!important;transition:none!important}}
+/* Phone width: a right-aligned 320px tip column turns the deload tip into a
+   dozen short lines. Stack the bar instead: week picker and phase line on
+   top, the tip full width underneath, read left to right. */
+@media (max-width:480px){
+  .reset-root .week-bar{flex-direction:column;align-items:stretch;gap:12px}
+  .reset-root .week-tip{max-width:none;text-align:left}
+}

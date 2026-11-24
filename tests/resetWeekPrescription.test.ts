@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  PLAN, RESERVE, exerciseById, weekNote, weekPhase, weekPrescription, estimateSeconds,
+  PLAN, RESERVE, SWAPS, exerciseById, isTimedReps, weekNote, weekPhase, weekPrescription, estimateSeconds,
   type Exercise, type PhaseKind,
 } from '../src/features/reset/resetData';
-import { dayCount, resolvedExercise, sessionTally, useResetStore } from '../src/features/reset/resetStore';
+import { dayCount, phaseOf, resolvedExercise, sessionTally, useResetStore } from '../src/features/reset/resetStore';
 import { defaultState, type ResetState } from '../src/features/reset/resetDb';
 
 const store = new Map<string, string>();
@@ -121,16 +121,27 @@ describe('the card note says what the phase changed', () => {
     expect(weekNote(legPress, P.load2, 'strength', 40)).toBeNull();
   });
 
-  it('deload: sets and a kg aim from her recent best', () => {
-    expect(weekNote(legPress, P.deload, 'strength', 40))
-      .toBe('Deload: 2 of 4 sets · ~65% weight, aim 25 kg (recent best 40 kg)');
+  it('deload: sets, a kg aim from her recent best, and no set to failure', () => {
+    expect(weekNote(legPress, P.deload, 'strength', 80))
+      .toBe('Deload: 2 of 4 sets · about 65% weight, aim 52.5 kg (recent best 80 kg) · stop with 4+ reps in the tank, no set to failure this week');
     expect(weekNote(squat, P.deload2, 'strength', 50))
-      .toBe('Deload: 2 of 4 sets · ~65% weight, aim 32.5 kg (recent best 50 kg)');
+      .toBe('Deload: 2 of 4 sets · about 65% weight, aim 32.5 kg (recent best 50 kg) · stop with 4+ reps in the tank, no set to failure this week');
   });
 
-  it('deload with nothing logged: plain effort advice', () => {
+  it('deload with nothing logged: about 65% of the usual weight, still no failure', () => {
     expect(weekNote(legPress, P.deload, 'strength', null))
-      .toBe('Deload: 2 of 4 sets · easy effort, RPE 5–6, 4+ reps in the tank');
+      .toBe('Deload: 2 of 4 sets · about 65% of your usual weight, RPE 5–6 · stop with 4+ reps in the tank, no set to failure this week');
+  });
+
+  it('overrides an "all-out" or "RPE 7" written cue on every loaded deload card', () => {
+    for (const d of strengthDays) {
+      for (const e of d.ex) {
+        if (e.conditioning || e.bodyweight || isTimedReps(e.reps)) continue;
+        for (const best of [null, 60]) {
+          expect(weekNote(e, P.deload, 'strength', best), e.id).toMatch(/no set to failure this week$/);
+        }
+      }
+    }
   });
 
   it('new block: a start weight from her recent best, or plain advice', () => {
@@ -144,8 +155,48 @@ describe('the card note says what the phase changed', () => {
     const deadBug = exerciseById('dead-bug')!;
     expect(weekNote(deadBug, P.deload, 'strength', 20))
       .toBe('Deload: 2 of 3 sets · easy effort, RPE 5–6, 4+ reps in the tank');
-    expect(weekNote(deadBug, P.base2, 'strength', 20)).toBe('New block: go a little heavier than last block');
+    expect(weekNote(deadBug, P.base2, 'strength', 20)).toBe('New block: aim for the top of the rep range');
     expect(weekNote(exerciseById('pushup')!, P.deload, 'strength', 30)).not.toMatch(/kg/);
+  });
+
+  it('gives every bodyweight move, wherever it can be swapped in, rep advice, never weight', () => {
+    // Every flagged move in the plan (mobility moves included: their swap
+    // alternatives reach strength days too) and in the reserve pool.
+    const flagged = [...PLAN.flatMap((d) => d.ex), ...RESERVE].filter((e) => e.bodyweight);
+    expect(flagged.length).toBeGreaterThan(20);
+    for (const e of flagged) {
+      for (const best of [null, 40]) {
+        const deload = weekNote(e, P.deload, 'strength', best);
+        const fresh = weekNote(e, P.base2, 'strength', best);
+        const half = `${Math.ceil(e.sets / 2)} of ${e.sets} sets`;
+        if (isTimedReps(e.reps)) {
+          expect(deload, e.id).toBe(`Deload: ${half}`);
+          expect(fresh, e.id).toBeNull();
+        } else {
+          expect(deload, e.id).toBe(`Deload: ${half} · easy effort, RPE 5–6, 4+ reps in the tank`);
+          expect(fresh, e.id).toBe('New block: aim for the top of the rep range');
+        }
+        expect(`${deload} ${fresh}`, e.id).not.toMatch(/kg|heavier|weight/);
+      }
+    }
+    // Swapped onto a strength day through the real swap menu, the note
+    // follows the move she is doing, not the slot it replaced.
+    let swapped = 0;
+    for (const d of strengthDays) {
+      for (const slot of d.ex) {
+        for (const alt of SWAPS[slot.id] ?? []) {
+          const e = exerciseById(alt)!;
+          if (!e.bodyweight || isTimedReps(e.reps)) continue;
+          const s = { ...at(7), swaps: { [d.id]: { [slot.id]: alt } } };
+          const current = resolvedExercise(s, d.id, slot.id);
+          expect(current.id).toBe(alt);
+          expect(weekNote(exerciseById(current.id)!, phaseOf(s), d.kind, 40), `${slot.id} → ${alt}`)
+            .toBe('New block: aim for the top of the rep range');
+          swapped++;
+        }
+      }
+    }
+    expect(swapped).toBeGreaterThan(5);
   });
 
   it('talks assistance, never kg, on an assisted machine', () => {

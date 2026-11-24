@@ -107,10 +107,13 @@ cut superset rests to 45 sec, the peak week runs the intervals as 6 × 40 sec /
 same reps, while intervals and the mobility days run as written. Change the
 week or the switch and the boxes, % rings and logged sessions re-size
 automatically; each card shows a short note on what the phase changed. In a
-deload, loaded machines show an aim of ~65% of her best logged weight from the
+deload, loaded machines show an aim of about 65% of her best logged weight from the
 last 56 days (`recentBest`, from the cloud log rows); in week 1 of a new block
-they show a start about 5% over it, at least 2.5 kg up. Bodyweight, timed and
-assisted moves get plain advice instead of a kg number.
+they show a start about 5% over it, at least 2.5 kg up. A loaded deload card
+also says "no set to failure this week", overriding its written cue. Bodyweight
+moves get effort advice (deload) or "top of the rep range" (new block),
+assisted machines get advice in terms of assistance, and timed holds and
+intervals never get a kg number.
 
 **The one-hour cap is executable, not a comment.** `estimateMinutes(day, opts)`
 costs a session out of its own exercise data — work sets priced as reps ×

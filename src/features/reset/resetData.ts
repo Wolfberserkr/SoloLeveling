@@ -57,8 +57,9 @@ export type Exercise = {
    *  them exactly as written. */
   conditioning?: boolean;
   /** No external load to aim at, so the load guidance never prints a kg
-   *  target for it, only effort advice. (Assisted machines are detected by
-   *  name instead — see isAssisted — since their advice is about the assist.) */
+   *  target for it: effort advice in a deload, the top of the rep range in a
+   *  new block. (Assisted machines are detected by name instead, see
+   *  isAssisted, since their advice is about the assist.) */
   bodyweight?: boolean;
   /** Only ever set on the stubs exerciseById() synthesises for RETIRED ids. */
   retired?: boolean;
@@ -315,12 +316,6 @@ export function isAssisted(ex: Exercise): boolean {
   return /assisted/i.test(ex.id) || /assisted/i.test(ex.name);
 }
 
-/** Whether an exercise takes a kg target: not intervals, not holds or other
- *  timed work, not bodyweight or assisted moves. */
-export function takesLoadTarget(ex: Exercise): boolean {
-  return !ex.retired && !ex.conditioning && !ex.bodyweight && !isAssisted(ex) && !isTimedReps(ex.reps);
-}
-
 const roundToStep = (kg: number) => Math.round(kg / LOAD_RULES.stepKg) * LOAD_RULES.stepKg;
 
 /** Weights read like the ones she types: 42.5, never 42.50. */
@@ -328,7 +323,7 @@ export function formatKg(kg: number): string {
   return String(Number(kg.toFixed(2)));
 }
 
-/** The deload weight to aim for: ~65% of the recent best on the 2.5 kg grid,
+/** The deload weight to aim for: about 65% of the recent best on the 2.5 kg grid,
  *  never below one 2.5 kg step (65% of a very light weight rounds to 0).
  *  Null when there is no base to work from. */
 export function deloadTargetKg(recentBestKg: number | null): number | null {
@@ -353,9 +348,11 @@ export function newBlockStartKg(recentBestKg: number | null): number | null {
  *  which turns the deload and the new-block start into a real number.
  *
  *  Load text by kind of move: a loaded machine gets a kg number from her
- *  logs (or plain effort advice with none); bodyweight moves get the same
- *  plain advice; assisted machines get it in assistance terms, because there
- *  lower is harder; timed holds and intervals get no load text at all. */
+ *  logs (or "about 65%" with none) plus an explicit "no set to failure",
+ *  which overrides the written cue under it for the week; bodyweight moves
+ *  get effort advice and, in a new block, the top of the rep range;
+ *  assisted machines get it in assistance terms, because there lower is
+ *  harder; timed holds and intervals get no load text at all. */
 export function weekNote(
   ex: Exercise, phase: WeekPhase, dayKind: DayKind | undefined, recentBestKg: number | null = null,
 ): string | null {
@@ -367,22 +364,27 @@ export function weekNote(
 
   if (phase.kind === 'deload' && !mobility && !ex.conditioning) {
     const sets = w.sets !== ex.sets ? `${w.sets} of ${ex.sets} sets` : null;
-    let load: string | null;
-    if (timed) load = null;
-    else if (assisted) load = 'use a bit more assistance';
-    else {
-      const aim = takesLoadTarget(ex) ? deloadTargetKg(recentBestKg) : null;
-      load = aim != null
-        ? `~65% weight, aim ${formatKg(aim)} kg (recent best ${formatKg(recentBestKg!)} kg)`
-        : 'easy effort, RPE 5–6, 4+ reps in the tank';
-    }
-    const parts = [sets, load].filter(Boolean);
+    const aim = deloadTargetKg(recentBestKg);
+    const load: string[] = timed ? []
+      : assisted ? ['use a bit more assistance']
+      : ex.bodyweight ? ['easy effort, RPE 5–6, 4+ reps in the tank']
+      : [
+        aim != null
+          ? `about 65% weight, aim ${formatKg(aim)} kg (recent best ${formatKg(recentBestKg!)} kg)`
+          : 'about 65% of your usual weight, RPE 5–6',
+        // The written cue right under this note still says "last set
+        // all-out" or "RPE 7"; this week the note has to win, so it says so.
+        'stop with 4+ reps in the tank, no set to failure this week',
+      ];
+    const parts = [sets, ...load].filter(Boolean);
     return parts.length ? `Deload: ${parts.join(' · ')}` : null;
   }
 
   if (phase.kind === 'base' && phase.block >= 2 && !mobility && !timed) {
     if (assisted) return 'New block: take a little less assistance than last block';
-    const start = takesLoadTarget(ex) ? newBlockStartKg(recentBestKg) : null;
+    // No pin to move on a bodyweight move: the progression is the reps.
+    if (ex.bodyweight) return 'New block: aim for the top of the rep range';
+    const start = newBlockStartKg(recentBestKg);
     return start != null
       ? `New block: start at ${formatKg(start)} kg (recent best ${formatKg(recentBestKg!)} kg)`
       : 'New block: go a little heavier than last block';
