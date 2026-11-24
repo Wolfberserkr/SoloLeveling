@@ -24,3 +24,12 @@ Measured: npm test 276/276 (baseline 229), typecheck clean. Reviewer adversarial
 Reviewer scores (bar): rules 9 (10) · consistency 9.5 (9.5) · sync 9.5 (9.5) · copy 8 (9) · tests 8.5 (9) · code 9 (9). Verdict NOT YET.
 Findings: [major] bodyweight moves told "go a little heavier" in a new block (also caught by lead); [minor] loaded machines with no logs never told to go lighter in a deload; [minor] static cue "last set all-out" contradicts the deload note; [minor] deload tip is a 12-line right-aligned column at 390 px; [nit] "~65%" → "about 65%".
 Next: round 2, editor fixes all five; reviewer re-checks.
+
+## Round 2 · fixes + re-review (13:45 UTC)
+Editor fixed all five round-1 findings (2984430). Lead then applied the reviewer's optional nit: non-breaking space before "kg" so "aim 25 kg" never splits across lines; three test expectations updated.
+Measured: npm test 278/278, typecheck clean. Reviewer adversarial cases 22/22. No horizontal overflow at 390 px or 1280 px, no page errors. D's first load traced against her live row (week 12, empty deload_weeks): opens on "Block 2 · Deload week", switch locked on; + goes to week 13 and saves (DB cap 99).
+Reviewer scores (bar): rules 10 (10) · consistency 9.5 (9.5) · sync 9.5 (9.5) · copy 9 (9) · tests 9 (9) · code 9 (9). Verdict WOWED.
+Known and left as is (pre-existing): "Log a past workout" pre-fills full plan set counts even in a deload week; she can adjust the steppers.
+
+## Shipped
+Stop check: every dimension at bar by the independent reviewer; time cap 3h not reached (about 1h). The user asked for no screenshots, so no stills gate. Pushed to ccr-c7b60f9e-h2i6l0; migration 0036 live. Not merged to main (no PR, per brief).

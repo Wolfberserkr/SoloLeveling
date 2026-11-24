@@ -370,7 +370,7 @@ export function weekNote(
       : ex.bodyweight ? ['easy effort, RPE 5–6, 4+ reps in the tank']
       : [
         aim != null
-          ? `about 65% weight, aim ${formatKg(aim)} kg (recent best ${formatKg(recentBestKg!)} kg)`
+          ? `about 65% weight, aim ${formatKg(aim)}\u00a0kg (recent best ${formatKg(recentBestKg!)}\u00a0kg)`
           : 'about 65% of your usual weight, RPE 5–6',
         // The written cue right under this note still says "last set
         // all-out" or "RPE 7"; this week the note has to win, so it says so.
@@ -386,7 +386,7 @@ export function weekNote(
     if (ex.bodyweight) return 'New block: aim for the top of the rep range';
     const start = newBlockStartKg(recentBestKg);
     return start != null
-      ? `New block: start at ${formatKg(start)} kg (recent best ${formatKg(recentBestKg!)} kg)`
+      ? `New block: start at ${formatKg(start)}\u00a0kg (recent best ${formatKg(recentBestKg!)}\u00a0kg)`
       : 'New block: go a little heavier than last block';
   }
 

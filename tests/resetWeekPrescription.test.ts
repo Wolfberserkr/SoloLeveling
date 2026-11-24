@@ -123,9 +123,9 @@ describe('the card note says what the phase changed', () => {
 
   it('deload: sets, a kg aim from her recent best, and no set to failure', () => {
     expect(weekNote(legPress, P.deload, 'strength', 80))
-      .toBe('Deload: 2 of 4 sets · about 65% weight, aim 52.5 kg (recent best 80 kg) · stop with 4+ reps in the tank, no set to failure this week');
+      .toBe('Deload: 2 of 4 sets · about 65% weight, aim 52.5\u00a0kg (recent best 80\u00a0kg) · stop with 4+ reps in the tank, no set to failure this week');
     expect(weekNote(squat, P.deload2, 'strength', 50))
-      .toBe('Deload: 2 of 4 sets · about 65% weight, aim 32.5 kg (recent best 50 kg) · stop with 4+ reps in the tank, no set to failure this week');
+      .toBe('Deload: 2 of 4 sets · about 65% weight, aim 32.5\u00a0kg (recent best 50\u00a0kg) · stop with 4+ reps in the tank, no set to failure this week');
   });
 
   it('deload with nothing logged: about 65% of the usual weight, still no failure', () => {
@@ -145,7 +145,7 @@ describe('the card note says what the phase changed', () => {
   });
 
   it('new block: a start weight from her recent best, or plain advice', () => {
-    expect(weekNote(legPress, P.base2, 'strength', 40)).toBe('New block: start at 42.5 kg (recent best 40 kg)');
+    expect(weekNote(legPress, P.base2, 'strength', 40)).toBe('New block: start at 42.5\u00a0kg (recent best 40\u00a0kg)');
     expect(weekNote(legPress, P.base2, 'strength', null)).toBe('New block: go a little heavier than last block');
     // Block 1 week 1 is the ramp-in, not a heavier start.
     expect(weekNote(legPress, P.rampIn, 'strength', 40)).not.toMatch(/New block/);
