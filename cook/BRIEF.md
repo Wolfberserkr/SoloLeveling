@@ -6,8 +6,8 @@ Bar (code mapping, scored by an independent reviewer agent, 1–10): correctness
 Calibration offset: none. My own scores never decide a stop.
 Rules: no new dependencies. Keep all existing features working. No regressions: the full `npm test` suite and `npm run typecheck` stay green. Do not touch the dark System/Viking/Ascend apps.
 Time: hard cap 3h. Started 2026-11-24 12:45 UTC. Cap 15:45 UTC.
-Deliverable: code + tests + a Supabase migration file, committed and pushed to `ccr-c7b60f9e-h2i6l0`. No PR. No screenshots per round (user declined). Migration is NOT applied to the live database by this run; the user is told it must be applied before deploying.
-Permissions: commit + push to the session branch yes. PR no. Apply DB migration no (ask after).
+Deliverable: code + tests + a Supabase migration file, committed and pushed to `ccr-c7b60f9e-h2i6l0`. No PR. No screenshots per round (user declined). Migration 0036 APPLIED to the live DB at the user's request ("go ahead and apply the migration"): deload_weeks int[] column + week check widened 1–12 → 1–99.
+Permissions: commit + push to the session branch yes. PR no. DB migration 0036 applied (user approved).
 User's words: "she's at week 12, however the app does not follow a deload phase, I need this feature so she can rest. Deload should change instructions, sets, recommended volume etc." · "When making edits, run two agents in parallel, one to edit, and one to review. Loop and edit mistakes until reviewer is wowed."
 
 ## Decisions from intake (user answers)

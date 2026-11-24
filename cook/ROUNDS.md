@@ -7,5 +7,5 @@ Start: 2026-11-24 12:45 UTC · Cap: 15:45 UTC · Baseline: 229/229 tests green, 
 - Loop shape for a code task: an editor agent and a reviewer agent run in parallel. The reviewer studies the code and spec while the editor builds, then reviews the diff. Findings go back to the editor. Repeat until the reviewer signs off.
 - Load base = max logged weight in 56 days, so deload weights never drag down the next target.
 - Mobility days are skipped by the deload rule; conditioning is untouched (user did not pick those changes).
-- Migration written, not applied to the live DB.
+- Migration 0036 written by the lead and applied to live (user said "go ahead and apply the migration"). Found and fixed the old `week between 1 and 12` check, which would have rejected week 13. Verified: column present, check is 1–99, D's row at week 12.
 
