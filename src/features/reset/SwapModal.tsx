@@ -1,5 +1,5 @@
-import { exerciseById, weekPrescription, INJURY_FLAGS, SWAPS } from './resetData';
-import { resolvedExercise, useResetStore } from './resetStore';
+import { dayById, exerciseById, weekPrescription, INJURY_FLAGS, SWAPS } from './resetData';
+import { phaseOf, resolvedExercise, useResetStore } from './resetStore';
 
 /** Swap-exercise modal — pick a safer/different alternative for a slot. */
 export function SwapModal({ dayId, slotId, onClose }: { dayId: string; slotId: string; onClose: () => void }) {
@@ -10,6 +10,10 @@ export function SwapModal({ dayId, slotId, onClose }: { dayId: string; slotId: s
   const currentEx = resolvedExercise(s, dayId, slotId);
   const baseEx = exerciseById(slotId)!;
   const alts = SWAPS[currentEx.id] || [];
+  // Each option shows the sets it would really get this week, by the same
+  // rule the slot uses once swapped in.
+  const phase = phaseOf(s);
+  const dayKind = dayById(dayId)?.kind;
 
   return (
     <div className="modal-bg" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -22,7 +26,7 @@ export function SwapModal({ dayId, slotId, onClose }: { dayId: string; slotId: s
         {alts.map((altId) => {
           const base = exerciseById(altId);
           if (!base) return null;
-          const ex = weekPrescription(base, s.week);
+          const ex = weekPrescription(base, phase, dayKind);
           const flag = INJURY_FLAGS[altId];
           return (
             <div

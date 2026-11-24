@@ -86,25 +86,42 @@ the % rings return to 0 (`rolloverProgress` in `resetStore.ts`).
 
 The whole program is pure data in `src/features/reset/resetData.ts`: the week
 `PLAN` (day ids are frozen — logged history keys off them), `WARMUP` /
-`COOLDOWN`, the 8-week `WEEK_TIPS` progression, `INJURY_FLAGS` (lower back /
+`COOLDOWN`, the per-phase `WEEK_TIPS`, `INJURY_FLAGS` (lower back /
 tennis elbow), and `SWAPS` + `RESERVE` so a busy machine always has an
 alternative.
 
-**The program week drives the prescription.** `weekPrescription(ex, week)`
+**The program runs in repeating 6-week blocks.** `weekPhase(week, deloadWeeks)`
+turns the program week into a place in the block: week 1 base, weeks 2–3 add
+load, week 4 density, week 5 peak, week 6 deload, then a new block. The week
+counter keeps counting (1–99) and still only moves on the plan tab's − / +.
+A *Take a deload this week* switch adds the current week to `deloadWeeks`
+(saved locally and in `reset_app_state.deload_weeks`, migration 0036): that
+ends the block early and the next block counts from the week after it. A
+block's own 6th week is a deload regardless, so there the switch is locked on.
+
+**The phase drives the prescription.** `weekPrescription(ex, phase, dayKind)`
 is the one rule set behind what she sees, ticks and logs *and* what the time
-model costs: week 1 halves the sets (ramp-in), week 5 deloads to 2 sets per
-exercise (same reps, same loads), week 6+ cuts superset rests to 45 sec, and
-weeks 7–8 run the intervals as 6 × 40 sec / 30 sec easy. Change the week and
-the boxes, % rings and logged sessions re-size automatically; each card shows
-a short note on what the week changed.
+model costs: block 1 week 1 halves the sets (ramp-in), density and peak weeks
+cut superset rests to 45 sec, the peak week runs the intervals as 6 × 40 sec /
+30 sec easy, and a deload halves the sets (rounded up, ramp set kept) with the
+same reps, while intervals and the mobility days run as written. Change the
+week or the switch and the boxes, % rings and logged sessions re-size
+automatically; each card shows a short note on what the phase changed. In a
+deload, loaded machines show an aim of about 65% of her best logged weight from the
+last 56 days (`recentBest`, from the cloud log rows); in week 1 of a new block
+they show a start about 5% over it, at least 2.5 kg up. A loaded deload card
+also says "no set to failure this week", overriding its written cue. Bodyweight
+moves get effort advice (deload) or "top of the rep range" (new block),
+assisted machines get advice in terms of assistance, and timed holds and
+intervals never get a kg number.
 
 **The one-hour cap is executable, not a comment.** `estimateMinutes(day, opts)`
 costs a session out of its own exercise data — work sets priced as reps ×
 tempo, rest, station changes, the squat rack, per-set logging time, warm-up,
 cool-down and a contingency buffer — and every `Day.estMin` is derived from it
 (then surfaced in the plan cards and the day header). `tests/resetPlan.test.ts`
-asserts the *function's* output stays ≤ 60 min in every week of the
-progression, so adding sets fails the build instead of silently blowing the
+asserts the *function's* output stays ≤ 60 min in every phase of the
+block, so adding sets fails the build instead of silently blowing the
 hour. It also locks the week shape, the alternating squat finishers (including
 that a squat only ever swaps for another squat), the retired-id fallback, and
 id uniqueness; `tests/resetSwaps.test.ts` locks the swap graph.

@@ -3,6 +3,7 @@
 // under the logged-in user (RLS scopes rows to auth.uid()); failed writes are
 // queued in localStorage and retried on next load / when back online.
 import { supabase } from '@/lib/supabase';
+import { clampWeek, cleanDeloadWeeks } from './resetData';
 
 export type SetProgress = Record<string, Record<string, boolean[]>>;
 export type Swaps = Record<string, Record<string, string>>;
@@ -35,7 +36,11 @@ export type Nutrition = { date: string; rating: string; note: string };
 export type CloudLog = { exercise_id: string; reps: string; weight: number; logged_at: string };
 
 export type ResetState = {
+  /** Program week, 1..MAX_WEEK. Moves only on the plan tab's − / +. */
   week: number;
+  /** Program weeks she switched to a deload by hand. Together with `week`
+   *  this is the whole block calendar — see weekPhase() in resetData.ts. */
+  deloadWeeks: number[];
   progress: SetProgress;
   /** Local YYYY-MM-DD the ticks in `progress` belong to. Progress is a
    *  one-day thing: once the date moves on, rolloverProgress() logs any
@@ -57,7 +62,7 @@ export type ResetState = {
 
 export function defaultState(): ResetState {
   return {
-    week: 1, progress: {}, log: {}, videos: {}, swaps: {},
+    week: 1, deloadWeeks: [], progress: {}, log: {}, videos: {}, swaps: {},
     history: [], sessions: [], weights: [], nutrition: [], cloudLogs: [],
   };
 }
@@ -69,7 +74,12 @@ const queueKey = (uid: string) => `reset_queue_v1_${uid}`;
 export function loadCache(uid: string): ResetState {
   try {
     const raw = localStorage.getItem(cacheKey(uid));
-    if (raw) return { ...defaultState(), ...(JSON.parse(raw) as ResetState) };
+    if (raw) {
+      const parsed = { ...defaultState(), ...(JSON.parse(raw) as ResetState) };
+      // Caches from before the deload cycle have no list (and the week used to
+      // stop at 12); anything hand-edited or corrupt is cleaned, not trusted.
+      return { ...parsed, week: clampWeek(parsed.week), deloadWeeks: cleanDeloadWeeks(parsed.deloadWeeks) };
+    }
   } catch {
     /* ignore */
   }
@@ -150,15 +160,19 @@ export async function flushQueue(uid: string): Promise<void> {
 // ── Writes ───────────────────────────────────────────────────────────────────
 export function upsertAppState(
   uid: string,
-  s: Pick<ResetState, 'week' | 'progress' | 'swaps' | 'videos'>,
+  s: Pick<ResetState, 'week' | 'deloadWeeks' | 'progress' | 'swaps' | 'videos'>,
 ) {
+  // The row checks week in 1..99 and deload_weeks is int[] not null: a value
+  // outside that would fail the whole upsert and park it in the queue, taking
+  // the ticks in the same row with it. So both are cleaned on the way out.
   return pushOp(uid, {
     kind: 'upsert',
     table: 'reset_app_state',
     onConflict: 'user_id',
     data: {
       user_id: uid,
-      week: s.week,
+      week: clampWeek(s.week),
+      deload_weeks: cleanDeloadWeeks(s.deloadWeeks),
       progress: s.progress,
       swaps: s.swaps,
       videos: s.videos,
@@ -236,6 +250,10 @@ export function upsertNutrition(uid: string, n: { recorded_on: string; rating: s
 export type CloudSnapshot = {
   appState: {
     week: number; progress: SetProgress; swaps: Swaps; videos: Videos;
+    /** Null only when the row has no deload_weeks column at all (migration
+     *  0036 not applied): the merge then keeps the local list rather than
+     *  wiping it. A null value in a real column reads as no deloads. */
+    deloadWeeks: number[] | null;
     /** When the row was last written — dates cloud progress with no local stamp. */
     updatedAt: string | null;
   } | null;
@@ -256,10 +274,12 @@ export async function fetchAll(uid: string): Promise<CloudSnapshot | null> {
     ]);
     const st = stRes.data as {
       week: number; progress: SetProgress; swaps: Swaps; videos: Videos; updated_at?: string;
+      deload_weeks?: unknown;
     } | null;
     return {
       appState: st ? {
         week: st.week, progress: st.progress || {}, swaps: st.swaps || {}, videos: st.videos || {},
+        deloadWeeks: 'deload_weeks' in st ? cleanDeloadWeeks(st.deload_weeks) : null,
         updatedAt: st.updated_at ?? null,
       } : null,
       sessions: ((sessRes.data ?? []) as Array<Record<string, unknown>>).map((s) => ({

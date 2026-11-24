@@ -32,8 +32,8 @@ function stored(dayId: string, slotId: string): boolean[] | undefined {
 
 beforeEach(() => {
   store.clear();
-  // Week 2 = full volume; the week-1 ramp-in and week-5 deload have their
-  // own tests (resetWeekPrescription.test.ts).
+  // Week 2 = full volume; the week-1 ramp-in and the deload weeks have their
+  // own tests (resetWeekPrescription.test.ts, resetDeload.test.ts).
   useResetStore.setState({ uid: UID, ready: true, s: { ...defaultState(), week: 2 } });
 });
 
