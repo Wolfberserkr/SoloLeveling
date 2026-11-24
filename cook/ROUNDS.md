@@ -17,3 +17,10 @@ Reviewer read the spec and code before any edits and raised 10 risks. The lead t
 - The no-log fallback text has to read fine for bodyweight moves. Timed holds and conditioning get no load text.
 - Ramp-in plus deload halves the sets once. The store refuses to switch off a scheduled deload. SwapModal also has to use the phase.
 - deload_weeks is sanitised wherever it comes in (integers 1..99, deduped, sorted). weekPhase clamps garbage weeks.
+
+## Round 1 · editor build + reviewer pass (13:20 UTC)
+Built: 6-week block calendar (weekPhase), phase-aware prescription on every surface, load targets from dated logs, manual switch (toggleDeload), deload_weeks sync, README, 2 new test files. Commit 9fe48f5.
+Measured: npm test 276/276 (baseline 229), typecheck clean. Reviewer adversarial cases 20/22 pass (2 fails = bodyweight bug). Page width 390 on all 8 phone screens (no overflow).
+Reviewer scores (bar): rules 9 (10) · consistency 9.5 (9.5) · sync 9.5 (9.5) · copy 8 (9) · tests 8.5 (9) · code 9 (9). Verdict NOT YET.
+Findings: [major] bodyweight moves told "go a little heavier" in a new block (also caught by lead); [minor] loaded machines with no logs never told to go lighter in a deload; [minor] static cue "last set all-out" contradicts the deload note; [minor] deload tip is a 12-line right-aligned column at 390 px; [nit] "~65%" → "about 65%".
+Next: round 2, editor fixes all five; reviewer re-checks.
