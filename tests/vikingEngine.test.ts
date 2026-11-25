@@ -29,6 +29,7 @@ class MemoryStore implements VikingStore {
   claims = new Set<string>();
   sent: Array<{ text: string; kb?: Keyboard | null }> = [];
   puts: string[] = [];
+  loads = 0;
   settings: Settings | null = SETTINGS;
   clock = new Date('2026-11-25T18:00:00Z');
   ctx: Ctx = { afterNight: new Set(), windows: {}, wakeAt: {} };
@@ -55,6 +56,7 @@ class MemoryStore implements VikingStore {
   }
 
   async load() {
+    this.loads++;
     const today = this.clock.toISOString().slice(0, 10);
     const plan = this.all('plan');
     const snapshots: Record<string, any> = {}, decisions: Record<string, any> = {};
@@ -73,7 +75,8 @@ class MemoryStore implements VikingStore {
     const ready = Object.values(this.all('garmin_in')).some((x: any) => !x.processedAt && (!x.lastFailedAt || now - Date.parse(x.lastFailedAt) >= 15 * MIN));
     const seen = this.get('plan', 'state')?.healthSeenAt;
     const health = !!this.ctx.healthUpdatedAt && (!seen || Date.parse(this.ctx.healthUpdatedAt) > Date.parse(seen));
-    return ready || health;
+    const hashGone = !this.get('plan', 'current')?.hash;
+    return ready || health || hashGone;
   }
   async put(coll: string, id: string, data: unknown) {
     if (this.failPut.some((f) => f(coll, id))) throw new Error(`put ${coll}/${id} failed`);
@@ -298,6 +301,38 @@ it('engine: fresh health rebuilds today and blocks a stale freeze', async () => 
   await run(s, '2026-11-25T13:01:00Z');
   d0 = (s.get('plan', 'current') as PlanCurrent).days[0];
   expect(d0.ride?.code).toBe('E1');
+});
+
+it('engine: a gated tick never loads', async () => {
+  const s = new MemoryStore();
+  await run(s, T);
+  const loads = s.loads;
+  expect(await run(s, '2026-11-25T18:07:00Z')).toEqual({ imported: 0, ticks: 0, rebuilt: false, calendarOps: 0 });
+  expect(s.loads).toBe(loads);
+  // The vr: confirm button clears the hash: that is work, so the next minute rebuilds.
+  s.set('plan', 'current', { ...s.get('plan', 'current'), hash: '' });
+  expect(await run(s, '2026-11-25T18:08:00Z')).toMatchObject({ rebuilt: true });
+  expect(s.loads).toBe(loads + 1);
+});
+
+it('engine: a ride or settle write error keeps plan/state and resumes next run', async () => {
+  const s = new MemoryStore({
+    cycle: { '2026-11-23_auto_7': { date: '2026-11-23', day: 7, status: 'skip', savedAt: 1 } },
+    rides: { r25: { date: '2026-11-25', type: 'easy', minutes: 30 } },
+  });
+  s.set('plan', 'state', { since: '2026-11-22', settledThrough: '2026-11-22', slidDates: [], ridesSeen: [], resets: {}, suggestions: [], blocks: {} });
+  s.failOnce('cycle'); // the day-8 tick on 24 Nov
+  await run(s, T, '2026-11-22');
+  let st = s.get('plan', 'state') as PlanState;
+  expect(count(s, 'plan/state')).toBe(1);
+  expect(st.settledThrough).toBe('2026-11-23'); // 23 Nov settled (already ticked), 24 Nov not
+  expect(st.ridesSeen).toEqual([]); // the stream stopped before the 25 Nov ride
+  expect(s.all('cycle')['2026-11-24_auto_8']).toBeUndefined();
+  await run(s, later(T, 15), '2026-11-22');
+  st = s.get('plan', 'state') as PlanState;
+  expect(s.all('cycle')['2026-11-24_auto_8']).toMatchObject({ status: 'done' });
+  expect(st.settledThrough).toBe('2026-11-24');
+  expect(st.ridesSeen).toEqual(['r25']);
 });
 
 it('engine: before-since activity is marked processed, not imported', async () => {

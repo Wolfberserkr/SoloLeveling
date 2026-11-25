@@ -19,7 +19,7 @@ import { busyFromEvents, type CalEvent } from '../scheduling.ts';
 
 export interface VikingStore {
   load(): Promise<{ D: VikingData; current: PlanCurrent | null; state: PlanState | null; garmin: Record<string, { mirroredAt: string; hash: string }>; inbox: GarminIn[]; snapshots: Record<string, { session?: SessionKey; targets?: Record<string, Progress> }>; decisions: Record<string, { status: 'ok' | 'no'; decidedAt: string }> }>;
-  hasWork(): Promise<boolean>;                       // a retry-ready garmin_in (no processedAt; no lastFailedAt or 15+ min since it), rides updated in the last 10 min, or today's life_health.updated_at > plan/state.healthSeenAt
+  hasWork(): Promise<boolean>;                       // a retry-ready garmin_in (no processedAt; no lastFailedAt or 15+ min since it), rides updated in the last 10 min, today's life_health.updated_at > plan/state.healthSeenAt, or plan/current is missing or its hash is empty
   put(coll: string, id: string, data: unknown): Promise<void>;
   merge(coll: string, id: string, patch: Record<string, unknown>): Promise<void>; // data = data || patch
   claim(key: string): Promise<boolean>;              // life_nudge_log insert; false if taken
@@ -62,9 +62,9 @@ export async function runVikingTick(
   const nowIso = now.toISOString(), nowMs = now.getTime();
 
   // 1–2. Gate and load.
-  const work = await s.hasWork();
+  // A cleared plan/current hash counts as work (hasWork), so the gate needs no load.
+  if (!(await s.hasWork()) && !on15) return out;
   const L = await s.load();
-  if (!work && !on15 && L.current?.hash) return out;
   const D = L.D;
   if (!D.settings) return out;
 
@@ -117,17 +117,24 @@ export async function runVikingTick(
   let i = 0;
   for (const it of items) {
     const savedAt = nowMs + ++i;
-    if (it.kind === 'ride') {
-      const t = rideTick(D, it.date, savedAt);
-      if (t) await tickPut(t);
-      state.ridesSeen = [...state.ridesSeen, it.id].slice(-KEEP_RIDES);
-      continue;
-    }
-    if (it.kind === 'eod') {
-      const r = endOfDay(D, it.date, savedAt);
-      if (r === 'slid') state.slidDates = [...state.slidDates.filter((x) => x !== it.date), it.date].slice(-KEEP_SLID);
-      else if (r) await tickPut(r);
-      state.settledThrough = it.date;
+    if (it.kind === 'ride' || it.kind === 'eod') {
+      // On a write error, stop the stream: plan/state still saves what was
+      // processed, and the next tick picks up from the failed item.
+      try {
+        if (it.kind === 'ride') {
+          const t = rideTick(D, it.date, savedAt);
+          if (t) await tickPut(t);
+          state.ridesSeen = [...state.ridesSeen, it.id].slice(-KEEP_RIDES);
+        } else {
+          const r = endOfDay(D, it.date, savedAt);
+          if (r === 'slid') state.slidDates = [...state.slidDates.filter((x) => x !== it.date), it.date].slice(-KEEP_SLID);
+          else if (r) await tickPut(r);
+          state.settledThrough = it.date;
+        }
+      } catch (e) {
+        log(`${it.kind} ${it.date} failed; stream stopped until the next tick`, msg(e));
+        break;
+      }
       continue;
     }
 
