@@ -1,6 +1,6 @@
 # Garmin-first training: design
 
-Date: 2026-11-25 · Status: approved approach (option 2) · Revision 5 (after review round 4)
+Date: 2026-11-25 · Status: approved approach (option 2) · Revision 6 (after review round 5)
 
 ## Why
 
@@ -313,10 +313,13 @@ count as recorded, and the next rebuild can advance the target.
   `processedAt` with result `error: <message>`, and one Telegram line goes out:
   "Couldn't read the Garmin session of <date>. Send me the sets, e.g. 'Lower A
   today: squat 3×5 at 110', or ignore this." `viking_fix` can then create the
-  doc. It's never retried after that.
+  doc. It's never retried after that. Only this error message invites
+  `viking_fix`: creating a doc while that date's import is still pending would
+  make the import lose to it (`owner-doc`).
 - **A retry finishes the recap too:** on `already`, the engine writes
-  `result = <docId>`, rebuilds an `ImportResult` from the stored doc (the
-  assumptions come from its `est` flags), and sends the recap under the same
+  `result = <docId>`, rebuilds an `ImportResult` from the stored doc and the
+  `plan/<date>` snapshot, with the same assumption builder the first import
+  uses. Then it sends the recap under the same
   `vkrecap` claim, buttons included.
 
 ### Cycle settling
@@ -374,12 +377,17 @@ plan/garmin = { [date]: { name, workoutId, hash, mirroredAt } }   (written by th
   - `plan/garmin[today].mirroredAt ≥ wake_at`
   - `plan/garmin[today].hash` equals the current plan's hash for today (both
     rest counts as equal), so the freeze captures what is really on the watch
-  - health is **seen**: `plan/state.healthSeenAt ≥` today's
+  - health is **seen**: the `healthSeenAt` **loaded at the start of this tick**
+    (what the stored plan was built with) is ≥ today's
     `life_health.updated_at`, or there's no health row today
+    - So the rebuild that first sees new health never freezes. The routine
+      mirrors the new plan, and a later rebuild freezes it.
 
   A dropped freeze can be taken again under the same rules.
 - **Fresh readiness reaches the watch:**
-  - The routine's health upsert sets `updated_at = now()` on conflict, too. The
+  - The routine's health upsert sets `updated_at = now()` on conflict, too.
+    That costs one extra rebuild per 3-hourly run even when nothing changed,
+    which is intended. Don't "optimise" it away. The
     column defaults to `now()` and has no update trigger, so without that it
     would keep the day's first insert time.
   - Every rebuild writes `plan/state.healthSeenAt` = the `updated_at` of
