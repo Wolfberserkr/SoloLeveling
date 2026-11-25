@@ -66,4 +66,17 @@ it('nextTargets: deload halves sets (rounded up), same kg', () => {
   const v = viking(data({ workouts: { a: workout(day(0), 'LA', [{ ex: 'squat', sets: [S(110, 5)] }]) } }));
   expect(nextTargets(v, 'LA', day(35), {}, {}).squat).toMatchObject({ sets: 2, kg: 110 });
 });
+it('targets: pull-ups at kg 0 progress by reps, never ignored', () => {
+  const pu = EXBY.pullup;
+  expect(progressFor(pu, [{ date: day(0), sets: [S(0, 6)] }], undefined, 3)).toMatchObject({ kg: null, assistKg: null, reps: 7 });
+  // assist -2.5 hit -> unassisted (assistKg null), then bodyweight reps climb
+  const a = progressFor(pu, [{ date: day(0), sets: [S(-2.5, 10), S(-2.5, 10), S(-2.5, 10)] }], undefined, 3);
+  expect(a).toMatchObject({ kg: null, assistKg: null, reps: 6 });
+  expect(a.note).not.toMatch(/0 kg/);
+  const b = progressFor(pu, [{ date: day(0), sets: [S(-2.5, 10), S(-2.5, 10), S(-2.5, 10)] }, { date: day(8), sets: [S(0, 8)] }], undefined, 3);
+  expect(b).toMatchObject({ kg: null, assistKg: null, reps: 9 });
+  expect(progressFor(pu, [{ date: day(0), sets: [S(0, 10)] }], undefined, 3)).toMatchObject({ reps: 10, note: 'Top of range: slow the tempo' });
+  // cap at 0: never positive
+  expect(progressFor(pu, [{ date: day(0), sets: [S(-1, 10), S(-1, 10), S(-1, 10)] }], undefined, 3).assistKg ?? 0).toBeLessThanOrEqual(0);
+});
 });

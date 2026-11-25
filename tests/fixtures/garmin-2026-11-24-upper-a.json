@@ -1,0 +1,338 @@
+{
+ "activityId": "25182355443",
+ "name": "Viking Upper A",
+ "date": "2026-11-24",
+ "start": "2026-11-24T06:14",
+ "startUtc": "2026-11-24T10:14:52Z",
+ "insertedAt": "2026-11-25T20:00:00Z",
+ "sets": [
+  {
+   "category": "BENCH_PRESS",
+   "name": "BARBELL_BENCH_PRESS",
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 0
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 1
+  },
+  {
+   "category": "BENCH_PRESS",
+   "name": "BARBELL_BENCH_PRESS",
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 0
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 1
+  },
+  {
+   "category": "BENCH_PRESS",
+   "name": "BARBELL_BENCH_PRESS",
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 0
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 1
+  },
+  {
+   "category": "ROW",
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 3
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 4
+  },
+  {
+   "category": "ROW",
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 3
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 4
+  },
+  {
+   "category": "ROW",
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 3
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 4
+  },
+  {
+   "category": "SHOULDER_PRESS",
+   "name": "DUMBBELL_SHOULDER_PRESS",
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 6
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 7
+  },
+  {
+   "category": "SHOULDER_PRESS",
+   "name": "DUMBBELL_SHOULDER_PRESS",
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 6
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 7
+  },
+  {
+   "category": "SHOULDER_PRESS",
+   "name": "DUMBBELL_SHOULDER_PRESS",
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 6
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 7
+  },
+  {
+   "category": "PULL_UP",
+   "name": "LAT_PULLDOWN",
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 9
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 10
+  },
+  {
+   "category": "PULL_UP",
+   "name": "LAT_PULLDOWN",
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 9
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 10
+  },
+  {
+   "category": "PULL_UP",
+   "name": "LAT_PULLDOWN",
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 9
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 10
+  },
+  {
+   "category": "BENCH_PRESS",
+   "name": "INCLINE_DUMBBELL_BENCH_PRESS",
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 12
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 13
+  },
+  {
+   "category": "BENCH_PRESS",
+   "name": "INCLINE_DUMBBELL_BENCH_PRESS",
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 12
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 13
+  },
+  {
+   "category": "LATERAL_RAISE",
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 15
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 16
+  },
+  {
+   "category": "LATERAL_RAISE",
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 15
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 16
+  },
+  {
+   "category": "LATERAL_RAISE",
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 15
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 16
+  },
+  {
+   "category": "CURL",
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 18
+  },
+  {
+   "category": "TRICEPS_EXTENSION",
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 19
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 20
+  },
+  {
+   "category": "CURL",
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 18
+  },
+  {
+   "category": "TRICEPS_EXTENSION",
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 19
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 20
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": null
+  }
+ ]
+}

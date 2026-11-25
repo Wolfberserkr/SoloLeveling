@@ -1,0 +1,122 @@
+{
+ "activityId": "25139907539",
+ "name": "Viking Upper B · deload (Fri 20",
+ "date": "2026-11-20",
+ "start": "2026-11-20T07:00",
+ "startUtc": "2026-11-20T11:00:59Z",
+ "insertedAt": "2026-11-25T20:00:00Z",
+ "sets": [
+  {
+   "category": "BENCH_PRESS",
+   "name": "INCLINE_BARBELL_BENCH_PRESS",
+   "reps": null,
+   "weightG": 60000,
+   "type": "ACTIVE",
+   "idx": 0
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 1
+  },
+  {
+   "category": "BENCH_PRESS",
+   "name": "INCLINE_BARBELL_BENCH_PRESS",
+   "reps": null,
+   "weightG": 60000,
+   "type": "ACTIVE",
+   "idx": 0
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 1
+  },
+  {
+   "category": "PULL_UP",
+   "name": "PULL_UP",
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 3
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 4
+  },
+  {
+   "category": "PULL_UP",
+   "name": "PULL_UP",
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": 3
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 4
+  },
+  {
+   "category": "SHOULDER_PRESS",
+   "name": null,
+   "reps": null,
+   "weightG": 40000,
+   "type": "ACTIVE",
+   "idx": 6
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 7
+  },
+  {
+   "category": "SHOULDER_PRESS",
+   "name": null,
+   "reps": null,
+   "weightG": 40000,
+   "type": "ACTIVE",
+   "idx": 6
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 7
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": null
+  },
+  {
+   "category": "UNKNOWN",
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "ACTIVE",
+   "idx": null
+  }
+ ]
+}

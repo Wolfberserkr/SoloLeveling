@@ -1,0 +1,234 @@
+{
+ "activityId": "25193624779",
+ "name": "Viking Lower A",
+ "date": "2026-11-25",
+ "start": "2026-11-25T06:11",
+ "startUtc": "2026-11-25T10:11:12Z",
+ "insertedAt": "2026-11-25T20:00:00Z",
+ "sets": [
+  {
+   "category": "SQUAT",
+   "name": "BARBELL_BACK_SQUAT",
+   "reps": null,
+   "weightG": 110000,
+   "type": "ACTIVE",
+   "idx": 0
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 1
+  },
+  {
+   "category": "SQUAT",
+   "name": "BARBELL_BACK_SQUAT",
+   "reps": null,
+   "weightG": 110000,
+   "type": "ACTIVE",
+   "idx": 0
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 1
+  },
+  {
+   "category": "SQUAT",
+   "name": "BARBELL_BACK_SQUAT",
+   "reps": null,
+   "weightG": 110000,
+   "type": "ACTIVE",
+   "idx": 0
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 1
+  },
+  {
+   "category": "DEADLIFT",
+   "name": "ROMANIAN_DEADLIFT",
+   "reps": 5,
+   "weightG": 120000,
+   "type": "ACTIVE",
+   "idx": 3
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 4
+  },
+  {
+   "category": "DEADLIFT",
+   "name": "ROMANIAN_DEADLIFT",
+   "reps": 10,
+   "weightG": 110000,
+   "type": "ACTIVE",
+   "idx": 3
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 4
+  },
+  {
+   "category": "SQUAT",
+   "name": "LEG_PRESS",
+   "reps": 10,
+   "weightG": 120000,
+   "type": "ACTIVE",
+   "idx": 6
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 7
+  },
+  {
+   "category": "SQUAT",
+   "name": "LEG_PRESS",
+   "reps": 10,
+   "weightG": 120000,
+   "type": "ACTIVE",
+   "idx": 6
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 7
+  },
+  {
+   "category": "LEG_CURL",
+   "name": "LEG_CURL",
+   "reps": 12,
+   "weightG": 54000,
+   "type": "ACTIVE",
+   "idx": 9
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 10
+  },
+  {
+   "category": "LEG_CURL",
+   "name": "LEG_CURL",
+   "reps": 12,
+   "weightG": 54000,
+   "type": "ACTIVE",
+   "idx": 9
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 10
+  },
+  {
+   "category": "LEG_CURL",
+   "name": "LEG_CURL",
+   "reps": 12,
+   "weightG": 54000,
+   "type": "ACTIVE",
+   "idx": 9
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 10
+  },
+  {
+   "category": "CALF_RAISE",
+   "name": "STANDING_CALF_RAISE",
+   "reps": 15,
+   "weightG": 82000,
+   "type": "ACTIVE",
+   "idx": 12
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 13
+  },
+  {
+   "category": "CALF_RAISE",
+   "name": "STANDING_CALF_RAISE",
+   "reps": 15,
+   "weightG": 82000,
+   "type": "ACTIVE",
+   "idx": 12
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 13
+  },
+  {
+   "category": "CALF_RAISE",
+   "name": "STANDING_CALF_RAISE",
+   "reps": 15,
+   "weightG": 82000,
+   "type": "ACTIVE",
+   "idx": 12
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 13
+  },
+  {
+   "category": "CRUNCH",
+   "name": "CRUNCH",
+   "reps": 15,
+   "weightG": 82000,
+   "type": "ACTIVE",
+   "idx": 15
+  },
+  {
+   "category": null,
+   "name": null,
+   "reps": null,
+   "weightG": null,
+   "type": "REST",
+   "idx": 16
+  }
+ ]
+}

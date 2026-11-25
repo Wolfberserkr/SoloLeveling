@@ -20,7 +20,7 @@ export function resetKg(top: number, inc: IncKey): number {
 }
 
 const repsReal = (s: SetEntry) => !s.est?.includes('reps');
-const kgReal = (s: SetEntry, pull: boolean) => (pull ? s.kg < 0 : s.kg > 0) && !s.est?.includes('kg');
+const kgReal = (s: SetEntry, pull: boolean) => (pull ? s.kg <= 0 : s.kg > 0) && !s.est?.includes('kg');
 
 function stalledOf(bests: number[]): boolean {
   if (bests.length < 4) return false;
@@ -71,10 +71,11 @@ export function progressFor(
   const heldReps = Math.min(...last.sets.map((s) => s.reps));
   const stalled = !hit && stalledOf(bests);
 
-  if (bw) {
-    if (unknown) return out(null, heldReps, 'Reps not recorded: same target', { repsUnknown: true, stalled });
+  // A pull-up whose last session was unassisted (kg 0) climbs reps like a bodyweight move.
+  if (bw || (pull && lastTop === 0)) {
+    if (unknown) return out(null, heldReps, 'Reps not recorded: same target', { assistKg: pull ? null : undefined, repsUnknown: true, stalled });
     const next = lowest + 1;
-    return out(null, next, next >= hi ? 'Top of range: slow the tempo' : 'Beat last time by a rep', { stalled });
+    return out(null, next, next >= hi ? 'Top of range: slow the tempo' : 'Beat last time by a rep', { assistKg: pull ? null : undefined, stalled });
   }
 
   if (pull) {
@@ -82,6 +83,8 @@ export function progressFor(
     if (unknown) return out(null, heldReps, 'Reps not recorded: same target', { assistKg: assist, repsUnknown: true, stalled, lastTop: assist });
     if (hit) {
       const a = Math.min(0, r1(assist + 2.5));
+      // assistKg is null once unassisted: nothing to show on the watch.
+      if (a === 0) return out(null, lo, 'No assist left: bodyweight next', { assistKg: null, stalled, lastTop: assist });
       return out(null, lo, `Less assist: ${Math.abs(a)} kg`, { assistKg: a, stalled, lastTop: assist });
     }
     return out(null, lowest + 1, 'Same assist, beat last time by a rep', { assistKg: assist, stalled, lastTop: assist });
