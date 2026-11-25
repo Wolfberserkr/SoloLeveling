@@ -1,6 +1,6 @@
 # Garmin-first training: design
 
-Date: 2026-11-25 · Status: approved approach (option 2) · Revision 3 (after review round 2)
+Date: 2026-11-25 · Status: approved approach (option 2) · Revision 4 (after review round 3)
 
 ## Why
 
@@ -254,6 +254,8 @@ ignored and not counted.
 - **`pull`:** the watch never carries weight on it. A null weight is
   **recorded**, not assumed. kg = the planned `assistKg` (≤ 0), or 0 with no
   assist planned, and **not** marked `est`. Only missing reps are `est`.
+  - When the planned assist is below 0, the recap still says so: "Pull-up:
+    assist taken as 17.5 kg (the watch can't record it)".
 - **Dated before `since`:** marked processed with result `before switch-on`, and
   not imported.
 - **Fewer sets than planned** (snapshot, else `setCount`): noted "2 of 3 sets".
@@ -297,8 +299,17 @@ count as recorded, and the next rebuild can advance the target.
 - The workout, the tick and `processedAt` are written first.
 - The recap is sent afterwards, best-effort, under its own claim
   `vkrecap:<activityId>`. A failed send is logged and never blocks the import.
+  The log line names `viking_fix`/`viking_status`, the chat route for any
+  confirms that were lost.
 - If anything throws between the `vkimp` claim and `processedAt`, the claim is
   released, so the next tick retries.
+- **A retry finishes the job:** when the workout doc already holds this
+  activity (`already`), the engine still runs the tick (idempotent by id) and
+  writes `processedAt`.
+- **Poison docs:** each failure adds 1 to `garmin_in.attempts`. On the third
+  failure the doc gets `processedAt` with result `error: <message>`, and one
+  Telegram line goes out ("Couldn't read the Garmin session of <date>. Tell me
+  the sets, or I'll skip it."). It's never retried after that.
 
 ### Cycle settling
 
@@ -350,9 +361,24 @@ plan/garmin = { [date]: { name, workoutId, hash, mirroredAt } }   (written by th
   - the frozen day's `cycleDay` still equals the current cycle day, and
   - today has no workout or tick.
 
-  A late import that moves the cycle drops it. The routine also skips
-  mirroring *today* while any `garmin_in` doc is unprocessed (the next run
-  catches up).
+  A late import that moves the cycle drops it.
+- **A freeze is taken only when all of these hold:**
+  - `plan/garmin[today].mirroredAt ≥ wake_at`
+  - `plan/garmin[today].hash` equals the current plan's hash for today (both
+    rest counts as equal), so the freeze captures what is really on the watch
+  - `plan/current.builtAt` is after today's `life_health.updated_at`, so
+    readiness was already applied
+
+  A dropped freeze can be taken again under the same rules.
+- **Fresh readiness reaches the watch:** `hasWork` is also true when today's
+  `life_health.updated_at` is after `plan/current.builtAt`, so the tick
+  rebuilds within a minute of the routine writing health.
+  - The routine's briefing and mirror check that `plan/current.builtAt` is
+    after today's `life_health.updated_at`.
+  - If it isn't, they do the other steps first and check again. If it's still
+    stale, the briefing says "as of HH:MM", and the mirror skips *today*.
+- The mirror also skips *today* while any `garmin_in` doc is unprocessed and
+  was inserted less than 6 h ago (its `insertedAt`). The next run catches up.
 - **Descriptions:** `Project Viking week <n> · <phase name>`, plus the swap
   reason when there is one, plus `Train <train_window>` when the day has one
   (passed in through `PlanCtx.windows`). This is written **before**
@@ -371,8 +397,9 @@ plan/garmin = { [date]: { name, workoutId, hash, mirroredAt } }   (written by th
 
 ### Garmin mirror (routine, every run when the switch is on)
 
-For each day from today to +6 in `plan/current.days`. Skip *today* while any
-`garmin_in` doc has `processedAt` null.
+For each day from today to +6 in `plan/current.days`. Skip *today* under the
+two staleness rules in The plan section (unprocessed `garmin_in` younger than
+6 h; plan built before today's health).
 1. With a `garmin` entry:
    - `plan/garmin[date]` has the same hash and its workout still exists: keep
      it, and set `mirroredAt = now`.
@@ -482,7 +509,11 @@ drop their records. A stale `plan/current` is fine; the next run catches up.
 
   This way a night shift's 05:30 evening-shutdown reminder still gets its
   chance. Its Google copy is deleted, and the next occurrence on or after today
-  is created. The check runs every 15 min.
+  is created. The check runs every 15 min. A task due before yesterday is
+  always rolled, snoozed or not.
+- **Completing a Habit late doesn't skip a day.** For Habits, the next
+  occurrence is `nextOccurrence(max(due_on, yesterday), recur)`. So an evening
+  shutdown due D and ticked at 05:30 on D+1 comes back for D+1, not D+2.
 - **Weekly counts:** done = `done_at` set and `skipped_at` null.
 
 ### App and Ascend
@@ -509,25 +540,30 @@ drop their records. A stale `plan/current` is fine; the next run catches up.
 Every step waits for the owner's go-ahead.
 
 1. **Merge PR 1** with the switch off. The code is inert.
-2. **Save the current trigger prompts** (sync, weekly) to
-   `life/routines/previous/` and commit them. That's the rollback copy.
-3. **Clean out old workouts.** Using the Garmin connector, unschedule and
-   delete the dated `Viking … (…)` workouts the *old* routine made for today
-   and later. They have no `[viking:` marker. Never touch the four library
-   workouts. This prevents same-name duplicates.
-4. **Go live, together within minutes:**
-   - update the trigger prompts (sync, weekly → Saturday, new monthly)
-   - switch on with `since = 2026-11-24`
-   - fire the sync
+2. **Save the current trigger prompts and schedules** (sync, weekly: prompt
+   text and cron) to `life/routines/previous/`, and commit them. That's the
+   rollback copy.
+3. **Go live, together within minutes:**
+   - Update the sync prompt first. The switch is still off, so the new prompt
+     leaves Garmin alone, and the old one can no longer reschedule anything.
+   - **One-time cleanup**, the single exception to "Jarvis deletes only what's
+     in `plan/garmin`": with the Garmin connector, unschedule and delete the
+     dated `Viking … (…)` workouts the *old* routine made for today and later
+     (no `[viking:` marker). Unschedule, but keep, the four library workouts.
+   - Update the weekly prompt (→ Saturday) and create the monthly one.
+   - Switch on with `since = 2026-11-24`.
+   - Fire the sync.
 5. **Check** the imports, recaps, plan, watch and calendar. Then seed the
    habits.
 6. **After a few good days, merge PR 2** (read-only app, Ascend retired, cron
-   job off).
+   job off). Before merging, save the `ascend-reminders` job's schedule and
+   command to `life/routines/previous/ascend-cron.sql`.
 
 **Rollback:**
 - switch off
-- restore the saved prompts from `life/routines/previous/`
-- revert PR 2 if it's merged
+- restore the saved prompts **and crons** from `life/routines/previous/`
+  (weekly back to Sun 18:47), and disable the monthly one
+- if PR 2 is merged, revert it and re-run `ascend-cron.sql`
 
 The old Sunday routine then schedules the library workouts again, and the app
 logger is back.
