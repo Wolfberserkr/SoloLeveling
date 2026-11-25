@@ -1,6 +1,6 @@
 # Garmin-first training: design
 
-Date: 2026-11-25 · Status: approved approach (option 2) · Revision 4 (after review round 3)
+Date: 2026-11-25 · Status: approved approach (option 2) · Revision 5 (after review round 4)
 
 ## Why
 
@@ -306,10 +306,18 @@ count as recorded, and the next rebuild can advance the target.
 - **A retry finishes the job:** when the workout doc already holds this
   activity (`already`), the engine still runs the tick (idempotent by id) and
   writes `processedAt`.
-- **Poison docs:** each failure adds 1 to `garmin_in.attempts`. On the third
-  failure the doc gets `processedAt` with result `error: <message>`, and one
-  Telegram line goes out ("Couldn't read the Garmin session of <date>. Tell me
-  the sets, or I'll skip it."). It's never retried after that.
+- **Retry spacing and poison docs:** each failure merges
+  `{attempts, firstFailedAt, lastFailedAt}` into the doc (a jsonb merge, never
+  a replace). A failed doc is retried only once 15 min have passed since
+  `lastFailedAt`. After at least 3 failures over at least 1 h, it gets
+  `processedAt` with result `error: <message>`, and one Telegram line goes out:
+  "Couldn't read the Garmin session of <date>. Send me the sets, e.g. 'Lower A
+  today: squat 3×5 at 110', or ignore this." `viking_fix` can then create the
+  doc. It's never retried after that.
+- **A retry finishes the recap too:** on `already`, the engine writes
+  `result = <docId>`, rebuilds an `ImportResult` from the stored doc (the
+  assumptions come from its `est` flags), and sends the recap under the same
+  `vkrecap` claim, buttons included.
 
 ### Cycle settling
 
@@ -366,17 +374,24 @@ plan/garmin = { [date]: { name, workoutId, hash, mirroredAt } }   (written by th
   - `plan/garmin[today].mirroredAt ≥ wake_at`
   - `plan/garmin[today].hash` equals the current plan's hash for today (both
     rest counts as equal), so the freeze captures what is really on the watch
-  - `plan/current.builtAt` is after today's `life_health.updated_at`, so
-    readiness was already applied
+  - health is **seen**: `plan/state.healthSeenAt ≥` today's
+    `life_health.updated_at`, or there's no health row today
 
   A dropped freeze can be taken again under the same rules.
-- **Fresh readiness reaches the watch:** `hasWork` is also true when today's
-  `life_health.updated_at` is after `plan/current.builtAt`, so the tick
-  rebuilds within a minute of the routine writing health.
-  - The routine's briefing and mirror check that `plan/current.builtAt` is
-    after today's `life_health.updated_at`.
-  - If it isn't, they do the other steps first and check again. If it's still
-    stale, the briefing says "as of HH:MM", and the mirror skips *today*.
+- **Fresh readiness reaches the watch:**
+  - The routine's health upsert sets `updated_at = now()` on conflict, too. The
+    column defaults to `now()` and has no update trigger, so without that it
+    would keep the day's first insert time.
+  - Every rebuild writes `plan/state.healthSeenAt` = the `updated_at` of
+    today's health row it used. It's written whether or not the plan hash
+    changed; `plan/current.builtAt` moves only when the plan does, so it can't
+    serve.
+  - `hasWork` is true when today's `life_health.updated_at > healthSeenAt`, so
+    the tick rebuilds within a minute of the routine writing health.
+  - No health row today counts as seen.
+  - The routine's briefing and mirror use the same "seen" test. If it fails,
+    they do the other steps first and check again. If it still fails, the
+    briefing says "as of HH:MM", and the mirror skips *today*.
 - The mirror also skips *today* while any `garmin_in` doc is unprocessed and
   was inserted less than 6 h ago (its `insertedAt`). The next run catches up.
 - **Descriptions:** `Project Viking week <n> · <phase name>`, plus the swap
@@ -457,8 +472,12 @@ drop their records. A stale `plan/current` is fine; the next run catches up.
 - `viking_status`: today's plan and the next gym day's targets. It returns a
   summary, never the DTOs. It also covers the last session, its assumptions,
   and any reps or kg still waiting for a correction.
-- `viking_fix`: correct a logged set. A fix clears that set's `est` and
-  `plan/current.hash`.
+- `viking_fix`: correct a logged set, or create a session that couldn't be
+  read.
+  - It clears that set's `est` and `plan/current.hash`.
+  - When `workouts/<date>_<session>` doesn't exist yet, it creates it with no
+    `source`, so the owner's version wins over any later import, and writes the
+    cycle tick (`gymTick`).
 
 ### Weekly briefing (Saturday 18:39)
 
@@ -553,9 +572,9 @@ Every step waits for the owner's go-ahead.
    - Update the weekly prompt (→ Saturday) and create the monthly one.
    - Switch on with `since = 2026-11-24`.
    - Fire the sync.
-5. **Check** the imports, recaps, plan, watch and calendar. Then seed the
+4. **Check** the imports, recaps, plan, watch and calendar. Then seed the
    habits.
-6. **After a few good days, merge PR 2** (read-only app, Ascend retired, cron
+5. **After a few good days, merge PR 2** (read-only app, Ascend retired, cron
    job off). Before merging, save the `ascend-reminders` job's schedule and
    command to `life/routines/previous/ascend-cron.sql`.
 

@@ -15,7 +15,7 @@
 - Nothing under `src/features/reset/`, no `reset_*` table, and no `tests/reset*.test.ts` changes. `npm test` stays green, Reset included.
 - `supabase/functions/_shared/**` uses explicit `.ts` imports and no Node, Deno or DOM APIs. Time is passed in.
 - Exercise, session and ride keys are frozen. The `workouts` id stays `<YYYY-MM-DD>_<SessionKey>`. Tick ids are `<date>_auto_<day>`.
-- Garmin: only names starting `Viking ` are touched. The single exception is the one-time rollout cleanup in Task 14 step 3.
+- Garmin: only names starting `Viking ` are touched. The single exception is the one-time rollout cleanup in Task 14 step 3.2.
   - The four library workouts (`Viking Upper A`, `Viking Upper B`, `Viking Lower A`, `Viking Lower B`) may be **unscheduled**, but are never edited or deleted.
   - Jarvis deletes only workouts recorded in `plan/garmin`.
 - HR targets in bpm: Z1 90–114 · Z2 115–135 · Z3 136–150 · Z4 151–167 · Z5 168–186 (`workoutTargetTypeId` 4, never `zoneNumber`).
@@ -542,20 +542,22 @@ Rules: the spec's Google Calendar blocks section.
   - `suggestionKeyboard(s: Suggestion): Keyboard`, where `Keyboard` is `Array<Array<{ text: string; data: string }>>`. It's defined in `recap.ts`, structurally the same as life-bot's.
   - `confirmKeyboard(r: ImportResult, activityId: string): Keyboard | null`. One row per exercise with `est` reps, at most 4: `✅ <shortName> as planned` → `vr:<activityId>:<exKey>`. Then a last row, `✅ All as planned` → `vr:<activityId>:all`. It's null when no reps were assumed.
   - `confirmReps(doc: WorkoutDoc, ex: string | 'all'): WorkoutDoc`: removes `'reps'` from `est` on those sets, and drops `est` when it's empty.
+  - `resultFromDoc(doc: WorkoutDoc, docId: string, session: SessionKey): ImportResult`: assumptions rebuilt from the `est` flags with the same copy; `dropped 0`, `merged false`.
   - The store interface:
 
 ```ts
 export interface VikingStore {
   load(): Promise<{ D: VikingData; current: PlanCurrent | null; state: PlanState | null; garmin: Record<string, { mirroredAt: string; hash: string }>; inbox: GarminIn[]; snapshots: Record<string, { session?: SessionKey; targets?: Record<string, Progress> }>; decisions: Record<string, { status: 'ok' | 'no'; decidedAt: string }> }>;
-  hasWork(): Promise<boolean>;                       // any garmin_in without processedAt, rides updated in the last 10 min, or today's life_health.updated_at > plan/current.builtAt
+  hasWork(): Promise<boolean>;                       // a retry-ready garmin_in (no processedAt; no lastFailedAt or 15+ min since it), rides updated in the last 10 min, or today's life_health.updated_at > plan/state.healthSeenAt
   put(coll: string, id: string, data: unknown): Promise<void>;
+  merge(coll: string, id: string, patch: Record<string, unknown>): Promise<void>; // data = data || patch
   claim(key: string): Promise<boolean>;              // life_nudge_log insert; false if taken
   release(key: string): Promise<void>;               // delete that life_nudge_log key (life-bot may delete; the no-DELETE rule is for routines)
   send(text: string, kb?: Keyboard | null): Promise<void>;
   context(today: string): Promise<{ afterNight: Set<string>; health?: Health; healthUpdatedAt?: string; windows: Record<string, string>; wakeAt: Record<string, string> }>;
   calendar: null | { list(from: Date, to: Date): Promise<{ events: CalEvent[]; live: boolean }>; create(b: Block): Promise<string>; update(id: string, b: Block): Promise<void>; remove(id: string): Promise<void> };
 }
-export type PlanState = { since: string; settledThrough: string; slidDates: string[]; ridesSeen: string[]; resets: Resets; suggestions: Suggestion[]; blocks: Record<string, BlockState>; frozen?: { date: string; day: PlanDay } };
+export type PlanState = { since: string; settledThrough: string; healthSeenAt?: string; slidDates: string[]; ridesSeen: string[]; resets: Resets; suggestions: Suggestion[]; blocks: Record<string, BlockState>; frozen?: { date: string; day: PlanDay } };
 export function runVikingTick(s: VikingStore, now: Date, tz: string, since: string): Promise<{ imported: number; ticks: number; rebuilt: boolean; calendarOps: number }>;
 ```
 - `load()` returns `inbox` sorted by `start`. `snapshots` covers the last 14 days only. `D` holds only settings + `COLLS`.
@@ -578,10 +580,14 @@ export function runVikingTick(s: VikingStore, now: Date, tz: string, since: stri
    - **Activity:**
      - `if (!(await s.claim('vkimp:' + id))) continue`.
      - Inside `try`: run `importStrength`, then put `workouts`, then `gymTick` and put it, then put `garmin_in` with `processedAt`, `result: <docId>` and `dropped`. Update the in-memory `D`. Remove any tick date from `slidDates`.
-     - On `skip: 'already'` (this activity is already in the doc, e.g. a retry after a failed tick write): still run `gymTick` (idempotent by id) and put it, then put `processedAt`.
+     - Skip a doc whose `lastFailedAt` is less than 15 min ago.
+     - On `skip: 'already'` (this activity is already in the doc, e.g. a retry after a failed tick write):
+       - Still run `gymTick` (idempotent by id) and put it.
+       - Put `garmin_in` with `processedAt`, `result: <docId>` and `dropped: 0`.
+       - Then send the recap like a new import, from `resultFromDoc(doc, docId, session)` (recap.ts).
      - `catch`:
-       - Put the `garmin_in` doc with `attempts + 1`, best-effort, and `await s.release('vkimp:' + id)`.
-       - When `attempts + 1 ≥ 3`: put `processedAt` with `result: 'error: <message>'`, and send (best-effort, claim `vkerr:<id>`) `Couldn't read the Garmin session of <date>. Tell me the sets, or I'll skip it.`.
+       - Merge `{ attempts: n + 1, firstFailedAt: firstFailedAt ?? now, lastFailedAt: now }` into the `garmin_in` doc, best-effort, with `s.merge`. Then `await s.release('vkimp:' + id)`.
+       - When `attempts ≥ 3` and `now − firstFailedAt ≥ 1 h`: merge `processedAt` and `result: 'error: <message>'`, and send (best-effort, claim `vkerr:<id>`) the spec's poison copy.
        - Log, and continue with the next item.
      - After the try, best-effort: `if (await s.claim('vkrecap:' + id))`, `send(recapText(...), confirmKeyboard(...))` in its own try/catch. It's never rethrown, and the log line says `recap lost; owner can use viking_status/viking_fix`. `before` = `nextTargets` on the D before the import; `after` = on the D after.
      - On `skip`: put `processedAt`/`result`; send one line only for `not-viking`, under the same recap claim.
@@ -593,14 +599,14 @@ export function runVikingTick(s: VikingStore, now: Date, tz: string, since: stri
      - no valid freeze exists (`state.frozen?.date !== today`, or its `cycleDay` ≠ the current cycle day)
      - `garmin[today]?.mirroredAt ≥ wakeAt[today]`
      - `garmin[today].hash === that day's garmin?.hash`, or both are rest
-     - `current.builtAt > healthUpdatedAt`
+     - health is seen: `!healthUpdatedAt || state.healthSeenAt ≥ healthUpdatedAt`, using the value this rebuild will store
 
      `planAhead` applies the hold conditions itself.
    - Then `planAhead` with `windows`.
    - Put `plan/current` only when `hashOf({ days, pending })` differs.
    - Put `plan/<today>` (no DTOs) only while today has no workout or tick.
    - Put `plan/weekly` = `weekSummary(...)`.
-   - Put `plan/state`.
+   - Put `plan/state` with `healthSeenAt = healthUpdatedAt ?? state.healthSeenAt`, on every rebuild whatever the hash.
 6. **Calendar.** If `s.calendar` is set and (the plan changed or minute % 15 === 0):
    - `list` from today to +7. If `live` is false, skip.
    - Otherwise: `desiredBlocks` (busy = events without `viking:`), then `reconcile`, then apply the ops, then store `state.blocks`.
@@ -619,8 +625,9 @@ export function runVikingTick(s: VikingStore, now: Date, tz: string, since: stri
     - `engine: a confirmed session advances`: after one import, apply `confirmReps(doc, 'all')` to the stored doc. With squat sets then 3 × 5 recorded, the next squat target is 110 × 6.
     - `engine: a failed send never loses the import`: `send` throws → the workouts doc, tick and `processedAt` are all written, and a second run sends nothing new (the recap claim was taken).
     - `engine: a throw after the claim releases it`: make the first `put('workouts', …)` throw → `vkimp:<id>` is released, `processedAt` is unset, and the next run imports it.
-    - `engine: a throw on the cycle put still ticks on retry`: the first `put('cycle', …)` throws (the workout was written) → the next run returns `already`, writes the tick and `processedAt`, and `plan/current.days[0]` moves on.
-    - `engine: a poison doc gives up after 3 tries`: a doc with `sets: null` throws → after the 3rd run it has `processedAt` with `result` starting `error:`, one error message is sent, and `hasWork` (the memory store's version) is false.
+    - `engine: a throw on the cycle put still ticks on retry`: the first `put('cycle', …)` throws (the workout was written). Advance the fake clock 15 min. The next run returns `already`, writes the tick, `processedAt` and `result = docId`, sends exactly one recap with confirm buttons, and `plan/current.days[0]` moves on.
+    - `engine: a poison doc gives up after 3 tries over an hour`: a doc with `sets: null` throws. Runs at +0, +1 min (skipped: too soon), +15, +30 → still unprocessed (3 failures, under 1 h). The run at +75 gives up: `processedAt` set, `result` starting `error:`, one error message, `sets` still in the doc (a merge, not a replace), and the memory store's `hasWork` is false.
+    - `engine: health seen without a plan change`: a gym-day plan, then `healthUpdatedAt` moves with OK readiness → one rebuild, `plan/current` not rewritten (same hash), `state.healthSeenAt` updated, and `hasWork` false afterwards.
     - `engine: fresh health rebuilds today and blocks a stale freeze`: `healthUpdatedAt` after `builtAt` with `hrvStatus 'LOW'` → today's H1 becomes E1, and no freeze is taken from the pre-health plan.
     - `engine: before-since activity is marked processed, not imported`.
     - `engine: today's snapshot is not overwritten after today is logged`.
@@ -640,11 +647,15 @@ export function runVikingTick(s: VikingStore, now: Date, tz: string, since: stri
 - Produces:
   - `supabaseStore(db: Db, userId: string, chatId: number, tz: string): VikingStore`
     - `load` pages by 1000 over `viking_docs` for `coll in (settings + COLLS)`; `garmin_in` where `processedAt` is null; `plan` for `doc_id in ('current','state','garmin','weekly')`; and `plan` snapshots for the last 14 dates.
-    - `hasWork` is a `count` head query over the partial index from Task 2, plus rides `updated_at > now − 10 min`.
-    - `context` reads confirmed `life_shifts` (afterNight: the local dates on which a confirmed shift ends between 00:00 and 08:00 local, as in Task 6), `life_health` today, and `life_day_plan` (`train_window`, `wake_at`) for today..+7.
+    - `hasWork` is true when any of these hold:
+      - a `count` head query over the partial index from Task 2 finds a doc whose `lastFailedAt` is missing or 15+ min old
+      - rides have `updated_at > now − 10 min`
+      - today's `life_health.updated_at` > `plan/state.data->>'healthSeenAt'` (true when the state doc is missing)
+    - `merge(coll, id, patch)` is an `update viking_docs set data = data || patch` (insert when the row is missing).
+    - `context` returns `healthUpdatedAt` = today's `life_health.updated_at`, or undefined with no row. It also reads confirmed `life_shifts` (afterNight: the local dates on which a confirmed shift ends between 00:00 and 08:00 local, as in Task 6), `life_health` today, and `life_day_plan` (`train_window`, `wake_at`) for today..+7.
     - `calendar` is `null` when `!gcalEnabled()`. Otherwise it wraps `liveEvents` and `bridge.create/update/remove`, with description `[jarvis] training · viking:<date>` and `remindersMin: [30]`.
   - `tick.ts`: after step 1, `if (readPrefsRaw.vikingGarmin === true) await runVikingTick(supabaseStore(...), now, tz, prefs.vikingGarminSince ?? today)`, inside try/catch with `console.error('life tick: viking failed', err)`. Read the raw prefs, since `readPrefs` may drop unknown keys; check `readPrefs` in lifeLogic and extend `LifePrefs` with `vikingGarmin?: boolean; vikingGarminSince?: string` if needed.
-  - `release(key)`: `db.from('life_nudge_log').delete().eq('user_id', userId).eq('key', key)`.
+  - `release(key)`: `db.from('life_nudge_log').delete().eq('user_id', userId).eq('key', key)`. The `vk*` claims are otherwise pruned by the existing `life-cleanup` cron after 120 days (`03_life_cron.sql`).
   - `index.ts` callback `vk:<id>:ok|no`:
     - It reads `plan/state` to find the suggestion. If it's missing, or `plan/decision-<id>` already exists, it answers "Already handled".
     - Otherwise it upserts `plan/decision-<id>` = `{ status, decidedAt: now }`, **never** `plan/state`. Then it sets `plan/current.hash = null` (a jsonb update of that key only) and settles the buttons: `✅ Next <shortName>: <kg> kg` / `✖️ Keeping the weight`.
@@ -656,7 +667,7 @@ export function runVikingTick(s: VikingStore, now: Date, tz: string, since: stri
   - `supabaseStore.load` also returns `decisions` from `plan` docs whose `doc_id` starts with `decision-` and that are less than 30 days old.
   - `agent.ts` tools (descriptions as the spec's Chat tools):
     - `viking_status` (no input) → `{ today, next gym day: session + targets (kg, assistKg, reps, sets, note), next 7 days: date/kind/session|code/minutes/reason, last session: date/session/assumed sets, pending suggestions }`
-    - `viking_fix` (`{ date, session, exercise, set?, kg?, reps? }`) patches `workouts/<date>_<session>`:
+    - `viking_fix` (`{ date, session, exercise, set?, kg?, reps? }`) patches `workouts/<date>_<session>`. When the doc doesn't exist, it creates it with no `source`, plus `startedAt = <date>T12:00` local as UTC, and writes the `gymTick` for it. Rules for the patch:
       - `set` is 1-based; omitted, it patches every set; `set = length + 1` appends one.
       - It removes the `est` entries for the fields it set and clears `plan/current.hash`.
       - It refuses unknown keys and lists the session's `shortName`s.
@@ -711,16 +722,18 @@ export function runVikingTick(s: VikingStore, now: Date, tz: string, since: stri
 
 Changes. All Viking parts start with "If `prefs.vikingGarmin` isn't true, skip this and leave Garmin training workouts alone."
 
+**sync.md step 7, health upsert.** Add `updated_at = now()` to its `on conflict … do update`, so the freshness check sees every new health write.
+
 **sync.md step 7, Lifting.** Replace the nudge. For each Garmin `strength_training` activity whose local date is ≥ `prefs.vikingGarminSince` and within the last 7 days, and which has no `garmin_in/<activityId>` doc:
 - Call `get_activity_exercise_sets`.
 - Insert `viking_docs ('garmin_in', '<activityId>')` with the `GarminIn` JSON: `name`, `date`, `start` local, `insertedAt = now()` (ISO), `startUtc` (Garmin's GMT start as ISO UTC), and `sets` trimmed to `category`/`name` (`exercises[0]`), `reps`, `weightG`, `type`, `idx`, plus `processedAt: null`.
 - Use `on conflict do nothing`.
 - Ride docs also get `start` (`HH:MM` local), as they do today.
 
-**sync.md step 8.3.** Replace the whole training bullet. First check that `plan/current.builtAt` is after today's `life_health.updated_at`. If it isn't, compose the rest of the briefing first and check again. If it's still stale, add "(as of HH:MM)" to the training line. The training line comes from `plan/current.days` for today: session or ride with minutes, the reason if swapped, and the top 3 targets (`kg`, or `assist n kg`, with reps × sets). Delete every sentence about scheduling, unscheduling or copying workouts in 8.3.
+**sync.md step 8.3.** Replace the whole training bullet. First check that health is seen: today's `life_health.updated_at ≤ plan/state.data->>'healthSeenAt'`, or there's no health row. If it isn't, compose the rest of the briefing first and check again. If it's still stale, add "(as of HH:MM)" to the training line. The training line comes from `plan/current.days` for today: session or ride with minutes, the reason if swapped, and the top 3 targets (`kg`, or `assist n kg`, with reps × sets). Delete every sentence about scheduling, unscheduling or copying workouts in 8.3.
 
 **sync.md step 9.** Replace it with "Mirror the Viking plan to Garmin" (every run, as the **last** Viking step, after step 7's inserts). Write the spec's Garmin mirror section out in full as numbered sub-steps:
-- First: skip today when either `select count(*) from viking_docs where user_id = :uid and coll = 'garmin_in' and data->>'processedAt' is null and (data->>'insertedAt')::timestamptz > now() - interval '6 hours'` > 0, or `plan/current.data->>'builtAt'` is older than today's `life_health.updated_at`. Before skipping for the second reason, do the routine's other remaining steps and check once more.
+- First: skip today when either `select count(*) from viking_docs where user_id = :uid and coll = 'garmin_in' and data->>'processedAt' is null and (data->>'insertedAt')::timestamptz > now() - interval '6 hours'` > 0, or today's `life_health.updated_at` is later than `plan/state.data->>'healthSeenAt'`. A missing health row counts as seen. Before skipping for the second reason, do the routine's other remaining steps and check once more.
 - The keep path refreshes `mirroredAt`.
 - Upload and schedule come before unschedule and delete.
 - Library workouts may be unscheduled only.
@@ -798,7 +811,7 @@ Changes:
   2. **One-time cleanup**, the only exception to "deletes only what's in `plan/garmin`":
      - With the Garmin connector, run `get_scheduled_workouts` from today to +14.
      - For each scheduled `Viking … (…)` workout (dated, with parentheses) without `[viking:` in its description: `unschedule_workout`, then `delete_workout`.
-     - Unschedule the four library workouts from today on, and keep them in the library.
+     - Unschedule the four library workouts on today to +14 (the same range), and keep them in the library.
      - List for the owner what was removed.
   3. `trig_01NpEtQTQpdD6FT6qV3r7PN8` gets `weekly-review.md`, cron `CRON_TZ=America/Aruba 39 18 * * 6`.
   4. Create `Jarvis monthly review` with `CRON_TZ=America/Aruba 13 18 * * 0`, the weekly trigger's connectors, and the `monthly-review.md` prompt.
