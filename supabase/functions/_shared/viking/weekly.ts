@@ -5,7 +5,7 @@ import { BIKE_PHASES, Z2_TARGET } from './bikePlan.ts';
 import { EXBY } from './data.ts';
 import { shortName } from './garminImport.ts';
 import { dn, iso, num, score, sum, viking, type SetEntry, type VikingData } from './logic.ts';
-import { progressFor, resetKg, WEIGHTED, type Hist, type Resets } from './targets.ts';
+import { histories, progressFor, resetKg, WEIGHTED, type Hist, type Resets } from './targets.ts';
 
 export type Suggestion = {
   id: string; kind: 'reset'; ex: string; kg: number;
@@ -27,23 +27,6 @@ export type WeeklySummary = {
 
 const real = (s: SetEntry) => !s.est?.length;
 const maxOf = (a: number[]) => (a.length ? Math.max(...a) : null);
-
-/** Every exercise's sessions, oldest first (same shape the targets use). */
-function histories(v: ReturnType<typeof viking>): Record<string, Hist> {
-  const hist: Record<string, Hist> = {};
-  for (const doc of v.sorted('workouts'))
-    for (const e of doc.entries ?? []) {
-      const ex = EXBY[e.ex];
-      if (!ex) continue;
-      (hist[e.ex] ??= []).push({
-        date: doc.date,
-        startedAt: doc.startedAt ?? (doc.savedAt ? new Date(doc.savedAt).toISOString() : undefined),
-        planned: v.setCount(ex, doc.session, doc.phase, doc.deload),
-        sets: e.sets ?? [],
-      });
-    }
-  return hist;
-}
 
 export function weekSummary(D: VikingData, today: string, slidDates: string[], resets: Resets): WeeklySummary {
   const v = viking(D), t = dn(today);
@@ -100,13 +83,12 @@ export function suggestionsFor(D: VikingData, existing: Suggestion[], resets: Re
   const v = viking(D);
   const hist = histories(v);
   const docs = v.sorted('workouts');
-  const startOf = (w: { startedAt?: string; savedAt: number }) => Date.parse(w.startedAt ?? new Date(w.savedAt).toISOString());
 
   // ok → applied once a later session with that exercise exists.
   const out = existing.map((s) => {
     if (s.status !== 'ok') return s;
     const since = Date.parse(s.decidedAt ?? s.createdAt);
-    const used = docs.some((w) => w.entries?.some((e) => e.ex === s.ex) && startOf(w) > since);
+    const used = (hist[s.ex] ?? []).some((h) => h.startedAt !== undefined && Date.parse(h.startedAt) > since);
     return used ? { ...s, status: 'applied' as const } : s;
   });
 

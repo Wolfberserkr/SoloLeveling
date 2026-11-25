@@ -97,9 +97,8 @@ export function progressFor(
   return out(top, lowest + 1, 'Same weight, beat last time by a rep', { stalled, lastTop: top });
 }
 
-export function nextTargets(
-  v: Viking, sk: SessionKey, date: string, ov: Overrides, resets: Resets,
-): Record<string, Progress> {
+/** Every exercise's sessions, oldest first: the one history targets and suggestions both read. */
+export function histories(v: Viking): Record<string, Hist> {
   const hist: Record<string, Hist> = {};
   for (const doc of v.sorted('workouts'))
     for (const e of doc.entries ?? []) {
@@ -112,6 +111,13 @@ export function nextTargets(
         sets: e.sets ?? [],
       });
     }
+  return hist;
+}
+
+export function nextTargets(
+  v: Viking, sk: SessionKey, date: string, ov: Overrides, resets: Resets,
+): Record<string, Progress> {
+  const hist = histories(v);
   const wk = v.weekOf(date), ph = v.phaseOf(date), dl = v.isDeloadWeek(wk);
   const out: Record<string, Progress> = {};
   for (const ex of SESS[sk].ex)
