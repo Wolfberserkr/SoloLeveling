@@ -13,10 +13,15 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { advanceDue, formatMoney, hhmm, isConfidentQuickLog, localParts, parseQuickLog, safeTz, toAwgMinor, escapeHtml } from '../_shared/lifeLogic.ts';
 import { converse, type Attachment, type Db } from './agent.ts';
 import { addTasks, completeTask, tomorrowSameTime } from './tasks.ts';
-import { answerCallback, downloadFile, sendMessage, settleButtons, typing } from './telegram.ts';
+import { answerCallback, downloadFile, dropButtonRow, sendMessage, settleButtons, typing } from './telegram.ts';
 import { tick } from './tick.ts';
 import { bookJob, liveEvents, undoJob } from './calendar.ts';
 import { bookedText, busyFromEvents, eventTitle, OFFER_TTL_MS, slotLabel } from '../_shared/scheduling.ts';
+import { clearPlanHash, createDoc, getDoc, putDoc, vikingOn } from './viking.ts';
+import type { PlanState } from '../_shared/viking/engine.ts';
+import type { WorkoutDoc } from '../_shared/viking/logic.ts';
+import { confirmReps } from '../_shared/viking/recap.ts';
+import { shortName } from '../_shared/viking/garminImport.ts';
 
 type Row = Record<string, unknown>;
 declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
@@ -295,6 +300,36 @@ async function handleCallback(cb: Row) {
   if (kind === 'tx' && verb === 'undo') {
     await db.from('life_transactions').delete().eq('user_id', uid).eq('id', id);
     await settleButtons(chatId, messageId, '↩️ Removed');
+    return answerCallback(String(cb.id));
+  }
+  if (kind === 'vk' || kind === 'vr') {
+    const { data: prof } = await db.from('life_profile').select('prefs').eq('user_id', uid).maybeSingle();
+    if (!vikingOn(prof?.prefs)) return answerCallback(String(cb.id), 'Viking training is switched off');
+    const rebuild = () => clearPlanHash(db, uid).catch((err) => console.error('life-bot: plan/current hash not cleared', err));
+
+    // A stall suggestion: the tick folds plan/decision-<id> into plan/state; never write plan/state here.
+    if (kind === 'vk' && (verb === 'ok' || verb === 'no')) {
+      const state = await getDoc<PlanState>(db, uid, 'plan', 'state');
+      const sg = state?.suggestions?.find((x) => x.id === id);
+      if (!sg || sg.status !== 'pending' || (await getDoc(db, uid, 'plan', `decision-${id}`))) return answerCallback(String(cb.id), 'Already handled');
+      if (!(await createDoc(db, uid, 'plan', `decision-${id}`, { status: verb, decidedAt: new Date().toISOString() }))) return answerCallback(String(cb.id), 'Already handled');
+      await rebuild();
+      await settleButtons(chatId, messageId, verb === 'ok' ? `✅ Next ${shortName(sg.ex)}: ${sg.kg} kg` : '✖️ Keeping the weight');
+      return answerCallback(String(cb.id));
+    }
+
+    // "As planned": the assumed reps of one exercise (or all) count as recorded.
+    if (kind === 'vr' && verb) {
+      const gin = await getDoc<{ result?: unknown }>(db, uid, 'garmin_in', id);
+      const docId = typeof gin?.result === 'string' && /^\d{4}-\d{2}-\d{2}_(UA|LA|UB|LB)$/.test(gin.result) ? gin.result : null;
+      const doc = docId ? await getDoc<WorkoutDoc>(db, uid, 'workouts', docId) : null;
+      if (!docId || !doc) return answerCallback(String(cb.id), 'Already gone');
+      await putDoc(db, uid, 'workouts', docId, confirmReps(doc, verb === 'all' ? 'all' : verb));
+      await rebuild();
+      if (verb === 'all') await settleButtons(chatId, messageId, '✅ All confirmed');
+      else await dropButtonRow(chatId, messageId, (cb.message as Row).reply_markup as never, String(cb.data), '✅ Reps confirmed');
+      return answerCallback(String(cb.id));
+    }
     return answerCallback(String(cb.id));
   }
   if (kind === 'bp') {

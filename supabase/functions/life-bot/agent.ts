@@ -14,6 +14,7 @@ import { gtasksEnabled } from './gtasks.ts';
 import { bookedText, eventTitle, isOutdoorErrand, jobIdOf, matchJarvisEvents, nightBusy, pickSlots, slotLabel, busyFromEvents } from '../_shared/scheduling.ts';
 import { moveEvent, removeEvents } from '../_shared/booking.ts';
 import { bookJob, bridge, gcalEnabled, liveEvents } from './calendar.ts';
+import { vikingFix, vikingStatus } from './viking.ts';
 
 // deno-lint-ignore no-explicit-any
 export type Db = any;
@@ -304,6 +305,32 @@ const TOOLS: Anthropic.Tool[] = [
     name: 'get_health',
     description: 'Recent Garmin snapshots (sleep, HRV, body battery, readiness, steps, RHR) and Viking logs.',
     input_schema: { type: 'object', properties: { days: { type: 'number' } } },
+  },
+  {
+    name: 'viking_status',
+    description: "Project Viking training (Garmin-first): today's plan and the next gym day's targets (kg, assist, reps, sets), the next 7 days, "
+      + 'the last logged session with its assumptions (reps or kg the watch did not record, still waiting for a correction), and reset '
+      + 'suggestions waiting for an answer. A summary, not the watch workouts. Use it for any question about training, targets or the plan.',
+    input_schema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'viking_fix',
+    description: 'Correct a logged Project Viking set, e.g. "squat 3×6 at 110 on Tuesday" or "the last bench set was 7 reps". Use it to correct a '
+      + "logged session, or to create one only after Jarvis said it couldn't read that session. Never create one for a session still waiting to "
+      + 'import. set is 1-based; leave it out to change every set; set = count + 1 adds a set. Give kg, reps or both. Pull-up assist is negative kg '
+      + '(e.g. -20). It clears the "assumed" mark on what it sets; the plan and the watch update at the next tick.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        date: { type: 'string', description: 'YYYY-MM-DD local' },
+        session: { type: 'string', enum: ['UA', 'LA', 'UB', 'LB'], description: 'Upper A, Lower A, Upper B, Lower B' },
+        exercise: { type: 'string', description: 'Exercise key (e.g. squat, bench, pullup) or its short name (e.g. "Back squat")' },
+        set: { type: 'number', description: '1-based set number; omit for every set' },
+        kg: { type: 'number' },
+        reps: { type: 'number' },
+      },
+      required: ['date', 'session', 'exercise'],
+    },
   },
   { name: 'inbox_pending', description: 'Emails waiting for a delete/keep decision.', input_schema: { type: 'object', properties: {} } },
   {
@@ -681,6 +708,10 @@ async function runTool(ctx: Ctx, name: string, input: Row): Promise<unknown> {
       ]);
       return { garmin: must(health), viking: must(viking) };
     }
+    case 'viking_status':
+      return vikingStatus(db, userId, today);
+    case 'viking_fix':
+      return vikingFix(db, userId, ctx.tz, today, input);
     case 'inbox_pending':
       return must(await db.from('life_inbox').select('id,sender,subject,category,reason,action,status').eq('user_id', userId).in('status', ['pending', 'asked']).order('created_at').limit(50));
     case 'inbox_rule':

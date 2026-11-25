@@ -2,6 +2,7 @@
 // The minute tick (pg_cron → life-bot {action:"tick"}). Deterministic work
 // only — no AI here, so it's cheap to run every minute:
 //   1. refresh life_day_plan for yesterday … +7 days from confirmed shifts
+//      then Project Viking's engine, only with prefs.vikingGarmin === true
 //   2. deliver due life_outbox messages (briefings the routines composed)
 //   3. nudges: wind-down, nap, steps, bills, budgets — each once (life_nudge_log)
 //   4. a fallback briefing when no routine composed one in time
@@ -16,6 +17,8 @@ import { sendMessage, type Keyboard } from './telegram.ts';
 import { spawnPending, syncGoogle } from './tasks.ts';
 import { gtasksEnabled } from './gtasks.ts';
 import type { Db } from './agent.ts';
+import { runVikingTick } from '../_shared/viking/engine.ts';
+import { supabaseStore, vikingOn, withVikingLease } from './viking.ts';
 
 type Row = Record<string, unknown>;
 const INBOX_DIGEST_AT = '19:00';
@@ -62,6 +65,18 @@ async function tickUser(db: Db, p: Row, now: Date) {
 
   // 1. Day plans (every 15 minutes, or when today's is missing).
   const plans = await refreshPlans(db, userId, tz, prefs, today, lp.minute % 15 === 0);
+
+  // 1b. Project Viking: import Garmin sessions, settle, plan, place blocks.
+  // The raw prefs: readPrefs keeps only the sleep/briefing keys.
+  if (vikingOn(p.prefs)) {
+    const raw = p.prefs as Row;
+    const since = typeof raw.vikingGarminSince === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.vikingGarminSince) ? raw.vikingGarminSince : today;
+    try {
+      await withVikingLease(db, userId, now, () => runVikingTick(supabaseStore(db, userId, chatId, tz), now, tz, since));
+    } catch (err) {
+      console.error('life tick: viking failed', err);
+    }
+  }
 
   // 2. Outbox.
   const { data: due } = await db.from('life_outbox').select('id,text,buttons,kind').eq('user_id', userId)
