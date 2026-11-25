@@ -3,7 +3,7 @@
 // them. Writes push to Google straight away (a failed push is retried by the
 // tick); every 5 minutes the tick pulls changes made in the Google Tasks app.
 // ═════════════════════════════════════════════════════════════════════════
-import { addDays, listFor, localParts, nextOccurrence, recurLabel, TASK_LISTS, zonedTime } from '../_shared/lifeLogic.ts';
+import { addDays, habitDueToRoll, habitNextBase, listFor, localParts, nextOccurrence, recurLabel, TASK_LISTS, zonedTime } from '../_shared/lifeLogic.ts';
 import { gcall, gtasksEnabled, type GTask } from './gtasks.ts';
 import type { Db } from './agent.ts';
 
@@ -87,13 +87,50 @@ export async function spawnNext(db: Db, userId: string, tz: string, t: Row): Pro
   const { data: claimed } = await db.from('life_tasks').update({ next_spawned: true }).eq('id', t.id).eq('next_spawned', false).select('id');
   if (!(claimed ?? []).length) return null; // another run got there first
   const today = localParts(new Date(), tz).date;
-  const base = t.due_on && String(t.due_on) >= today ? String(t.due_on) : today;
+  const base = t.list === 'Habits' && t.due_on
+    ? habitNextBase(String(t.due_on), today)
+    : t.due_on && String(t.due_on) >= today ? String(t.due_on) : today;
   const next = nextOccurrence(base, String(t.recur));
   if (!next) return null;
-  // Keep the reminder at the same local time of day.
-  const remind = t.remind_at ? zonedTime(next, new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(String(t.remind_at))), tz).toISOString() : null;
-  await addTasks(db, userId, tz, [{ title: t.title, list: t.list, area: t.area, notes: t.notes, recur: t.recur, due_on: next, remind_at: remind }]);
+  await addTasks(db, userId, tz, [nextTaskRow(t, next, tz)]);
   return next;
+}
+
+/** The next occurrence of a recurring task. An anchored task gets no remind_at:
+ *  the tick computes it from the shift plan. Otherwise the reminder keeps its
+ *  local time of day. */
+function nextTaskRow(t: Row, next: string, tz: string): Row {
+  const anchored = !!t.remind_anchor;
+  const remind = !anchored && t.remind_at
+    ? zonedTime(next, new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(String(t.remind_at))), tz).toISOString()
+    : null;
+  return {
+    title: t.title, list: t.list, area: t.area, notes: t.notes, recur: t.recur, due_on: next, remind_at: remind,
+    ...(anchored ? { remind_anchor: t.remind_anchor, remind_offset_min: t.remind_offset_min ?? 0 } : {}),
+  };
+}
+
+/** Close unfinished habits that were missed (done_at = skipped_at = now), drop
+ *  their Google copy and create the next occurrence on or after today. */
+export async function rollHabits(db: Db, userId: string, tz: string, today: string, now: Date): Promise<number> {
+  const { data } = await db.from('life_tasks').select('*').eq('user_id', userId).eq('list', 'Habits')
+    .is('done_at', null).not('recur', 'is', null).eq('next_spawned', false).lt('due_on', today).limit(50);
+  let n = 0;
+  for (const t of (data ?? []) as Row[]) {
+    if (!habitDueToRoll({ due_on: String(t.due_on), remind_at: (t.remind_at as string | null) ?? null, reminded_at: (t.reminded_at as string | null) ?? null }, today, now)) continue;
+    const iso = now.toISOString();
+    const { data: claimed } = await db.from('life_tasks').update({ done_at: iso, skipped_at: iso, next_spawned: true, updated_at: iso })
+      .eq('id', t.id).is('done_at', null).eq('next_spawned', false).select('id');
+    if (!(claimed ?? []).length) continue;
+    if (t.gtask_id && t.gtask_list && gtasksEnabled()) {
+      await gcall('delete', { list: t.gtask_list, id: t.gtask_id }).catch((e) => console.error('life-bot: Google delete failed', e));
+      await db.from('life_tasks').update({ gtask_id: null }).eq('id', t.id);
+    }
+    const next = nextOccurrence(addDays(today, -1), String(t.recur));
+    if (next) await addTasks(db, userId, tz, [nextTaskRow(t, next, tz)]);
+    n++;
+  }
+  return n;
 }
 
 /** Recurring tasks ticked off outside the bot (the dashboard) still come back. */

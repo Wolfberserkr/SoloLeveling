@@ -10,11 +10,11 @@
 //   6. task reminders (Done / +1 h / Tomorrow) and the Google Tasks sync
 // ═════════════════════════════════════════════════════════════════════════
 import {
-  addDays, apiUsageLine, billsToFlag, budgetStatus, escapeHtml, formatMoney, hhmm, isDue, localParts, planDay,
+  addDays, anchoredRemindAt, apiUsageLine, billsToFlag, budgetStatus, escapeHtml, formatMoney, hhmm, isDue, localParts, planDay,
   readPrefs, safeTz, stepsNudge, windDownAt, zonedTime, type DayPlan, type ApiUsageSummary, type LifePrefs, type Shift,
 } from '../_shared/lifeLogic.ts';
 import { sendMessage, type Keyboard } from './telegram.ts';
-import { spawnPending, syncGoogle } from './tasks.ts';
+import { rollHabits, spawnPending, syncGoogle } from './tasks.ts';
 import { gtasksEnabled } from './gtasks.ts';
 import type { Db } from './agent.ts';
 import { runVikingTick } from '../_shared/viking/engine.ts';
@@ -78,6 +78,11 @@ async function tickUser(db: Db, p: Row, now: Date) {
     }
   }
 
+  // 1c. Habit reminders anchored to the shift (wake / wind-down), every 15 minutes.
+  if (lp.minute % 15 === 0) {
+    try { await anchorHabitReminders(db, userId, plans, prefs, today); } catch (err) { console.error('life tick: habit anchors failed', err); }
+  }
+
   // 2. Outbox.
   const { data: due } = await db.from('life_outbox').select('id,text,buttons,kind').eq('user_id', userId)
     .is('sent_at', null).lte('send_after', now.toISOString()).order('send_after').limit(10);
@@ -95,7 +100,23 @@ async function tickUser(db: Db, p: Row, now: Date) {
   for (const plan of plans) {
     if (isDue(windDownAt(plan, prefs), now)) {
       const why = plan.shift ? `${cap(plan.kind)} shift at ${hhmm(plan.shift.startsAt, tz)}` : 'a good start tomorrow';
-      await nudge(`winddown:${plan.date}`, `🌙 <b>Wind down.</b> Lights out at ${hhmm(plan.bedAt, tz)} for ${why}. Wake ${hhmm(plan.wakeAt, tz)}.\nScreens off, cool room, no caffeine.`);
+      let text = `🌙 <b>Wind down.</b> Lights out at ${hhmm(plan.bedAt, tz)} for ${why}. Wake ${hhmm(plan.wakeAt, tz)}.\nScreens off, cool room, no caffeine.`;
+      let kb: Keyboard | undefined;
+      if (await claim(db, userId, `winddown:${plan.date}`)) {
+        // Evening-shutdown habits due to remind within 15 min ride along, so there's one message.
+        const wd = windDownAt(plan, prefs).getTime();
+        const { data: habits } = await db.from('life_tasks').select('id,title,remind_at').eq('user_id', userId).eq('list', 'Habits').eq('remind_anchor', 'winddown')
+          .is('done_at', null).is('reminded_at', null).gte('remind_at', new Date(wd - 15 * 60000).toISOString()).lte('remind_at', new Date(wd + 15 * 60000).toISOString());
+        const rows: Array<Array<{ text: string; data: string }>> = [];
+        for (const h of (habits ?? []) as Row[]) {
+          await db.from('life_tasks').update({ reminded_at: now.toISOString() }).eq('id', h.id);
+          text += `\n☑️ ${escapeHtml(String(h.title))}`;
+          rows.push([{ text: '✅ Done', data: `tk:${h.id}:d` }]);
+        }
+        if (rows.length) kb = rows;
+        await sendMessage(chatId, text, kb);
+        nudges++;
+      }
     }
     if (plan.napFrom && isDue(new Date(plan.napFrom.getTime() - 15 * 60000), now)) {
       await nudge(`nap:${plan.date}`, `😴 Nap window ${hhmm(plan.napFrom, tz)}–${hhmm(plan.napTo!, tz)} before tonight's shift. Alarm on.`);
@@ -150,11 +171,32 @@ async function tickUser(db: Db, p: Row, now: Date) {
     nudges++;
   }
   await spawnPending(db, userId, tz);
+  if (lp.minute % 15 === 0) {
+    try { await rollHabits(db, userId, tz, today, now); } catch (err) { console.error('life tick: habit roll failed', err); }
+  }
   if (gtasksEnabled() && lp.minute % 5 === 0) {
     try { await syncGoogle(db, userId, tz); } catch (err) { console.error('life tick: Google Tasks sync failed', err); }
   }
 
   return { sent, nudges };
+}
+
+/** Recompute remind_at for open anchored habits due today or tomorrow, leaving
+ *  alone any reminder the owner moved (a snooze: remind_at != remind_auto_at). */
+async function anchorHabitReminders(db: Db, userId: string, plans: DayPlan[], prefs: LifePrefs, today: string) {
+  const { data } = await db.from('life_tasks').select('id,due_on,remind_at,remind_auto_at,remind_anchor,remind_offset_min').eq('user_id', userId)
+    .is('done_at', null).is('reminded_at', null).not('remind_anchor', 'is', null).gte('due_on', today).lte('due_on', addDays(today, 1));
+  for (const t of (data ?? []) as Row[]) {
+    const at = t.remind_at ? Date.parse(String(t.remind_at)) : null;
+    const auto = t.remind_auto_at ? Date.parse(String(t.remind_auto_at)) : null;
+    if (at !== null && at !== auto) continue;
+    const planDue = plans.find((x) => x.date === String(t.due_on));
+    const planNext = plans.find((x) => x.date === addDays(String(t.due_on), 1));
+    if (!planDue || !planNext || (t.remind_anchor !== 'wake' && t.remind_anchor !== 'winddown')) continue;
+    const when = anchoredRemindAt(t.remind_anchor, Number(t.remind_offset_min ?? 0), planDue, planNext, prefs).toISOString();
+    if (at !== null && new Date(at).toISOString() === when) continue;
+    await db.from('life_tasks').update({ remind_at: when, remind_auto_at: when }).eq('id', t.id);
+  }
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);

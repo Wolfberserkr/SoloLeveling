@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   advanceDue, billsToFlag, budgetStatus, categorise, DEFAULT_PREFS, formatMoney, isConfidentQuickLog, isDue,
-  localParts, parseQuickLog, planDay, readPrefs, shiftKind, stepsNudge, toAwgMinor, windDownAt, zonedTime, hhmm,
+  addDays as addDaysT, localParts, parseQuickLog, planDay, readPrefs, shiftKind, stepsNudge, toAwgMinor, windDownAt, zonedTime, hhmm,
 } from '../supabase/functions/_shared/lifeLogic';
 
 const TZ = 'America/Aruba'; // UTC-4, no DST
@@ -200,7 +200,7 @@ describe('Claude API spend', () => {
   });
 });
 
-import { eventClashes, eventReminders, freeWindows, listFor, nextOccurrence, parseRecur, recurLabel } from '../supabase/functions/_shared/lifeLogic';
+import { anchoredRemindAt, eventClashes, eventReminders, freeWindows, habitDueToRoll, habitNextBase, listFor, nextOccurrence, parseRecur, recurLabel, TASK_LISTS } from '../supabase/functions/_shared/lifeLogic';
 
 describe('tasks vs events', () => {
   it('maps areas and names to the five lists', () => {
@@ -260,5 +260,72 @@ describe('tasks vs events', () => {
     const busy = [{ start: at('2026-11-14', '11:30'), end: at('2026-11-14', '22:00') }, { start: at('2026-11-14', '09:00'), end: at('2026-11-14', '09:20') }];
     const w = freeWindows(from, to, busy, 30).map((x) => [hhmm(x.start, TZ), hhmm(x.end, TZ)]);
     expect(w).toEqual([['07:30', '09:00'], ['09:20', '11:30'], ['22:00', '23:30']]);
+  });
+});
+
+describe('habits', () => {
+  const P = DEFAULT_PREFS;
+  const MIN = 60000;
+
+  it('anchoredRemindAt: wake + 15 follows the shift', () => {
+    const morning = planDay('2026-11-12', shift('2026-11-12', '05:00', '14:00'), undefined, P, TZ);
+    const off = planDay('2026-11-14', undefined, undefined, P, TZ);
+    expect(anchoredRemindAt('wake', 15, morning, off, P).getTime()).toBe(morning.wakeAt.getTime() + 15 * MIN);
+    expect(anchoredRemindAt('wake', 15, off, morning, P).getTime()).toBe(off.wakeAt.getTime() + 15 * MIN);
+  });
+
+  it("anchoredRemindAt: winddown is the end of the due date's waking day", () => {
+    const next = (d: string) => planDay(addDaysT(d, 1), undefined, undefined, P, TZ);
+    // Day off and a morning-shift day: wind-down lands on the due date itself.
+    const offDue = planDay('2026-11-14', undefined, undefined, P, TZ);
+    const offNext = next('2026-11-14');
+    const r1 = anchoredRemindAt('winddown', 0, offDue, offNext, P);
+    expect(r1.getTime()).toBe(windDownAt(offNext, P).getTime());
+    expect(localParts(r1, TZ).date).toBe('2026-11-14');
+    const mornDue = planDay('2026-11-12', shift('2026-11-12', '05:00', '14:00'), undefined, P, TZ);
+    const mornNext = planDay('2026-11-13', shift('2026-11-13', '05:00', '14:00'), undefined, P, TZ);
+    const r2 = anchoredRemindAt('winddown', 0, mornDue, mornNext, P);
+    expect(r2.getTime()).toBe(windDownAt(mornNext, P).getTime());
+    expect(localParts(r2, TZ).date).toBe('2026-11-12');
+    // Night shift on the due date: the waking day ends after the shift, on due + 1.
+    const night = shift('2026-11-12', '21:00', '05:00', '2026-11-13');
+    const nightDue = planDay('2026-11-12', night, undefined, P, TZ);
+    const nightNext = planDay('2026-11-13', undefined, night, P, TZ);
+    const r3 = anchoredRemindAt('winddown', 0, nightDue, nightNext, P);
+    expect(r3.getTime()).toBe(windDownAt(nightNext, P).getTime());
+    expect(localParts(r3, TZ).date).toBe('2026-11-13');
+    expect(r3.getTime()).toBeGreaterThan(night.endsAt.getTime());
+    expect(r3.getTime()).toBeLessThan(nightNext.bedAt.getTime());
+  });
+
+  it("habitDueToRoll: a night-shift shutdown isn't rolled at 00:30 the next day, but is 2 h after its reminder fired; anything due before yesterday always rolls", () => {
+    const remind = at('2026-11-13', '05:15');
+    const t = { due_on: '2026-11-12', remind_at: remind.toISOString(), reminded_at: null as string | null };
+    expect(habitDueToRoll(t, '2026-11-13', at('2026-11-13', '00:30'))).toBe(false);
+    expect(habitDueToRoll(t, '2026-11-13', at('2026-11-13', '05:20'))).toBe(false);
+    const fired = { ...t, reminded_at: remind.toISOString() };
+    expect(habitDueToRoll(fired, '2026-11-13', at('2026-11-13', '06:30'))).toBe(false);
+    expect(habitDueToRoll(fired, '2026-11-13', at('2026-11-13', '07:15'))).toBe(true);
+    // Reminder never fired (6 h past): rolls.
+    expect(habitDueToRoll(t, '2026-11-13', at('2026-11-13', '11:30'))).toBe(true);
+    // No reminder: rolls once the date has passed; not on its own day.
+    const none = { due_on: '2026-11-12', remind_at: null, reminded_at: null };
+    expect(habitDueToRoll(none, '2026-11-13', at('2026-11-13', '00:30'))).toBe(true);
+    expect(habitDueToRoll(none, '2026-11-12', at('2026-11-12', '23:00'))).toBe(false);
+    // Due before yesterday: always, snoozed or not.
+    const snoozed = { due_on: '2026-11-11', remind_at: at('2026-11-13', '23:00').toISOString(), reminded_at: null };
+    expect(habitDueToRoll(snoozed, '2026-11-13', at('2026-11-13', '00:30'))).toBe(true);
+  });
+
+  it('habitNextBase: a daily habit due D, completed at 05:30 on D+1, comes back for D+1', () => {
+    expect(nextOccurrence(habitNextBase('2026-11-12', '2026-11-13'), 'daily')).toBe('2026-11-13');
+    expect(nextOccurrence(habitNextBase('2026-11-12', '2026-11-12'), 'daily')).toBe('2026-11-13');
+    expect(nextOccurrence(habitNextBase('2026-11-12', '2026-11-20'), 'daily')).toBe('2026-11-20');
+    expect(habitNextBase('2026-11-15', '2026-11-13')).toBe('2026-11-15'); // ahead of schedule keeps its date
+  });
+
+  it('TASK_LISTS includes Habits; listFor("habits") === "Habits"', () => {
+    expect(TASK_LISTS).toContain('Habits');
+    expect(listFor('habits')).toBe('Habits');
   });
 });

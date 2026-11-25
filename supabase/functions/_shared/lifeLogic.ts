@@ -381,7 +381,7 @@ export function escapeHtml(s: string): string {
 // A task is something to get done by a date (or whenever); it lives in Google
 // Tasks. An event has a fixed time slot; it lives in Google Calendar.
 
-export const TASK_LISTS = ['Errands', 'Groceries', 'Household', 'Work', 'Personal'] as const;
+export const TASK_LISTS = ['Errands', 'Groceries', 'Household', 'Work', 'Personal', 'Habits'] as const;
 export type TaskList = (typeof TASK_LISTS)[number];
 
 /** Map a list name or a legacy area ("grocery", "errand"…) to one of the lists. */
@@ -501,4 +501,30 @@ export function freeWindows(from: Date, to: Date, busy: Interval[], minMinutes =
   }
   if (to.getTime() - cur >= minMinutes * 60000) out.push({ start: new Date(cur), end: to });
   return out;
+}
+
+// ── Habits ───────────────────────────────────────────────────────────────
+
+/** A habit reminder pinned to the shift. `wake`: the due date's wake time plus
+ *  the offset. `winddown`: the wind-down of the NEXT date's plan, i.e. the
+ *  bedtime that ends the due date's waking day. */
+export function anchoredRemindAt(anchor: 'wake' | 'winddown', offsetMin: number, planDue: DayPlan, planNext: DayPlan, prefs: LifePrefs): Date {
+  if (anchor === 'wake') return new Date(planDue.wakeAt.getTime() + offsetMin * MIN);
+  return windDownAt(planNext, prefs);
+}
+
+/** The date a finished habit's next occurrence counts from: ticking one late
+ *  (after midnight) must not skip a day. */
+export function habitNextBase(dueOn: string, today: string): string {
+  const yesterday = addDays(today, -1);
+  return dueOn > yesterday ? dueOn : yesterday;
+}
+
+/** True when an unfinished habit should be closed as skipped and re-created. */
+export function habitDueToRoll(t: { due_on: string; remind_at: string | null; reminded_at: string | null }, today: string, now: Date): boolean {
+  if (t.due_on < addDays(today, -1)) return true;
+  if (t.due_on >= today) return false;
+  if (!t.remind_at) return true;
+  if (t.reminded_at) return now.getTime() - Date.parse(t.reminded_at) >= 2 * HOUR;
+  return now.getTime() - Date.parse(t.remind_at) > 6 * HOUR;
 }
