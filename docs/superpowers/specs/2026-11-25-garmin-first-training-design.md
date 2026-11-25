@@ -1,6 +1,6 @@
 # Garmin-first training: design
 
-Date: 2026-11-25 · Status: approved approach (option 2) · Revision 6 (after review round 5)
+Date: 2026-11-25 · Status: approved approach (option 2) · Revision 6 (reviewer: WOWED, 9.5/10)
 
 ## Why
 

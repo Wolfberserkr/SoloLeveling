@@ -283,7 +283,7 @@ In the reset test, the reset sits at day 30. The five "after" sessions (days 32�
   - `type GarminIn = { activityId: string; name: string; date: string; start: string; startUtc: string; insertedAt: string; sets: GarminSet[]; processedAt?: string | null; result?: string; attempts?: number }`. `start` is the local start `YYYY-MM-DDTHH:MM`; `startUtc` is the ISO UTC start from Garmin's GMT time. A new doc gets `startedAt = startUtc`; a merge keeps the earlier one.
   - `sessionOf(a: GarminIn): SessionKey | null`
   - `type ImportResult = { session: SessionKey; docId: string; doc: WorkoutDoc; assumptions: string[]; dropped: number; merged: boolean }`
-  - `importStrength(a: GarminIn, D: VikingData, planned: Record<string, StrengthTarget> | null, savedAt: number): ImportResult | { skip: 'not-viking' | 'owner-doc' | 'already' }`. It computes the week, phase and deload itself through `viking(D)`.
+  - `importStrength(a: GarminIn, D: VikingData, planned: Record<string, StrengthTarget> | null, savedAt: number): ImportResult | { skip: 'not-viking' | 'owner-doc' } | { skip: 'already'; docId: string; dropped: number }`. The set mapping still runs on `already`, so `dropped` is known. It computes the week, phase and deload itself through `viking(D)`.
   - `shortName(k: string): string`: `EXBY[k].n` cut at `' / '` and `' ('` (`'Back squat'`, `'Lying leg curl'`, `'Pull-up'`)
 
 Rules: the spec's Import section, word for word (session, set → exercise, values, doc).
@@ -354,7 +354,7 @@ it('import: planned reps fill gaps when a snapshot exists', () => {
 });
 it('import: idempotent and owner wins', () => {
   const r = importStrength(la, D0(), null, 1) as ImportResult;
-  expect(importStrength(la, { ...D0(), workouts: { [r.docId]: r.doc } }, null, 2)).toEqual({ skip: 'already' });
+  expect(importStrength(la, { ...D0(), workouts: { [r.docId]: r.doc } }, null, 2)).toEqual({ skip: 'already', docId: r.docId, dropped: 0 });
   const typed = { ...r.doc, source: undefined, garminIds: undefined };
   expect(importStrength(la, { ...D0(), workouts: { [r.docId]: typed } }, null, 2)).toEqual({ skip: 'owner-doc' });
 });
@@ -543,7 +543,7 @@ Rules: the spec's Google Calendar blocks section.
   - `confirmKeyboard(r: ImportResult, activityId: string): Keyboard | null`. One row per exercise with `est` reps, at most 4: `✅ <shortName> as planned` → `vr:<activityId>:<exKey>`. Then a last row, `✅ All as planned` → `vr:<activityId>:all`. It's null when no reps were assumed.
   - `confirmReps(doc: WorkoutDoc, ex: string | 'all'): WorkoutDoc`: removes `'reps'` from `est` on those sets, and drops `est` when it's empty.
   - `assumptionsFor(doc: WorkoutDoc, planned: Record<string, StrengthTarget> | null, D: VikingData): string[]`, in garminImport.ts. It's the one builder of the assumption lines: reps and kg from `est`, "n of m sets" against `planned` or `setCount`, "not recorded" for planned exercises with no entry, and the pull-up assist line. `importStrength` uses it too.
-  - `resultFromDoc(doc: WorkoutDoc, docId: string, session: SessionKey, planned: Record<string, StrengthTarget> | null, D: VikingData): ImportResult`: assumptions from `assumptionsFor`, `dropped 0`, `merged false`. The engine passes the `plan/<date>` snapshot as `planned`.
+  - `resultFromDoc(doc: WorkoutDoc, docId: string, session: SessionKey, planned: Record<string, StrengthTarget> | null, D: VikingData, dropped: number): ImportResult`: assumptions from `assumptionsFor`, plus the unrecognised-sets line when `dropped > 0`; `merged false`. The engine passes the `plan/<date>` snapshot as `planned`.
   - The store interface:
 
 ```ts
@@ -584,8 +584,8 @@ export function runVikingTick(s: VikingStore, now: Date, tz: string, since: stri
      - Inside `try`: run `importStrength`, then put `workouts`, then `gymTick` and put it, then put `garmin_in` with `processedAt`, `result: <docId>` and `dropped`. Update the in-memory `D`. Remove any tick date from `slidDates`.
      - On `skip: 'already'` (this activity is already in the doc, e.g. a retry after a failed tick write):
        - Still run `gymTick` (idempotent by id) and put it.
-       - Put `garmin_in` with `processedAt`, `result: <docId>` and `dropped: 0`.
-       - Then send the recap like a new import, from `resultFromDoc(doc, docId, session)` (recap.ts).
+       - Put `garmin_in` with `processedAt`, `result: <docId>` and the skip's `dropped`.
+       - Then send the recap like a new import, from `resultFromDoc(doc, docId, session, snapshot, D, dropped)` (recap.ts).
      - `catch`:
        - Merge `{ attempts: n + 1, firstFailedAt: firstFailedAt ?? now, lastFailedAt: now }` into the `garmin_in` doc, best-effort, with `s.merge`. Then `await s.release('vkimp:' + id)`.
        - When `attempts ≥ 3` and `now − firstFailedAt ≥ 1 h`: merge `processedAt` and `result: 'error: <message>'`, and send (best-effort, claim `vkerr:<id>`) the spec's poison copy.
@@ -626,10 +626,10 @@ export function runVikingTick(s: VikingStore, now: Date, tz: string, since: stri
     - `engine: a confirmed session advances`: after one import, apply `confirmReps(doc, 'all')` to the stored doc. With squat sets then 3 × 5 recorded, the next squat target is 110 × 6.
     - `engine: a failed send never loses the import`: `send` throws → the workouts doc, tick and `processedAt` are all written, and a second run sends nothing new (the recap claim was taken).
     - `engine: a throw after the claim releases it`: make the first `put('workouts', …)` throw → `vkimp:<id>` is released, `processedAt` is unset, and the next run imports it.
-    - `engine: a throw on the cycle put still ticks on retry`: the first `put('cycle', …)` throws (the workout was written). Advance the fake clock 15 min. The next run returns `already`, writes the tick, `processedAt` and `result = docId`, sends exactly one recap with confirm buttons. Its assumptions equal the first attempt's, `2 of 3 sets` included. `plan/current.days[0]` moves on.
+    - `engine: a throw on the cycle put still ticks on retry`: the first `put('cycle', …)` throws (the workout was written). Advance the fake clock 15 min. The next run returns `already`, writes the tick, `processedAt` and `result = docId`, sends exactly one recap with confirm buttons. Its assumptions equal the first attempt's, `2 of 3 sets` included. Repeat with the 20 Nov fixture: the retry keeps `1 unrecognised set(s) left out`. `plan/current.days[0]` moves on.
     - `engine: a poison doc gives up after 3 tries over an hour`: a doc with `sets: null` throws. Runs at +0, +1 min (skipped before any claim: assert `vkimp:<id>` is free afterwards), +15, +30 → still unprocessed (3 failures, under 1 h). The run at +75 gives up: `processedAt` set, `result` starting `error:`, one error message, `sets` still in the doc (a merge, not a replace), and the memory store's `hasWork` is false.
     - `engine: health seen without a plan change`: a gym-day plan, then `healthUpdatedAt` moves with OK readiness → one rebuild, `plan/current` not rewritten (same hash), `state.healthSeenAt` updated, and `hasWork` false afterwards.
-    - `engine: fresh health rebuilds today and blocks a stale freeze` (the stored `healthSeenAt` is older than `healthUpdatedAt` at load; `garmin[today]` mirrored the pre-health plan): `healthUpdatedAt` after `builtAt` with `hrvStatus 'LOW'` → today's H1 becomes E1, and no freeze is taken from the pre-health plan.
+    - `engine: fresh health rebuilds today and blocks a stale freeze` (the stored `healthSeenAt` is older than `healthUpdatedAt` at load; `garmin[today]` mirrored the pre-health plan): `healthUpdatedAt` after the stored `healthSeenAt`, with `hrvStatus 'LOW'` → today's H1 becomes E1, and no freeze is taken from the pre-health plan.
     - `engine: before-since activity is marked processed, not imported`.
     - `engine: today's snapshot is not overwritten after today is logged`.
     - `engine: a decision doc is folded once` (`ok` → override → the next LA's squat target is the reset kg).
