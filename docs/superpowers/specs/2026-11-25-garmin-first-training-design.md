@@ -1,6 +1,6 @@
 # Garmin-first training: design
 
-Date: 2026-11-25 · Status: approved approach (option 2) · Revision 2 (after review round 1)
+Date: 2026-11-25 · Status: approved approach (option 2) · Revision 3 (after review round 2)
 
 ## Why
 
@@ -118,6 +118,20 @@ With the switch off, the tick does nothing new. The new routine prompts check
 the same switch: when it's off they leave Garmin training alone and skip the
 Viking parts.
 
+The work ships as **two PRs**, so the first merge changes nothing the owner can
+see.
+- **PR 1: engine, routines, habits code.**
+  - It's inert until the switch is on and the habits are seeded.
+  - The only visible side effect: `listIds` creates an empty "Habits" list in
+    Google Tasks on its next run.
+  - `rollHabits` only touches Habits rows, and there are none before the seed.
+- **PR 2: the read-only app and Ascend's retirement** (UI and the
+  `ascend-reminders` cron job).
+  - It's merged only after the Garmin flow has run correctly for at least a few
+    days.
+  - Until then the app still works as it does today, so the owner keeps a
+    manual fallback.
+
 ### Data flow
 
 ```
@@ -145,8 +159,16 @@ watch ─▶ Garmin Connect ─(routine, every 3 h)─▶ viking_docs garmin_in/
 
 ### Set data
 
-`SetEntry` gains an optional `est?: Array<'kg' | 'reps'>`. It marks values that
-were assumed, not recorded. The app ignores it.
+- `SetEntry` gains an optional `est?: Array<'kg' | 'reps'>`. It marks values
+  that were assumed, not recorded. The app ignores it.
+- `WorkoutDoc` gains:
+  - `source?: 'garmin'`
+  - `garminIds?: string[]`
+  - `startedAt?: string`: the UTC ISO start of the (first) activity, i.e. when
+    he trained, not when it was imported
+
+  Everything time-based (resets, applied suggestions) compares against
+  `startedAt`, falling back to `savedAt`.
 
 ### Progression (`targets.ts`, what the watch shows next)
 
@@ -157,11 +179,18 @@ exercise's last reset** (if any):
     `est`. With none: kg **null** and reps = the bottom of the range ("First
     time", or "kg not recorded yet").
   - From the last known session: `top` = its max real kg.
-  - `hit`: every set's reps were recorded (not `est`) and ≥ the top of the
-    range. On a hit: kg = top + `STEP[inc]`, reps = the bottom of the range.
+  - `hit`: all of these hold:
+    - at least as many sets were recorded as were planned for that session
+      (`setCount` with that doc's phase and deload)
+    - every set's reps were recorded (not `est`)
+    - every set's reps are ≥ the top of the range
+
+    On a hit: kg = top + `STEP[inc]`, reps = the bottom of the range.
   - Reps not recorded: kg = top, reps = the same target as last time. **No
-    advance.** The note says so.
-  - Otherwise: kg = top, reps = min(range top, lowest recorded reps + 1).
+    advance.** The note says so. One tap on the recap's "✅ as planned" button
+    turns those assumed reps into recorded ones (see Recap).
+  - Otherwise: kg = top, reps = the lowest recorded reps + 1, kept within the
+    range (never below its bottom or above its top).
   - `stalled`: not a hit, at least 4 known sessions, and the best e1RM of the
     last 3 ≤ the best e1RM before them. It's measured over real sets only.
 - **Assisted pull-up** (`pull`):
@@ -172,8 +201,9 @@ exercise's last reset** (if any):
   - With no assist history, it progresses by reps like a bodyweight move.
 - **Bodyweight** (`bw`):
   - kg null.
-  - Reps = the bottom of the range the first time, then +1 per recorded
-    session up to the top.
+  - Reps = the bottom of the range the first time, then the last session's
+    lowest recorded reps + 1, within the range. Reps that weren't recorded hold
+    the target.
   - At the top, the note says "Top of range: slow the tempo".
 - **Reset override** (from an approved suggestion): kg = 90 % of top, rounded
   down to the step, reps = the bottom of the range. The reset time also becomes
@@ -198,18 +228,19 @@ can't double-apply or double-send.
 one, the session with the most category matches wins (≥ 3 needed, and a tie
 means none).
 
-**Set → exercise.** Only `ACTIVE` sets with a category other than `UNKNOWN`
-count; the rest are dropped and counted.
+**Set → exercise.** Sets that aren't `ACTIVE` (rest, warm-up, others) are
+ignored and not counted.
 1. With an index that is a multiple of 3, the candidate is
-   `SESS[sk].ex[idx / 3]`. Accept it when its Garmin category equals the
-   set's, and either side lacks an exercise name or the names are equal.
+   `SESS[sk].ex[idx / 3]`.
+   - Accept it when its Garmin category equals the set's, and either side lacks
+     an exercise name or the names are equal.
+   - Also accept it when the candidate has **no Garmin category** (`legext`,
+     `revpec`) and the set's category is null, `UNKNOWN`, or matches no other
+     exercise in the session.
 2. Otherwise, take the session exercise with the same category and name.
 3. Otherwise, take the only session exercise with that category.
-4. Otherwise, drop the set and count it.
-
-Exercises with no Garmin category (`legext`, `revpec`) only accept a set by
-index, and only when the set's category matches no other exercise in the
-session.
+4. Otherwise (including `UNKNOWN`/null sets with no usable index), drop the set
+   and count it.
 
 **Values ("assume the plan").**
 - **Reps null:** use the planned reps, from the `plan/<date>` snapshot or else
@@ -220,7 +251,11 @@ session.
   set was a different exercise, and this exercise had no planned kg. Then kg is
   0, marked `est: ['kg']`, and noted "kg not recorded".
 - **`bw`:** kg 0.
-- **`pull`:** the planned `assistKg` (or 0), marked `est`.
+- **`pull`:** the watch never carries weight on it. A null weight is
+  **recorded**, not assumed. kg = the planned `assistKg` (≤ 0), or 0 with no
+  assist planned, and **not** marked `est`. Only missing reps are `est`.
+- **Dated before `since`:** marked processed with result `before switch-on`, and
+  not imported.
 - **Fewer sets than planned** (snapshot, else `setCount`): noted "2 of 3 sets".
 
 **Doc.**
@@ -252,6 +287,19 @@ session.
 `Next time` uses `nextTargets` on the updated data for the session's next
 occurrence.
 
+**One-tap confirm:** when reps weren't counted, the recap carries buttons, one
+per affected exercise (at most 4) plus one for everything:
+`✅ Back squat as planned` (`vr:<activityId>:<exKey>`) and `✅ All as planned`
+(`vr:<activityId>:all`). A tap removes `'reps'` from those sets' `est`, so they
+count as recorded, and the next rebuild can advance the target.
+
+**Order:**
+- The workout, the tick and `processedAt` are written first.
+- The recap is sent afterwards, best-effort, under its own claim
+  `vkrecap:<activityId>`. A failed send is logged and never blocks the import.
+- If anything throws between the `vkimp` claim and `processedAt`, the claim is
+  released, so the next tick retries.
+
 ### Cycle settling
 
 For each finished date after `plan/state.settledThrough`:
@@ -261,9 +309,9 @@ For each finished date after `plan/state.settledThrough`:
 - Otherwise: **no tick.** The same cycle day carries to the next date (a
   slide), and the date is added to `plan/state.slidDates`.
 
-A late import for a slid date ticks that date, so the plan catches up. No
-later tick can exist in between, because the cycle can't pass a missed gym
-day.
+A late import for a slid date ticks that date, so the plan catches up. Any
+tick that lands on a date in `slidDates` (late or realigned) removes that date
+from `slidDates`.
 
 ### The plan (`planner.ts`)
 
@@ -280,10 +328,15 @@ plan/garmin = { [date]: { name, workoutId, hash, mirroredAt } }   (written by th
 ```
 
 - Day 1 is today, or tomorrow when today already has a workout or tick.
-- **Ride codes:**
-  - Day 3: H1, or H2 when an H1 was logged or planned in the last 8 days.
-  - Day 7 from phase 2: H3, or H2 when an H3 was logged or planned in the last
-    8 days. In phase 1 it's an optional R1, so the day is planned as `rest`.
+- **Ride codes:** "in the last 8 days" means the 8 days up to and **including**
+  the same date 8 days before, `dn(r) ≥ dn(date) − 8`. With no slides, the
+  previous H1 sits exactly 8 days back, and the two alternate.
+  - Day 3: H1, or H2 when an H1 was logged or planned in that window.
+  - Day 7 from phase 2: H3, or H2 when an H3 was logged or planned in that
+    window. In phase 1 it's an optional R1, so the day is planned as `rest`.
+  - The hard-ride **cap** keeps `hardIn`'s exclusive window,
+    `dn(r) > dn(date) − 8`, so a ride exactly 8 days back doesn't count
+    against it.
   - Phase B day 6: L1 when there's been no L1 since the diet break began,
     else E1.
 - **Ride swaps**, in order: deload; the hard-ride cap (logged + planned);
@@ -292,22 +345,37 @@ plan/garmin = { [date]: { name, workoutId, hash, mirroredAt } }   (written by th
   sleep < 6 h, body battery < 30, or sleep stress ≥ 30. A swapped ride becomes
   an E1 ≤ 60 min, with a reason.
 - **Today freezes** once the routine has mirrored it after today's wake time
-  (`plan/garmin[today].mirroredAt ≥ wake_at`). Later readiness changes don't
-  flip the watch mid-day.
+  (`plan/garmin[today].mirroredAt ≥ wake_at`), so later readiness changes
+  don't flip the watch mid-day. The freeze holds only while **both**:
+  - the frozen day's `cycleDay` still equals the current cycle day, and
+  - today has no workout or tick.
+
+  A late import that moves the cycle drops it. The routine also skips
+  mirroring *today* while any `garmin_in` doc is unprocessed (the next run
+  catches up).
+- **Descriptions:** `Project Viking week <n> · <phase name>`, plus the swap
+  reason when there is one, plus `Train <train_window>` when the day has one
+  (passed in through `PlanCtx.windows`). This is written **before**
+  `withMarker`. The hash excludes the description, so a window change alone
+  never re-uploads.
 - **Garmin names:** `Viking Lower A (Wed 25 Nov)`,
   `Viking Lower A · deload (…)`, `Viking E1 · Endurance 75 min (…)`.
 - `garmin.hash = hashOf(dto with no description)`. The description then gets
   ` [viking:<hash>]` appended.
 - **Rebuild** after any import, tick or suggestion change, when `plan/current.hash`
   was cleared, and every 15 min. `plan/current` is written only when the
-  hash of `days + suggestions` changed. `plan/<today>` is written on every
-  rebuild.
+  hash of `days + suggestions` changed.
+- **Snapshots:** `plan/<date>` is written for today on each rebuild **only
+  while today has no workout or tick**. After that it's never overwritten, so a
+  second activity that day still reads what was planned.
 
 ### Garmin mirror (routine, every run when the switch is on)
 
-For each day from today to +6 in `plan/current.days`:
+For each day from today to +6 in `plan/current.days`. Skip *today* while any
+`garmin_in` doc has `processedAt` null.
 1. With a `garmin` entry:
-   - `plan/garmin[date]` has the same hash and its workout still exists: keep it.
+   - `plan/garmin[date]` has the same hash and its workout still exists: keep
+     it, and set `mirroredAt = now`.
    - Otherwise, find a workout with this exact name and `[viking:<hash>]`, or
      upload the DTO verbatim. Schedule it on the date. Only **then** unschedule
      any other `Viking…` workout on that date, the library ones included (never
@@ -345,10 +413,15 @@ drop their records. A stale `plan/current` is fine; the next run catches up.
 - **Asked:** a weighted exercise is `stalled` and has no open suggestion
   (pending, or approved but not yet applied). It offers "Reset <exercise> to
   <kg> and build back?" with ✅ `vk:<id>:ok` and ✖️ `vk:<id>:no`.
-  - ✅ stores `resets[ex] = decidedAt` (a timestamp) and the override. The
-    override applies to the next session with that exercise saved after
-    `decidedAt`, then clears.
+  - ✅ records `decidedAt` (a timestamp). It sets the override and
+    `resets[ex] = decidedAt`. The override applies to the next session with
+    that exercise whose `startedAt` is after `decidedAt`, then clears.
   - ✖️ snoozes it for 3 more sessions of that exercise.
+- **No write races:** the button handler never rewrites `plan/state`. It
+  writes its own doc, `plan/decision-<id>` = `{status, decidedAt}`. The tick
+  reads the decision docs on load and folds them into `plan/state.suggestions`,
+  and the tick is the only writer of `plan/state`. The `vr:` confirm button
+  writes only the one `workouts` doc and clears `plan/current.hash`.
 - Exercise swaps, calories, and patterns of missed sessions are advice only, in
   the briefing.
 
@@ -365,7 +438,8 @@ drop their records. A stale `plan/current` is fine; the next run catches up.
 - The engine keeps `plan/weekly`, covering the last 7 days vs the 7 before:
   - per lift: top kg, reps, PR (best e1RM), stalled, sessions with reps not
     counted
-  - sessions: planned (days with a gym snapshot), done (gym docs), slid (count)
+  - sessions: done (gym docs in range) and slid days (`slidDates` in range).
+    There's no "planned" count, because slides make it double-count.
   - rides: Z2 vs target, hard vs cap, minutes
   - whether a deload or retest is next
 - The `weekly-review.md` prompt has all the rules it needs inline. It sends:
@@ -396,13 +470,19 @@ drop their records. A stale `plan/current` is fine; the next run catches up.
 | Plan a date night | every:14d | none |
 
 - **Anchored `remind_at`:** for `wake`, the due date's plan; for `winddown`,
-  the wind-down of the **next** date's plan (its bedtime falls on the evening
-  of the due date).
+  the wind-down of the **next** date's plan (the bedtime that ends the due
+  date's waking day). That's the evening of the due date, or the next morning
+  after a night shift.
 - **Recompute** only when `remind_at` is null or still equals `remind_auto_at`.
   A snooze changes `remind_at` and is left alone.
-- **Day change:** an unfinished Habits task due before today is closed as
-  skipped (`done_at = skipped_at = now`), its Google copy is deleted, and the
-  next occurrence on or after today is created.
+- **Roll forward:** an unfinished Habits task is closed as skipped
+  (`done_at = skipped_at = now`) once **both**:
+  - its due date is before today, and
+  - its reminder (if any) fired at least 2 h ago.
+
+  This way a night shift's 05:30 evening-shutdown reminder still gets its
+  chance. Its Google copy is deleted, and the next occurrence on or after today
+  is created. The check runs every 15 min.
 - **Weekly counts:** done = `done_at` set and `skipped_at` null.
 
 ### App and Ascend
@@ -426,14 +506,31 @@ drop their records. A stale `plan/current` is fine; the next run catches up.
 
 ### Rollout order
 
-1. Merge with the switch off: the code is inert.
-2. Update the trigger prompts (sync, weekly → Saturday, a new monthly). These
-   are switch-aware.
-3. Seed the habits.
-4. Turn the switch on with `since = 2026-11-24`.
-5. Fire the sync and check the results.
-
 Every step waits for the owner's go-ahead.
+
+1. **Merge PR 1** with the switch off. The code is inert.
+2. **Save the current trigger prompts** (sync, weekly) to
+   `life/routines/previous/` and commit them. That's the rollback copy.
+3. **Clean out old workouts.** Using the Garmin connector, unschedule and
+   delete the dated `Viking … (…)` workouts the *old* routine made for today
+   and later. They have no `[viking:` marker. Never touch the four library
+   workouts. This prevents same-name duplicates.
+4. **Go live, together within minutes:**
+   - update the trigger prompts (sync, weekly → Saturday, new monthly)
+   - switch on with `since = 2026-11-24`
+   - fire the sync
+5. **Check** the imports, recaps, plan, watch and calendar. Then seed the
+   habits.
+6. **After a few good days, merge PR 2** (read-only app, Ascend retired, cron
+   job off).
+
+**Rollback:**
+- switch off
+- restore the saved prompts from `life/routines/previous/`
+- revert PR 2 if it's merged
+
+The old Sunday routine then schedules the library workouts again, and the app
+logger is back.
 
 ## Decisions made by Claude (owner may correct)
 
