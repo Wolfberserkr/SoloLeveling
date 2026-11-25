@@ -542,7 +542,8 @@ Rules: the spec's Google Calendar blocks section.
   - `suggestionKeyboard(s: Suggestion): Keyboard`, where `Keyboard` is `Array<Array<{ text: string; data: string }>>`. It's defined in `recap.ts`, structurally the same as life-bot's.
   - `confirmKeyboard(r: ImportResult, activityId: string): Keyboard | null`. One row per exercise with `est` reps, at most 4: `✅ <shortName> as planned` → `vr:<activityId>:<exKey>`. Then a last row, `✅ All as planned` → `vr:<activityId>:all`. It's null when no reps were assumed.
   - `confirmReps(doc: WorkoutDoc, ex: string | 'all'): WorkoutDoc`: removes `'reps'` from `est` on those sets, and drops `est` when it's empty.
-  - `resultFromDoc(doc: WorkoutDoc, docId: string, session: SessionKey): ImportResult`: assumptions rebuilt from the `est` flags with the same copy; `dropped 0`, `merged false`.
+  - `assumptionsFor(doc: WorkoutDoc, planned: Record<string, StrengthTarget> | null, D: VikingData): string[]`, in garminImport.ts. It's the one builder of the assumption lines: reps and kg from `est`, "n of m sets" against `planned` or `setCount`, "not recorded" for planned exercises with no entry, and the pull-up assist line. `importStrength` uses it too.
+  - `resultFromDoc(doc: WorkoutDoc, docId: string, session: SessionKey, planned: Record<string, StrengthTarget> | null, D: VikingData): ImportResult`: assumptions from `assumptionsFor`, `dropped 0`, `merged false`. The engine passes the `plan/<date>` snapshot as `planned`.
   - The store interface:
 
 ```ts
@@ -578,9 +579,9 @@ export function runVikingTick(s: VikingStore, now: Date, tz: string, since: stri
 
    The sort key is `${date}T${start}` with `start` normalised to `HH:MM` (activities: the time part of `start`; rides: `start ?? '23:58'`; end-of-day: `'23:59'`). For each item, `i++`, `savedAt = now.getTime() + i`:
    - **Activity:**
+     - **First** skip a doc whose `lastFailedAt` is less than 15 min ago. Do this **before** claiming, so a skipped doc never holds a claim.
      - `if (!(await s.claim('vkimp:' + id))) continue`.
      - Inside `try`: run `importStrength`, then put `workouts`, then `gymTick` and put it, then put `garmin_in` with `processedAt`, `result: <docId>` and `dropped`. Update the in-memory `D`. Remove any tick date from `slidDates`.
-     - Skip a doc whose `lastFailedAt` is less than 15 min ago.
      - On `skip: 'already'` (this activity is already in the doc, e.g. a retry after a failed tick write):
        - Still run `gymTick` (idempotent by id) and put it.
        - Put `garmin_in` with `processedAt`, `result: <docId>` and `dropped: 0`.
@@ -599,7 +600,7 @@ export function runVikingTick(s: VikingStore, now: Date, tz: string, since: stri
      - no valid freeze exists (`state.frozen?.date !== today`, or its `cycleDay` ≠ the current cycle day)
      - `garmin[today]?.mirroredAt ≥ wakeAt[today]`
      - `garmin[today].hash === that day's garmin?.hash`, or both are rest
-     - health is seen: `!healthUpdatedAt || state.healthSeenAt ≥ healthUpdatedAt`, using the value this rebuild will store
+     - health is seen: `!healthUpdatedAt || loadedState.healthSeenAt ≥ healthUpdatedAt`. `loadedState` is the `plan/state` read at step 2, **before** this rebuild updates it, so the first rebuild after new health never freezes.
 
      `planAhead` applies the hold conditions itself.
    - Then `planAhead` with `windows`.
@@ -625,10 +626,10 @@ export function runVikingTick(s: VikingStore, now: Date, tz: string, since: stri
     - `engine: a confirmed session advances`: after one import, apply `confirmReps(doc, 'all')` to the stored doc. With squat sets then 3 × 5 recorded, the next squat target is 110 × 6.
     - `engine: a failed send never loses the import`: `send` throws → the workouts doc, tick and `processedAt` are all written, and a second run sends nothing new (the recap claim was taken).
     - `engine: a throw after the claim releases it`: make the first `put('workouts', …)` throw → `vkimp:<id>` is released, `processedAt` is unset, and the next run imports it.
-    - `engine: a throw on the cycle put still ticks on retry`: the first `put('cycle', …)` throws (the workout was written). Advance the fake clock 15 min. The next run returns `already`, writes the tick, `processedAt` and `result = docId`, sends exactly one recap with confirm buttons, and `plan/current.days[0]` moves on.
-    - `engine: a poison doc gives up after 3 tries over an hour`: a doc with `sets: null` throws. Runs at +0, +1 min (skipped: too soon), +15, +30 → still unprocessed (3 failures, under 1 h). The run at +75 gives up: `processedAt` set, `result` starting `error:`, one error message, `sets` still in the doc (a merge, not a replace), and the memory store's `hasWork` is false.
+    - `engine: a throw on the cycle put still ticks on retry`: the first `put('cycle', …)` throws (the workout was written). Advance the fake clock 15 min. The next run returns `already`, writes the tick, `processedAt` and `result = docId`, sends exactly one recap with confirm buttons. Its assumptions equal the first attempt's, `2 of 3 sets` included. `plan/current.days[0]` moves on.
+    - `engine: a poison doc gives up after 3 tries over an hour`: a doc with `sets: null` throws. Runs at +0, +1 min (skipped before any claim: assert `vkimp:<id>` is free afterwards), +15, +30 → still unprocessed (3 failures, under 1 h). The run at +75 gives up: `processedAt` set, `result` starting `error:`, one error message, `sets` still in the doc (a merge, not a replace), and the memory store's `hasWork` is false.
     - `engine: health seen without a plan change`: a gym-day plan, then `healthUpdatedAt` moves with OK readiness → one rebuild, `plan/current` not rewritten (same hash), `state.healthSeenAt` updated, and `hasWork` false afterwards.
-    - `engine: fresh health rebuilds today and blocks a stale freeze`: `healthUpdatedAt` after `builtAt` with `hrvStatus 'LOW'` → today's H1 becomes E1, and no freeze is taken from the pre-health plan.
+    - `engine: fresh health rebuilds today and blocks a stale freeze` (the stored `healthSeenAt` is older than `healthUpdatedAt` at load; `garmin[today]` mirrored the pre-health plan): `healthUpdatedAt` after `builtAt` with `hrvStatus 'LOW'` → today's H1 becomes E1, and no freeze is taken from the pre-health plan.
     - `engine: before-since activity is marked processed, not imported`.
     - `engine: today's snapshot is not overwritten after today is logged`.
     - `engine: a decision doc is folded once` (`ok` → override → the next LA's squat target is the reset kg).
@@ -671,6 +672,7 @@ export function runVikingTick(s: VikingStore, now: Date, tz: string, since: stri
       - `set` is 1-based; omitted, it patches every set; `set = length + 1` appends one.
       - It removes the `est` entries for the fields it set and clears `plan/current.hash`.
       - It refuses unknown keys and lists the session's `shortName`s.
+- `viking_fix`'s description says: use it to correct a logged session, or to create one only after Jarvis said it couldn't read that session. Never create one for a session still waiting to import.
 - Both tools are listed in the agent's tool array and handled in its tool switch, following the existing patterns.
 
 - [ ] **Step 1:** Implement.
@@ -722,7 +724,7 @@ export function runVikingTick(s: VikingStore, now: Date, tz: string, since: stri
 
 Changes. All Viking parts start with "If `prefs.vikingGarmin` isn't true, skip this and leave Garmin training workouts alone."
 
-**sync.md step 7, health upsert.** Add `updated_at = now()` to its `on conflict … do update`, so the freshness check sees every new health write.
+**sync.md step 7, health upsert.** Add `updated_at = now()` to its `on conflict … do update`, so the freshness check sees every new health write. Add a note in the prompt that this is intended, even though it costs a rebuild per run.
 
 **sync.md step 7, Lifting.** Replace the nudge. For each Garmin `strength_training` activity whose local date is ≥ `prefs.vikingGarminSince` and within the last 7 days, and which has no `garmin_in/<activityId>` doc:
 - Call `get_activity_exercise_sets`.
