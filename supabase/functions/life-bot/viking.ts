@@ -27,7 +27,7 @@ const RIDE_FRESH_MS = 10 * MIN;
 const SNAPSHOT_DAYS = 14;
 const DECISION_DAYS = 30;
 const LEASE_KEY = 'vklease';
-const LEASE_MS = 5 * MIN;
+const LEASE_MS = 7 * MIN;
 const MINUTE_KEEP_MS = 60 * MIN;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -127,9 +127,9 @@ async function claimKey(db: Db, userId: string, key: string, at?: string): Promi
  *    minute is skipped). Kept an hour, then pruned here, so they don't pile up
  *    1440 a day until the 120-day cleanup.
  *  - `vklease`: one row while a run is in progress, deleted in `finally`. A
- *    row younger than 5 minutes means busy; an older one is a crashed run's
- *    leftover and is taken over by a compare-and-set on sent_at. 5 minutes is
- *    longer than an edge function can run, so a live run is never taken over.
+ *    row younger than 7 minutes means busy; an older one is a crashed run's
+ *    leftover and is taken over by a compare-and-set on sent_at. 7 minutes is
+ *    longer than Supabase's 400 s edge wall clock, so a live run is never taken over.
  * Both are plain life_nudge_log keys: no new table, and the existing PK makes
  * each claim atomic.
  */
@@ -303,7 +303,9 @@ export function supabaseStore(db: Db, userId: string, chatId: number, tz: string
       return {
         afterNight, windows, wakeAt,
         health: healthOf(hR.data?.data as Row | undefined),
-        healthUpdatedAt: hR.data?.updated_at ? new Date(String(hR.data.updated_at)).toISOString() : undefined,
+        // The raw timestamptz string (microseconds): it becomes plan/state.healthSeenAt, which the
+        // routines compare in SQL against life_health.updated_at, so it must not be truncated to ms.
+        healthUpdatedAt: hR.data?.updated_at ? String(hR.data.updated_at) : undefined,
       };
     },
   };
@@ -364,8 +366,9 @@ export async function vikingStatus(db: Db, userId: string, today: string): Promi
   fail('plan decisions read failed', decR.error);
   const days = Array.isArray(cur?.days) ? cur.days : [];
   const todayDay = days.find((d) => d.date === today);
-  const gym = days.find((d) => d.kind === 'gym' && d.session);
   const docs = ((lastR.data ?? []) as Row[]).map((r) => ({ id: String(r.doc_id), doc: r.data as WorkoutDoc })).filter((x) => x.doc && SESS[x.doc.session]);
+  const logged = (d: PlanDay) => docs.some((x) => x.doc.date === d.date && x.doc.session === d.session);
+  const gym = days.find((d) => d.kind === 'gym' && d.session && !logged(d));
   const key = (x: { doc: WorkoutDoc }) => `${x.doc.date} ${x.doc.startedAt ?? ''}`;
   const last = [...docs].sort((a, b) => (key(a) < key(b) ? 1 : key(a) > key(b) ? -1 : 0))[0];
   const decided = new Set(((decR.data ?? []) as Row[]).map((r) => String(r.doc_id).slice('decision-'.length)));

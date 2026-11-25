@@ -303,34 +303,41 @@ async function handleCallback(cb: Row) {
     return answerCallback(String(cb.id));
   }
   if (kind === 'vk' || kind === 'vr') {
-    const { data: prof } = await db.from('life_profile').select('prefs').eq('user_id', uid).maybeSingle();
-    if (!vikingOn(prof?.prefs)) return answerCallback(String(cb.id), 'Viking training is switched off');
-    const rebuild = () => clearPlanHash(db, uid).catch((err) => console.error('life-bot: plan/current hash not cleared', err));
+    // A DB error must still answer the tap, or Telegram shows a spinner.
+    try {
+      const { data: prof, error: profErr } = await db.from('life_profile').select('prefs').eq('user_id', uid).maybeSingle();
+      if (profErr) throw new Error(`life_profile read failed: ${profErr.message}`);
+      if (!vikingOn(prof?.prefs)) return answerCallback(String(cb.id), 'Viking training is switched off');
+      const rebuild = () => clearPlanHash(db, uid).catch((err) => console.error('life-bot: plan/current hash not cleared', err));
 
-    // A stall suggestion: the tick folds plan/decision-<id> into plan/state; never write plan/state here.
-    if (kind === 'vk' && (verb === 'ok' || verb === 'no')) {
-      const state = await getDoc<PlanState>(db, uid, 'plan', 'state');
-      const sg = state?.suggestions?.find((x) => x.id === id);
-      if (!sg || sg.status !== 'pending' || (await getDoc(db, uid, 'plan', `decision-${id}`))) return answerCallback(String(cb.id), 'Already handled');
-      if (!(await createDoc(db, uid, 'plan', `decision-${id}`, { status: verb, decidedAt: new Date().toISOString() }))) return answerCallback(String(cb.id), 'Already handled');
-      await rebuild();
-      await settleButtons(chatId, messageId, verb === 'ok' ? `✅ Next ${shortName(sg.ex)}: ${sg.kg} kg` : '✖️ Keeping the weight');
-      return answerCallback(String(cb.id));
-    }
+      // A stall suggestion: the tick folds plan/decision-<id> into plan/state; never write plan/state here.
+      if (kind === 'vk' && (verb === 'ok' || verb === 'no')) {
+        const state = await getDoc<PlanState>(db, uid, 'plan', 'state');
+        const sg = state?.suggestions?.find((x) => x.id === id);
+        if (!sg || sg.status !== 'pending' || (await getDoc(db, uid, 'plan', `decision-${id}`))) return answerCallback(String(cb.id), 'Already handled');
+        if (!(await createDoc(db, uid, 'plan', `decision-${id}`, { status: verb, decidedAt: new Date().toISOString() }))) return answerCallback(String(cb.id), 'Already handled');
+        await rebuild();
+        await settleButtons(chatId, messageId, verb === 'ok' ? `✅ Next ${shortName(sg.ex)}: ${sg.kg} kg` : '✖️ Keeping the weight');
+        return answerCallback(String(cb.id));
+      }
 
-    // "As planned": the assumed reps of one exercise (or all) count as recorded.
-    if (kind === 'vr' && verb) {
-      const gin = await getDoc<{ result?: unknown }>(db, uid, 'garmin_in', id);
-      const docId = typeof gin?.result === 'string' && /^\d{4}-\d{2}-\d{2}_(UA|LA|UB|LB)$/.test(gin.result) ? gin.result : null;
-      const doc = docId ? await getDoc<WorkoutDoc>(db, uid, 'workouts', docId) : null;
-      if (!docId || !doc) return answerCallback(String(cb.id), 'Already gone');
-      await putDoc(db, uid, 'workouts', docId, confirmReps(doc, verb === 'all' ? 'all' : verb));
-      await rebuild();
-      if (verb === 'all') await settleButtons(chatId, messageId, '✅ All confirmed');
-      else await dropButtonRow(chatId, messageId, (cb.message as Row).reply_markup as never, String(cb.data), '✅ Reps confirmed');
+      // "As planned": the assumed reps of one exercise (or all) count as recorded.
+      if (kind === 'vr' && verb) {
+        const gin = await getDoc<{ result?: unknown }>(db, uid, 'garmin_in', id);
+        const docId = typeof gin?.result === 'string' && /^\d{4}-\d{2}-\d{2}_(UA|LA|UB|LB)$/.test(gin.result) ? gin.result : null;
+        const doc = docId ? await getDoc<WorkoutDoc>(db, uid, 'workouts', docId) : null;
+        if (!docId || !doc) return answerCallback(String(cb.id), 'Already gone');
+        await putDoc(db, uid, 'workouts', docId, confirmReps(doc, verb === 'all' ? 'all' : verb));
+        await rebuild();
+        if (verb === 'all') await settleButtons(chatId, messageId, '✅ All confirmed');
+        else await dropButtonRow(chatId, messageId, (cb.message as Row).reply_markup as never, String(cb.data), '✅ Reps confirmed');
+        return answerCallback(String(cb.id));
+      }
       return answerCallback(String(cb.id));
+    } catch (err) {
+      console.error(`life-bot: ${kind} callback failed`, err);
+      return answerCallback(String(cb.id), 'Something went wrong, try again');
     }
-    return answerCallback(String(cb.id));
   }
   if (kind === 'bp') {
     const { data: bill } = await db.from('life_bills').select('*').eq('user_id', uid).eq('id', id).maybeSingle();
