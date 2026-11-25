@@ -4,7 +4,9 @@ A personal training site with three sides, all behind one Supabase sign-in:
 
 - **Project Viking** (`src/features/viking/`) — the 52-week training plan.
   This is the main side of the site (it replaced the Solo Leveling RPG).
-- **Ascend** (`src/features/ascend/`) — a life-RPG, picked from the chooser.
+- **Ascend** (`src/features/ascend/`) — a life-RPG, picked from the chooser. It is retired in
+  PR 2 of the Garmin-first work (chooser, pages and `ascend-reminders` cron job go; its code
+  and tables are kept).
 - **Reset** (`src/features/reset/`) — D's separate workout portal.
 
 Built as an installable PWA: **Vite + React + TypeScript + Tailwind**, backed by
@@ -59,6 +61,14 @@ Rides stay in the `rides` collection (old easy/hard rides still count);
 owner-only RLS, no edge function. The UI renders from a localStorage cache and
 writes optimistically; a failed write shows a toast and reloads the server copy.
 Unsaved logger input is kept as a per-user draft in localStorage.
+
+**Fed from Garmin.** With the switch `life_profile.prefs.vikingGarmin` on, training is recorded
+on the Garmin watch: the Jarvis sync routine copies each strength activity in, life-bot's tick
+turns it into a Viking workout, ticks the cycle (which waits instead of skipping a missed day),
+sets the next targets and plans the next 7 days as ready-made Garmin workouts, which the sync
+puts on the watch. Rules: `supabase/functions/_shared/viking/`. The app logger above stays until
+PR 2, which makes the app read-only (charts, history, Settings and the benchmark retest stay).
+Switching on and off, and rollback: [`docs/LIFE_ASSISTANT.md`](docs/LIFE_ASSISTANT.md#project-viking-from-garmin).
 
 The old Solo Leveling RPG code was removed. Its database tables were left in
 place untouched; migration 0028 only stops its `system-heartbeat` pg_cron job
@@ -155,7 +165,9 @@ A Telegram assistant that plans days around shifts, keeps Calendar current,
 triages Gmail, tracks money (AWG + USD) and folds Garmin/Strava into Project
 Viking. The `life-bot` edge function (Claude API + a minute pg_cron tick)
 handles chat and nudges; Claude scheduled tasks (`life/routines/*.md`) do the
-Google/Garmin/Strava work through connectors. Schema: migration 0030. Rules:
+Google/Garmin/Strava work through connectors: `sync` every 3 hours, the Saturday training
+briefing (`weekly-review`, 18:39) and the monthly money review (`monthly-review`, first Sunday,
+18:13). Schema: migration 0030. Rules:
 `supabase/functions/_shared/lifeLogic.ts`, locked by `tests/life.test.ts`.
 Full design and setup: [`docs/LIFE_ASSISTANT.md`](docs/LIFE_ASSISTANT.md).
 
