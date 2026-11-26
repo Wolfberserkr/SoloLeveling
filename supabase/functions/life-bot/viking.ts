@@ -4,7 +4,6 @@
 // chat tools share. Everything here runs only with prefs.vikingGarmin === true.
 // ═════════════════════════════════════════════════════════════════════════
 import type { PlanState, VikingStore } from '../_shared/viking/engine.ts';
-import type { Block } from '../_shared/viking/calendarPlan.ts';
 import { shortName, type GarminIn } from '../_shared/viking/garminImport.ts';
 import { gymTick, type Health, type PlanCurrent, type PlanDay } from '../_shared/viking/planner.ts';
 import { EXBY, ORDER, SESS, type SessionKey } from '../_shared/viking/data.ts';
@@ -12,7 +11,7 @@ import { RIDES } from '../_shared/viking/bikePlan.ts';
 import { COLLS, emptyData, viking, type Coll, type SetEntry, type Settings, type VikingData, type WorkoutDoc } from '../_shared/viking/logic.ts';
 import type { Progress } from '../_shared/viking/targets.ts';
 import { addDays, localParts, zonedTime } from '../_shared/lifeLogic.ts';
-import { bridge, gcalEnabled, liveEvents, refreshCache } from './calendar.ts';
+import { bridge, gcalEnabled } from './calendar.ts';
 import { sendMessage } from './telegram.ts';
 
 // deno-lint-ignore no-explicit-any
@@ -174,31 +173,17 @@ function healthOf(d: Row | undefined): Health | undefined {
   return h;
 }
 
-/** Our training event: the description adoption matches on (calendarPlan.ts isOurs). */
-export const trainingDescription = (date: string) => `[jarvis] training · viking:${date}`;
-
 export function supabaseStore(db: Db, userId: string, chatId: number, tz: string): VikingStore {
   const today = () => localParts(new Date(), tz).date;
 
+  // Training blocks are retired; this only removes the ones made before that.
   const calendar: VikingStore['calendar'] = !gcalEnabled() ? null : {
-    list: (from: Date, to: Date) => liveEvents(db, userId, from, to),
-    async create(b: Block) {
-      const description = trainingDescription(b.date);
-      const r = await bridge.create({ title: b.title, start: b.start, end: b.end, allDay: false, location: null, description, remindersMin: [30] });
-      if (!r || typeof r.id !== 'string' || !r.id) throw new Error('the calendar returned no event id');
-      await refreshCache(db, userId, [{ id: r.id, title: b.title, start: b.start, end: b.end, allDay: false, description }]);
-      return r.id;
-    },
-    async update(id: string, b: Block) {
-      const description = trainingDescription(b.date);
-      await bridge.update(id, { title: b.title, start: b.start, end: b.end, description });
-      await refreshCache(db, userId, [{ id, title: b.title, start: b.start, end: b.end, allDay: false, description }]);
-    },
     async remove(id: string) {
       await bridge.remove(id);
       await db.from('life_calendar_cache').delete().eq('user_id', userId).eq('event_id', id);
     },
   };
+
 
   return {
     calendar,

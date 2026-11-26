@@ -1,9 +1,8 @@
 // Project Viking — the life-bot tick: import Garmin sessions, settle finished
-// days, fold decisions, rebuild the plan and place calendar blocks. Pure TS:
+// days, fold decisions, rebuild the plan (and clear any retired calendar blocks). Pure TS:
 // every read and write goes through the injected VikingStore; time is passed in.
 import { bike } from './bikeLogic.ts';
 import type { SessionKey } from './data.ts';
-import { desiredBlocks, reconcile, type Block, type BlockState } from './calendarPlan.ts';
 import { hashOf } from './garmin.ts';
 import { importStrength, type GarminIn } from './garminImport.ts';
 import { viking, type CycleDoc, type RideDoc, type VikingData } from './logic.ts';
@@ -14,8 +13,7 @@ import {
   confirmKeyboard, notVikingText, poisonText, recapText, resultFromDoc, suggestionKeyboard, suggestionText,
   type Keyboard,
 } from './recap.ts';
-import { addDays, localParts, zonedTime } from '../lifeLogic.ts';
-import { busyFromEvents, type CalEvent } from '../scheduling.ts';
+import { addDays, localParts } from '../lifeLogic.ts';
 
 export interface VikingStore {
   load(): Promise<{ D: VikingData; current: PlanCurrent | null; state: PlanState | null; garmin: Record<string, { mirroredAt: string; hash: string }>; inbox: GarminIn[]; snapshots: Record<string, { session?: SessionKey; targets?: Record<string, Progress> }>; decisions: Record<string, { status: 'ok' | 'no'; decidedAt: string }> }>;
@@ -26,9 +24,12 @@ export interface VikingStore {
   release(key: string): Promise<void>;               // delete that life_nudge_log key (life-bot may delete; the no-DELETE rule is for routines)
   send(text: string, kb?: Keyboard | null): Promise<void>;
   context(today: string): Promise<{ afterNight: Set<string>; health?: Health; healthUpdatedAt?: string; windows: Record<string, string>; wakeAt: Record<string, string> }>;
-  calendar: null | { list(from: Date, to: Date): Promise<{ events: CalEvent[]; live: boolean }>; create(b: Block): Promise<string>; update(id: string, b: Block): Promise<void>; remove(id: string): Promise<void> };
+  calendar: null | { remove(id: string): Promise<void> };  // only to clear training blocks made before they were retired
 }
 export type PlanState = { since: string; settledThrough: string; healthSeenAt?: string; slidDates: string[]; ridesSeen: string[]; resets: Resets; suggestions: Suggestion[]; blocks: Record<string, BlockState>; frozen?: { date: string; day: PlanDay } };
+
+/** A training block Jarvis put on Google Calendar (retired; kept so old ones get removed). */
+export type BlockState = { eventId: string; key: string; start: string; end: string };
 
 type Inbox = GarminIn & { firstFailedAt?: string; lastFailedAt?: string };
 type Item =
@@ -42,7 +43,6 @@ const POISON_MS = 60 * MIN;
 const POISON_TRIES = 3;
 const KEEP_RIDES = 60;
 const KEEP_SLID = 30;
-const KEEP_BLOCK_DAYS = 14;
 
 /** "2026-11-25T06:11" or "6:11" → "06:11". */
 function hm(s: string | undefined, dflt: string): string {
@@ -232,44 +232,18 @@ export async function runVikingTick(
   }
   await s.put('plan', 'weekly', weekSummary(D, today, state.slidDates, state.resets));
 
-  // 6. Calendar blocks.
-  if (s.calendar && (changed || on15)) {
-    try { out.calendarOps = await placeBlocks(s.calendar, state, days, cx.windows, tz, today, now); } catch (e) { log('calendar skipped', msg(e)); }
-  }
+  // 6. Calendar training blocks are retired: remove any made before, then nothing more.
+  if (s.calendar && Object.keys(state.blocks ?? {}).length) out.calendarOps = await clearBlocks(s.calendar, state);
   if (cx.healthUpdatedAt) state.healthSeenAt = cx.healthUpdatedAt;
   await s.put('plan', 'state', state);
   return out;
 }
 
-/** Reconcile and apply; each op updates state.blocks only once it succeeded. */
-async function placeBlocks(
-  cal: NonNullable<VikingStore['calendar']>, state: PlanState, days: PlanDay[],
-  windows: Record<string, string>, tz: string, today: string, now: Date,
-): Promise<number> {
-  const { events, live } = await cal.list(zonedTime(today, '00:00', tz), zonedTime(addDays(today, 7), '00:00', tz));
-  if (!live) return 0;
-  const busy = busyFromEvents(events.filter((e) => !e.description.includes('viking:')));
-  const ops = reconcile(desiredBlocks(days, windows, tz, busy), state.blocks, events, now, { from: today, to: addDays(today, 6) });
-  const touched = new Set([...ops.create.map((b) => b.date), ...ops.update.map((u) => u.block.date)]);
-  const blocks: Record<string, BlockState> = { ...state.blocks };
-  for (const [d, st] of Object.entries(ops.state)) if (!touched.has(d)) blocks[d] = st; // kept or adopted
-  for (const d of Object.keys(blocks))
-    if (!(d in ops.state) && !ops.remove.includes(blocks[d].eventId)) delete blocks[d]; // gone, nothing to remove
+/** Remove the training blocks still on the calendar; each one leaves state only once removed. */
+async function clearBlocks(cal: NonNullable<VikingStore['calendar']>, state: PlanState): Promise<number> {
   let n = 0;
-  for (const b of ops.create) {
-    try { blocks[b.date] = { ...ops.state[b.date], eventId: await cal.create(b) }; n++; } catch (e) { log(`block ${b.date} not created`, msg(e)); }
+  for (const [d, b] of Object.entries(state.blocks)) {
+    try { await cal.remove(b.eventId); delete state.blocks[d]; n++; } catch (e) { log(`block ${d} not removed`, msg(e)); }
   }
-  for (const u of ops.update) {
-    try { await cal.update(u.id, u.block); blocks[u.block.date] = ops.state[u.block.date]; n++; } catch (e) { log(`block ${u.block.date} not updated`, msg(e)); }
-  }
-  for (const id of ops.remove) {
-    try {
-      await cal.remove(id);
-      for (const [d, st] of Object.entries(blocks)) if (st.eventId === id) delete blocks[d];
-      n++;
-    } catch (e) { log(`event ${id} not removed`, msg(e)); }
-  }
-  const keepFrom = addDays(today, -KEEP_BLOCK_DAYS);
-  state.blocks = Object.fromEntries(Object.entries(blocks).filter(([d]) => d >= keepFrom));
   return n;
 }

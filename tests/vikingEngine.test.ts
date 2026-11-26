@@ -4,8 +4,6 @@ import { COLLS, emptyData, viking, type CycleDoc, type Settings, type VikingData
 import { importStrength, type GarminIn, type ImportResult } from '../supabase/functions/_shared/viking/garminImport.ts';
 import { nextTargets } from '../supabase/functions/_shared/viking/targets.ts';
 import type { Health, PlanCurrent } from '../supabase/functions/_shared/viking/planner.ts';
-import type { Block } from '../supabase/functions/_shared/viking/calendarPlan.ts';
-import type { CalEvent } from '../supabase/functions/_shared/scheduling.ts';
 import { addDays } from '../supabase/functions/_shared/lifeLogic.ts';
 import { confirmReps, type Keyboard } from '../supabase/functions/_shared/viking/recap.ts';
 import { runVikingTick, type PlanState, type VikingStore } from '../supabase/functions/_shared/viking/engine.ts';
@@ -390,37 +388,32 @@ it('engine: a decision doc is folded once', async () => {
   expect(s.sent).toEqual([]);
 });
 
-it('engine: calendar skipped when live is false', async () => {
+it('engine: retired calendar blocks are removed once, and none are made', async () => {
   const s = new MemoryStore({ workouts: { '2026-11-24_UA': wo('2026-11-24', 'UA') } });
+  s.set('plan', 'state', { since: '2026-11-24', settledThrough: '2026-11-24', slidDates: [], ridesSeen: [], resets: {}, suggestions: [], blocks: {
+    '2026-11-26': { eventId: 'ev1', key: 'ride:E1:85', start: '2026-11-26T10:30:00.000Z', end: '2026-11-26T11:55:00.000Z' },
+    '2026-11-27': { eventId: 'ev2', key: 'gym:UB:60', start: '2026-11-27T12:00:00.000Z', end: '2026-11-27T13:00:00.000Z' },
+  } });
   const calls: string[] = [];
-  s.calendar = {
-    list: async () => ({ events: [], live: false }),
-    create: async () => { calls.push('create'); return 'x'; },
-    update: async () => { calls.push('update'); },
-    remove: async () => { calls.push('remove'); },
-  };
-  expect(await run(s, T)).toMatchObject({ calendarOps: 0 });
-  expect(calls).toEqual([]);
+  s.calendar = { remove: async (id: string) => { calls.push(id); } };
+  expect((await run(s, T)).calendarOps).toBe(2);
+  expect(calls).toEqual(['ev1', 'ev2']);
   expect((s.get('plan', 'state') as PlanState).blocks).toEqual({});
+  expect((await run(s, later(T, 15))).calendarOps).toBe(0);
+  expect(calls).toHaveLength(2);
 });
 
-it('engine: calendar creates store the real event ids and are not repeated', async () => {
+it('engine: a block whose removal fails stays and is retried next tick', async () => {
   const s = new MemoryStore({ workouts: { '2026-11-24_UA': wo('2026-11-24', 'UA') } });
-  const events: CalEvent[] = [];
-  let n = 0;
-  s.calendar = {
-    list: async () => ({ events: clone(events), live: true }),
-    create: async (b: Block) => { const id = `ev${++n}`; events.push({ id, title: b.title, start: b.start, end: b.end, allDay: false, description: `[jarvis] training · viking:${b.date}` }); return id; },
-    update: async () => {},
-    remove: async () => {},
-  };
-  const r = await run(s, T);
-  expect(r.calendarOps).toBeGreaterThan(0);
-  const blocks = (s.get('plan', 'state') as PlanState).blocks;
-  expect(Object.values(blocks).every((b) => /^ev\d+$/.test(b.eventId))).toBe(true);
-  expect(blocks['2026-11-25']).toMatchObject({ key: 'gym:LA:60' });
-  expect((await run(s, later(T, 15))).calendarOps).toBe(0);
-  expect(events).toHaveLength(n);
-  expect((s.get('plan', 'state') as PlanState).blocks).toEqual(blocks);
+  s.set('plan', 'state', { since: '2026-11-24', settledThrough: '2026-11-24', slidDates: [], ridesSeen: [], resets: {}, suggestions: [], blocks: {
+    '2026-11-27': { eventId: 'ev2', key: 'gym:UB:60', start: '2026-11-27T12:00:00.000Z', end: '2026-11-27T13:00:00.000Z' },
+  } });
+  let fail = true;
+  s.calendar = { remove: async () => { if (fail) throw new Error('bridge down'); } };
+  expect((await run(s, T)).calendarOps).toBe(0);
+  expect(Object.keys((s.get('plan', 'state') as PlanState).blocks)).toEqual(['2026-11-27']);
+  fail = false;
+  expect((await run(s, later(T, 15))).calendarOps).toBe(1);
+  expect((s.get('plan', 'state') as PlanState).blocks).toEqual({});
 });
 });

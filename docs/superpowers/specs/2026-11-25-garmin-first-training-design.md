@@ -443,6 +443,8 @@ drop their records. A stale `plan/current` is fine; the next run catches up.
 
 ### Google Calendar blocks (engine, through the bridge)
 
+> **Retired 2026-11-26 (owner decision).** Training blocks are no longer placed. The engine only removes blocks made earlier (`plan/state.blocks`), then the section below is history. Habit seeding was dropped at the same time.
+
 - **Dates:** today (only while today's session isn't logged) through +6.
 - **Block:**
   - gym: `🏋️ Viking Lower A`, 60 min
