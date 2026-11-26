@@ -166,8 +166,8 @@ triages Gmail, tracks money (AWG + USD) and folds Garmin/Strava into Project
 Viking. The `life-bot` edge function (Claude API + a minute pg_cron tick)
 handles chat and nudges; Claude scheduled tasks (`life/routines/*.md`) do the
 Google/Garmin/Strava work through connectors: `sync` every 3 hours, the Saturday training
-briefing (`weekly-review`, 18:39) and the monthly money review (`monthly-review`, first Sunday,
-18:13). Schema: migration 0030. Rules:
+briefing (`weekly-review`, 18:39), which adds the monthly money review on the first
+Saturday. Schema: migration 0030. Rules:
 `supabase/functions/_shared/lifeLogic.ts`, locked by `tests/life.test.ts`.
 Full design and setup: [`docs/LIFE_ASSISTANT.md`](docs/LIFE_ASSISTANT.md).
 

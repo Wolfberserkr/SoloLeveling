@@ -13,7 +13,7 @@ Garmin and Strava into Project Viking.
 | **Daily plan** | Anchors (shift, sleep, training, meals, errands) are computed per shift. Morning shifts wake 90 min before; back-to-back nights sleep straight after; a first night gets a nap. Say "block 14:00–15:30 for X" to add a calendar block |
 | **Briefing** | About 1 h after waking, so it moves with your shift (30 min before leaving on morning shifts); at a fixed time on days off. If the background routine misses it, the bot sends a short version Ends with **📰 Aruba today**: 3 local stories from the last day (traffic, Elmar or WEB outages, government, tourism and casino news, events), one English line each with a link |
 | **Training** | Project Viking is fed from Garmin (behind the switch `prefs.vikingGarmin`, see below). **Import:** every strength session you record on the watch is copied in by the sync and turned into a Viking workout by life-bot, with a recap (and "as planned" buttons when the watch didn't count reps). Rides go into the Ride log, sleep and steps into recovery. **Progression:** the next weights follow the plan's double-progression rules; reps the watch didn't count hold the target, and a set with no kg recorded is never taken as a weight; a stalled lift gets a ✅ Reset / ✖️ Keep pushing question. **A cycle that waits:** the 8-day cycle moves only when a session or ride is done, so a missed day slides instead of being skipped. Readiness (HRV, sleep, body battery, sleep stress, night shifts) swaps hard rides for easy ones. **On the watch:** life-bot plans the next 7 days with ready-made Garmin workouts, and the sync puts them on the Garmin calendar every 3 hours. The plan names each day's training window in the workout's description; Jarvis doesn't put training blocks on Google Calendar |
-| **Nudges** | Wind-down before bedtime, nap reminders, steps (evenings, off work), weigh-in and check-in, the Saturday training briefing (training, recovery vs shifts, habits, next week) and a monthly money message (first Sunday) |
+| **Nudges** | Wind-down before bedtime, nap reminders, steps (evenings, off work), weigh-in and check-in, the Saturday training briefing (training, recovery vs shifts, habits, next week) and a monthly money message (first Saturday, inside the briefing) |
 | **Email** | Tiered. Obvious junk (promotions, social, expired codes, delivered parcels) goes to Trash and is recoverable for 30 days. Uncertain mail comes to Telegram at 19:00 with 🗑 / ✅ / ♻️ Always. Receipts are archived after being logged. Important mail is summarised and gets a draft reply, never sent |
 | **Money** | Bank alert and receipt emails are parsed. Quick-log by Telegram ("25 lunch", "$40 gas"), or send a receipt or statement photo. Statements skip lines already logged. Includes budgets with 80% / 100% warnings, bills and renewals with ✅ Paid buttons, savings goals, and a monthly subscription audit. AWG + USD at the 1.79 peg |
 | **Other** | Groceries, errands, household, family dates, learning and habits (`life_tasks`, `life_memory`) |
@@ -30,8 +30,8 @@ Garmin and Strava into Project Viking.
                                                                      │ execute_sql
                Claude scheduled tasks ── Gmail · Calendar · Garmin · Strava · Sheets
                • sync, every 3 h (life/routines/sync.md)
-               • weekly training briefing, Sat 18:39 (life/routines/weekly-review.md)
-               • monthly review, Sun 18:13, first Sunday only (life/routines/monthly-review.md)
+               • weekly training briefing, Sat 18:39, + the monthly money review on the
+                 first Saturday (life/routines/weekly-review.md)
 ```
 
 The bot can't reach Google, Garmin or Strava itself. When you ask it to change your calendar
@@ -81,9 +81,9 @@ lives in Supabase is instant: money, tasks, shifts, schedule questions and memor
 9. **Scheduled tasks.** Claude runs, with the Gmail, Google Calendar, Garmin, Strava, Supabase,
    Google Sheets and Google Drive connectors:
    - `sync` every 3 hours (`life/routines/sync.md`)
-   - `weekly-review` on Saturdays at 18:39 (`CRON_TZ=America/Aruba 39 18 * * 6`)
-   - `monthly-review` on Sundays at 18:13 (`CRON_TZ=America/Aruba 13 18 * * 0`); it stops unless
-     it's the first Sunday of the month
+   - `weekly-review` on Saturdays at 18:39 (`CRON_TZ=America/Aruba 39 18 * * 6`); on the first
+     Saturday of the month it also does the monthly money review (one task, so it shares the
+     weekly task's connectors)
    Each scheduled task holds an inline copy of its prompt, so a change to `life/routines/*.md`
    takes effect only once the task's prompt is updated.
 
@@ -150,8 +150,7 @@ Then, all within a few minutes, in this order:
    - Tell the owner what was removed.
 4. **Weekly prompt:** the weekly review task gets `life/routines/weekly-review.md` and the cron
    `CRON_TZ=America/Aruba 39 18 * * 6` (Saturdays 18:39).
-5. **Monthly task:** create `Jarvis monthly review` with `CRON_TZ=America/Aruba 13 18 * * 0`, the
-   weekly task's connectors, and the `life/routines/monthly-review.md` prompt.
+5. **Monthly review:** nothing to create; it runs inside the weekly task on the first Saturday.
 6. **Switch on** (in the SQL editor):
    ```sql
    update life_profile set prefs = prefs || '{"vikingGarmin": true, "vikingGarminSince": "2026-11-24"}'
@@ -171,8 +170,7 @@ workouts alone. The data written so far stays.
 1. Switch off (above).
 2. Put the saved prompts **and crons** from `life/routines/previous/` back on the sync and weekly
    review scheduled tasks (the weekly one back to `CRON_TZ=America/Aruba 47 18 * * 0`, Sundays 18:47).
-3. Disable the `Jarvis monthly review` scheduled task.
-4. If PR 2 is merged, revert it and run `life/routines/previous/ascend-cron.sql`.
+3. If PR 2 is merged, revert it and run `life/routines/previous/ascend-cron.sql`.
 
 The old routine then schedules the library workouts again, and the app logger works as before. The
 data written so far stays.
