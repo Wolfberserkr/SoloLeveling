@@ -48,7 +48,7 @@ Suggest cancellations, one line each. Never cancel anything yourself.
 ## 3. Inbox
 ```sql
 select status, count(*) from life_inbox where user_id = :uid and created_at >= date_trunc('month', current_date) - interval '1 month' and created_at < date_trunc('month', current_date) group by status;
-select sender, count(*) from life_inbox where user_id = :uid and status in ('auto_trashed', 'done') and action = 'trash' and created_at >= date_trunc('month', current_date) - interval '1 month' group by sender order by count(*) desc limit 5;
+select sender, count(*) from life_inbox where user_id = :uid and status in ('auto_trashed', 'done') and action = 'trash' and created_at >= date_trunc('month', current_date) - interval '1 month' and created_at < date_trunc('month', current_date) group by sender order by count(*) desc limit 5;
 ```
 - How much was auto-trashed vs decided by the owner last month.
 - The 5 senders trashed most often are "unsubscribe?" candidates. For each one that has no `life_inbox` row with `action = 'unsubscribe'` yet, mark its newest row so the 19:00 digest asks about it:

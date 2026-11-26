@@ -129,12 +129,36 @@ Training is recorded on the Garmin watch, not typed into the app.
 - **Ascend** is retired in PR 2 as well: the chooser, the `/ascend` pages and its
   `ascend-reminders` cron job go. Its code and tables are kept.
 
-**Switch on** (in the SQL editor), after the new routine prompts are on the scheduled tasks:
-```sql
-update life_profile set prefs = prefs || '{"vikingGarmin": true, "vikingGarminSince": "2026-11-24"}'
-where telegram_chat_id is not null;
-```
-`vikingGarminSince` is the first date imported. Then fire the sync once.
+**Go live**, after PR 1 is merged and deployed (the switch is still off, so nothing has changed yet):
+
+1. **Save the rollback copy.** Copy verbatim the current prompts **and cron expressions** of the
+   sync scheduled task and of the weekly review task (`CRON_TZ=America/Aruba 47 18 * * 0`) to
+   `life/routines/previous/sync.md` and `life/routines/previous/weekly-review.md`, with the cron on
+   the first line, and commit them.
+
+Then, all within a few minutes, in this order:
+
+2. **Sync prompt:** the sync scheduled task gets the new `life/routines/sync.md`. With the switch
+   still off it leaves Garmin training alone, and the old prompt can no longer reschedule anything.
+3. **One-time Garmin cleanup** (by hand, with the Garmin connector; the only exception to "Jarvis
+   deletes only what's recorded in `plan/garmin`"):
+   - `get_scheduled_workouts` from today to today + 14.
+   - Each scheduled dated `Viking … (…)` workout (with parentheses) whose description has no
+     `[viking:` marker: `unschedule_workout`, then `delete_workout` (and again with `confirm: true`).
+   - Unschedule the four library workouts (`Viking Upper A/B`, `Viking Lower A/B`) in the same range,
+     and keep them in the library. Never edit or delete them.
+   - Tell the owner what was removed.
+4. **Weekly prompt:** the weekly review task gets `life/routines/weekly-review.md` and the cron
+   `CRON_TZ=America/Aruba 39 18 * * 6` (Saturdays 18:39).
+5. **Monthly task:** create `Jarvis monthly review` with `CRON_TZ=America/Aruba 13 18 * * 0`, the
+   weekly task's connectors, and the `life/routines/monthly-review.md` prompt.
+6. **Switch on** (in the SQL editor):
+   ```sql
+   update life_profile set prefs = prefs || '{"vikingGarmin": true, "vikingGarminSince": "2026-11-24"}'
+   where telegram_chat_id is not null;
+   ```
+   `vikingGarminSince` is the first date imported.
+7. **Fire the sync** once.
 
 **Switch off:**
 ```sql
@@ -143,10 +167,15 @@ update life_profile set prefs = prefs || '{"vikingGarmin": false}' where telegra
 With the switch off, life-bot's tick does nothing new and the routines leave Garmin training
 workouts alone. The data written so far stays.
 
-**Full rollback:** switch off; put the saved prompts and crons from `life/routines/previous/` back
-on the sync and weekly scheduled tasks (weekly back to Sundays 18:47) and disable the monthly one;
-if PR 2 is merged, revert it and run `life/routines/previous/ascend-cron.sql`. The old routine then
-schedules the library workouts again, and the app logger works as before.
+**Full rollback**, at any point:
+1. Switch off (above).
+2. Put the saved prompts **and crons** from `life/routines/previous/` back on the sync and weekly
+   review scheduled tasks (the weekly one back to `CRON_TZ=America/Aruba 47 18 * * 0`, Sundays 18:47).
+3. Disable the `Jarvis monthly review` scheduled task.
+4. If PR 2 is merged, revert it and run `life/routines/previous/ascend-cron.sql`.
+
+The old routine then schedules the library workouts again, and the app logger works as before. The
+data written so far stays.
 
 ## Tasks vs events
 

@@ -64,7 +64,7 @@ One message, `kind = 'weekly'`, at most 30 lines, in this order. Skip a section 
    - "Deload next week" when `deloadNext`; "Benchmark retest due" when `retestDue`.
 2. **<b>😴 Recovery &amp; readiness</b>**: average sleep, HRV status, readiness and body battery over the last 7 days vs the 7 before; sleep stress if it's 30 or more on several nights; how many nights started within 30 min of the planned bedtime (`life_day_plan.bed_at` vs `sleepStart`). Tie it to the shifts (e.g. after nights). End with **one** concrete fix for the coming week's shift pattern.
 3. **<b>✅ Habits</b>**: one line per habit, done vs expected ("Morning routine 5/7").
-4. **<b>📅 Next week</b>**: the shifts, then the training days from `plan/current.days` (`Mon 30 · Upper A`, rides with minutes, rest days), with deload or swaps noted.
+4. **<b>📅 Next week</b>**: the shifts, then the training days from `plan/current.days` (`Mon 30 · Upper A`, rides with minutes, rest days), with deload or swaps noted. If `prefs.vikingGarmin` isn't true, list the shifts only.
 5. One closing line: the single most useful thing to change next week.
 
 Advice (an exercise swap, a kcal change, a pattern in missed sessions, reps not being counted) is text only in this message, with no buttons. Never offer a button for it.
