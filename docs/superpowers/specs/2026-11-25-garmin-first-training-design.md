@@ -432,7 +432,10 @@ two staleness rules in The plan section (unprocessed `garmin_in` younger than
      edit or delete those). If the replaced workout was one Jarvis made (it's in
      `plan/garmin`), delete it.
    - Record `{name, workoutId, hash, mirroredAt: now}`.
-2. A rest day: unschedule every `Viking…` workout on that date.
+2. A rest day: unschedule every `Viking…` workout on that date. If
+   `plan/garmin[date]` records a workout (one Jarvis made, now replaced by
+   rest), delete it under the same checks, and record the day with `name`
+   and `workoutId` null and `hash` `""`.
 
 Never touch workouts not starting with `Viking `, or Garmin's own plans.
 Cleanup: delete workouts recorded in `plan/garmin` more than 14 days past, and
