@@ -56,6 +56,12 @@ jobs:
           # them applied (records history, runs no SQL), then push only 0022+.
           # Idempotent — re-marking an already-applied migration is a no-op.
           supabase migration repair --remote --password "$SUPABASE_DB_PASSWORD" --status applied --yes 0020 0021
+          # 0036 (Reset deload weeks) was applied out of band under the
+          # timestamp version 20261124124750, which no local file matches, so
+          # `db push` refused to run. Drop that history row and record 0036 as
+          # applied (history only, no SQL — reset_app_state.deload_weeks exists).
+          supabase migration repair --remote --password "$SUPABASE_DB_PASSWORD" --status reverted --yes 20261124124750
+          supabase migration repair --remote --password "$SUPABASE_DB_PASSWORD" --status applied --yes 0036
           supabase db push --remote --password "$SUPABASE_DB_PASSWORD" --yes
 
       - name: Deploy edge functions
