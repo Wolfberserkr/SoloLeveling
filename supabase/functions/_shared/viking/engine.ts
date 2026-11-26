@@ -70,7 +70,11 @@ export async function runVikingTick(
 
   const loadedSeen = L.state?.healthSeenAt;
   const state: PlanState = L.state
-    ? { ...L.state, suggestions: [...L.state.suggestions], resets: { ...L.state.resets } }
+    ? {
+      ...L.state, suggestions: [...L.state.suggestions], resets: { ...L.state.resets },
+      // A date that has a tick now (viking_fix may write one directly) is no longer slid.
+      slidDates: L.state.slidDates.filter((d) => !Object.values(D.cycle).some((t) => t.date === d)),
+    }
     : { since, settledThrough: yesterday, slidDates: [], ridesSeen: [], resets: {}, suggestions: [], blocks: {} };
   for (const [id, d] of Object.entries(L.decisions)) {
     const i = state.suggestions.findIndex((x) => x.id === id);
@@ -188,7 +192,7 @@ export async function runVikingTick(
 
   // 4. Suggestions: ask about each new stall once.
   const known = new Set(state.suggestions.map((x) => x.id));
-  state.suggestions = suggestionsFor(D, state.suggestions, state.resets, nowIso);
+  state.suggestions = suggestionsFor(D, state.suggestions, state.resets, nowIso, today);
   for (const sg of state.suggestions) {
     if (sg.status !== 'pending' || known.has(sg.id)) continue;
     try { if (await s.claim('vksug:' + sg.id)) await s.send(suggestionText(sg), suggestionKeyboard(sg)); } catch (e) { log(`suggestion ${sg.id} not sent`, msg(e)); }

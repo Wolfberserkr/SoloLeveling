@@ -22,6 +22,7 @@ it('recapText: reps not counted → targets stay, no Next time', () => {
   expect(t).toContain('Back squat: reps not recorded, assumed 5');
   expect(t).toContain('targets stay');
   expect(t).toContain('Reps weren\'t counted on 1 exercise,');
+  expect(t).toContain('Reply e.g. "Back squat 3×6" if you did more.');
   expect(t).not.toContain('Next time');
   expect(t).not.toContain('Cycle moved');
 });
@@ -58,6 +59,6 @@ it('resultFromDoc: same assumptions as the import, plus the dropped line', () =>
 });
 it('suggestionKeyboard: ok and no', () => {
   const kb = suggestionKeyboard({ id: 'squat-2026-11-25', kind: 'reset', ex: 'squat', kg: 100, status: 'pending', createdAt: '' });
-  expect(kb).toEqual([[{ text: '✅ Reset to 100 kg', data: 'vk:squat-2026-11-25:ok' }, { text: '✖️ Not now', data: 'vk:squat-2026-11-25:no' }]]);
+  expect(kb).toEqual([[{ text: '✅ Reset', data: 'vk:squat-2026-11-25:ok' }, { text: '✖️ Keep pushing', data: 'vk:squat-2026-11-25:no' }]]);
 });
 });

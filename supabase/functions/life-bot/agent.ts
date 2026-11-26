@@ -290,7 +290,9 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'queue_job',
-    description: 'Hand work to the background routines (Gmail, Garmin, Strava, Sheets, kind "news" for a fresh Aruba news roundup, and kind "calendar" only for events the owner made themselves when they explicitly ask). Appointments and blocks go through add_event/edit_event instead.',
+    description: 'Hand work to the background routines (Gmail, Garmin, Strava, Sheets, kind "news" for a fresh Aruba news roundup, and kind "calendar" only for events the owner made themselves when they explicitly ask). Appointments and blocks go through add_event/edit_event instead. '
+      + 'When the Garmin-first Viking plan is on, kind "garmin" jobs never move, unschedule or delete the "Viking …" training workouts: '
+      + 'the plan places those itself (correct a logged session with viking_fix; a skipped day just waits in the cycle).',
     input_schema: {
       type: 'object',
       properties: {

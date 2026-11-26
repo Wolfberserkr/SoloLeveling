@@ -64,8 +64,6 @@ const END_TIME = { conditionTypeId: 2, conditionTypeKey: 'time' };
 const NO_TARGET = { workoutTargetTypeId: 1, workoutTargetTypeKey: 'no.target' };
 const HR_TARGET = { workoutTargetTypeId: 4, workoutTargetTypeKey: 'heart.rate.zone' };
 
-const walk = (steps: any[], f: (s: any) => void) => { for (const s of steps) { f(s); if (s.workoutSteps) walk(s.workoutSteps, f); } };
-
 export function buildStrengthWorkout(sk: SessionKey, t: Record<string, StrengthTarget>, name: string, description: string): GarminDto {
   let order = 0;
   const steps = SESS[sk].ex.map((ex) => {
@@ -89,6 +87,7 @@ export function buildStrengthWorkout(sk: SessionKey, t: Record<string, StrengthT
       exerciseName: gx?.exerciseName ?? null,
       weightValue: kg,
       weightUnit: kg != null ? { unitId: 8, unitKey: 'kilogram', factor: 1000 } : null,
+      targetType: NO_TARGET,
     };
     order++;
     const restStep = {
@@ -97,6 +96,7 @@ export function buildStrengthWorkout(sk: SessionKey, t: Record<string, StrengthT
       stepType: { stepTypeId: 5, stepTypeKey: 'rest' },
       endCondition: END_TIME,
       endConditionValue: restSeconds(ex.rest),
+      targetType: NO_TARGET,
     };
     order++;
     return {

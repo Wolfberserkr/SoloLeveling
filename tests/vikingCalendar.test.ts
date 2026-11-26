@@ -76,6 +76,19 @@ it('reconcile: changed key updates the stored event; missing event is recreated'
   expect(re.state[D]).toEqual({ eventId: '', key: 'ride:E1:85', start: want.start, end: want.end });
 });
 
+it('reconcile: a changed key never moves an event that has already started', () => {
+  const old = blk('gym:UA:60', '11:00', '2026-11-25'); // started 11:00, now is 12:00
+  const want = blk('ride:E1:85', '16:00', '2026-11-25', '🚴 Viking E1 · Endurance 75 min');
+  const state = { '2026-11-25': st(old, 'p1') };
+  for (const existing of [[ev('p1', '2026-11-25', '11:00')], []]) {
+    const ops = reconcile([want], state, existing, now, range);
+    expect(ops.update).toEqual([]);
+    expect(ops.create).toEqual([]);
+    expect(ops.remove).toEqual([]);
+    expect(ops.state['2026-11-25']).toEqual(state['2026-11-25']);
+  }
+});
+
 it('reconcile: an unplanned future date is removed, a past one is kept', () => {
   const fut = blk('gym:LA:60', '07:00', '2026-11-27');
   const past = blk('gym:UA:60', '07:00', '2026-11-25');

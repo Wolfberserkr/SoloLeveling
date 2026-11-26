@@ -335,6 +335,16 @@ it('engine: a ride or settle write error keeps plan/state and resumes next run',
   expect(st.ridesSeen).toEqual(['r25']);
 });
 
+it('engine: a slid date that now has a tick (viking_fix) is dropped from slidDates', async () => {
+  const s = new MemoryStore({
+    workouts: { '2026-11-22_LB': LB22 },
+    cycle: { '2026-11-23_auto_6': { date: '2026-11-23', day: 6, status: 'done', savedAt: 1 } },
+  });
+  s.set('plan', 'state', { since: '2026-11-21', settledThrough: '2026-11-24', slidDates: ['2026-11-21', '2026-11-23'], ridesSeen: [], resets: {}, suggestions: [], blocks: {} });
+  await run(s, T, '2026-11-21');
+  expect((s.get('plan', 'state') as PlanState).slidDates).toEqual(['2026-11-21']);
+});
+
 it('engine: before-since activity is marked processed, not imported', async () => {
   const s = new MemoryStore();
   s.inbox(UB);

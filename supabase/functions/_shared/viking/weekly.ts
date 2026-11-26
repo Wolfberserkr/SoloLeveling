@@ -79,7 +79,8 @@ export function weekSummary(D: VikingData, today: string, slidDates: string[], r
   };
 }
 
-export function suggestionsFor(D: VikingData, existing: Suggestion[], resets: Resets, nowIso: string): Suggestion[] {
+/** `today` is the local date (the engine's); `nowIso` only stamps createdAt. */
+export function suggestionsFor(D: VikingData, existing: Suggestion[], resets: Resets, nowIso: string, today: string): Suggestion[] {
   const v = viking(D);
   const hist = histories(v);
   const docs = v.sorted('workouts');
@@ -92,7 +93,7 @@ export function suggestionsFor(D: VikingData, existing: Suggestion[], resets: Re
     return used ? { ...s, status: 'applied' as const } : s;
   });
 
-  const ph = v.phaseOf(nowIso.slice(0, 10)), dl = v.isDeloadWeek(v.weekOf(nowIso.slice(0, 10)));
+  const ph = v.phaseOf(today), dl = v.isDeloadWeek(v.weekOf(today));
   for (const ex of Object.values(EXBY)) {
     if (!WEIGHTED.includes(ex.inc)) continue;
     const mine = out.filter((s) => s.ex === ex.k);
@@ -102,7 +103,7 @@ export function suggestionsFor(D: VikingData, existing: Suggestion[], resets: Re
     const p = progressFor(ex, hist[ex.k] ?? [], resets[ex.k], v.setCount(ex, ex.sess, ph, dl));
     if (!p.stalled || p.lastTop === null || p.lastTop <= 0) continue;
     out.push({
-      id: `${ex.k}-${nowIso.slice(0, 10)}`, kind: 'reset', ex: ex.k,
+      id: `${ex.k}-${today}`, kind: 'reset', ex: ex.k,
       kg: resetKg(p.lastTop, ex.inc), status: 'pending', createdAt: nowIso,
     });
   }

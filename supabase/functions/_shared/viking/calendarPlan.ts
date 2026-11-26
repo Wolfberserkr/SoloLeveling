@@ -79,6 +79,7 @@ export function reconcile(desired: Block[], state: Record<string, BlockState>, e
     if (w) {
       if (st) {
         if (st.key === w.key) continue; // the owner's edits stand
+        if (new Date(st.start).getTime() <= now.getTime()) continue; // already started: keep it
         const ev = existing.find((e) => e.id === st.eventId);
         if (ev) { ops.update.push({ id: ev.id, block: w }); ops.state[date] = stateOf(ev.id, w); }
         else { ops.create.push(w); ops.state[date] = stateOf('', w); }

@@ -181,6 +181,11 @@ export function planAhead(D: VikingData, ctx: PlanCtx, days = 7): PlanDay[] {
         rx = { ...e, from: code, min: [Math.min(SWAP_MAX_MIN, e.min[0]), Math.min(SWAP_MAX_MIN, e.min[1])] };
       }
     }
+    // A planned E1 straight after a night shift keeps its code but is capped.
+    if (!reason && rx.code === 'E1' && ctx.afterNight.has(date) && rx.min[0] > SWAP_MAX_MIN) {
+      reason = 'after a night shift';
+      rx = { ...rx, min: [Math.min(SWAP_MAX_MIN, rx.min[0]), Math.min(SWAP_MAX_MIN, rx.min[1])] };
+    }
 
     const minutes = rx.min[0];
     const name = workoutName(`${rx.code} · ${RIDES[rx.code].n} ${minutes} min`, date);

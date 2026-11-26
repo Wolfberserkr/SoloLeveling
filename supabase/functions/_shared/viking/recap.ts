@@ -44,7 +44,7 @@ export function recapText(
     const e = unknown[0];
     const reps = e.sets.find((s) => s.est?.includes('reps'))?.reps ?? after[e.ex]?.reps ?? 5;
     lines.push(`Reps weren't counted on ${plural(unknown.length, 'exercise')}, so their targets stay. `
-      + `Reply e.g. "${e.ex} ${e.sets.length}×${reps + 1}" if you did more.`);
+      + `Reply e.g. "${shortName(e.ex)} ${e.sets.length}×${reps + 1}" if you did more.`);
   }
   if (realigned) lines.push(`🔄 Cycle moved: ${SESS[r.session].n} is day ${dayOfSession(r.session)}, so the plan carries on from there.`);
   return lines.join('\n');
@@ -82,7 +82,7 @@ export function suggestionText(s: Suggestion): string {
 }
 
 export function suggestionKeyboard(s: Suggestion): Keyboard {
-  return [[{ text: `✅ Reset to ${s.kg} kg`, data: `vk:${s.id}:ok` }, { text: '✖️ Not now', data: `vk:${s.id}:no` }]];
+  return [[{ text: '✅ Reset', data: `vk:${s.id}:ok` }, { text: '✖️ Keep pushing', data: `vk:${s.id}:no` }]];
 }
 
 export function notVikingText(name: string, date: string): string {

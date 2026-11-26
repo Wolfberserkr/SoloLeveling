@@ -127,7 +127,16 @@ export async function rollHabits(db: Db, userId: string, tz: string, today: stri
       await db.from('life_tasks').update({ gtask_id: null }).eq('id', t.id);
     }
     const next = nextOccurrence(addDays(today, -1), String(t.recur));
-    if (next) await addTasks(db, userId, tz, [nextTaskRow(t, next, tz)]);
+    if (next) {
+      try {
+        await addTasks(db, userId, tz, [nextTaskRow(t, next, tz)]);
+      } catch (err) {
+        // Reopen the missed habit so the next roll retries instead of losing it.
+        console.error('life-bot: habit roll insert failed; reopening', t.id, err);
+        await db.from('life_tasks').update({ done_at: null, skipped_at: null, next_spawned: false }).eq('id', t.id);
+        continue;
+      }
+    }
     n++;
   }
   return n;

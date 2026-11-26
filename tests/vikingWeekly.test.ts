@@ -82,30 +82,36 @@ describe('weekSummary', () => {
 describe('suggestionsFor', () => {
   it('plateau → one pending reset at 90%, and no second while open', () => {
     const d = data({ workouts: docs(plateau()) });
-    const a = suggestionsFor(d, [], {}, NOW);
+    const a = suggestionsFor(d, [], {}, NOW, day(7));
     expect(a).toEqual([{ id: 'bench-' + day(7), kind: 'reset', ex: 'bench', kg: 52.5, status: 'pending', createdAt: NOW }]);
-    const b = suggestionsFor(d, a, {}, `${day(8)}T09:00:00.000Z`);
+    const b = suggestionsFor(d, a, {}, `${day(8)}T09:00:00.000Z`, day(8));
     expect(b).toHaveLength(1);
+  });
+
+  it('the id uses the local date passed in, not the UTC date of nowIso', () => {
+    const late = `${day(8)}T02:00:00.000Z`; // 22:00 on day(7) in Aruba
+    const [s] = suggestionsFor(data({ workouts: docs(plateau()) }), [], {}, late, day(7));
+    expect(s).toMatchObject({ id: 'bench-' + day(7), createdAt: late });
   });
 
   it('declined waits 3 sessions; bw never suggested', () => {
     const w = plateau();
     const no: Suggestion = { id: 'bench-x', kind: 'reset', ex: 'bench', kg: 54, status: 'no', createdAt: NOW, decidedAt: NOW, snoozeUntil: 7 };
-    expect(suggestionsFor(data({ workouts: docs(w) }), [no], {}, NOW)).toHaveLength(1); // 4 sessions < 7
+    expect(suggestionsFor(data({ workouts: docs(w) }), [no], {}, NOW, day(7))).toHaveLength(1); // 4 sessions < 7
     const more = [...w, wo(day(8), 'bench', [S(60, 8)]), wo(day(9), 'bench', [S(60, 8)]), wo(day(10), 'bench', [S(60, 8)])];
-    const out = suggestionsFor(data({ workouts: docs(more) }), [no], {}, NOW);
+    const out = suggestionsFor(data({ workouts: docs(more) }), [no], {}, NOW, day(7));
     expect(out.filter((x) => x.status === 'pending')).toHaveLength(1);
     // bodyweight plateau
     const bw = [0, 2, 4, 6].map((o, i) => wo(day(o), 'hkr', [S(0, i === 0 ? 14 : 10)], 'LB'));
-    expect(suggestionsFor(data({ workouts: docs(bw) }), [], {}, NOW)).toEqual([]);
+    expect(suggestionsFor(data({ workouts: docs(bw) }), [], {}, NOW, day(7))).toEqual([]);
   });
 
   it('ok → applied after the next session', () => {
     const decided = `${day(7)}T12:00:00.000Z`;
     const ok: Suggestion = { id: 'bench-1', kind: 'reset', ex: 'bench', kg: 54, status: 'ok', createdAt: NOW, decidedAt: decided };
-    const before = suggestionsFor(data({ workouts: docs(plateau()) }), [ok], {}, NOW);
+    const before = suggestionsFor(data({ workouts: docs(plateau()) }), [ok], {}, NOW, day(7));
     expect(before).toEqual([ok]);
-    const after = suggestionsFor(data({ workouts: docs([...plateau(), wo(day(9), 'bench', [S(54, 10)])]) }), [ok], { bench: decided }, NOW);
+    const after = suggestionsFor(data({ workouts: docs([...plateau(), wo(day(9), 'bench', [S(54, 10)])]) }), [ok], { bench: decided }, NOW, day(7));
     expect(after).toEqual([{ ...ok, status: 'applied' }]);
   });
 });

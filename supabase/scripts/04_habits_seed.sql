@@ -27,7 +27,7 @@ select o.user_id, h.title, 'Habits', 'personal', h.recur,
        case when h.dows is null then t.d
             else (select t.d + g from generate_series(0, 6) g
                   where extract(dow from t.d + g)::int = any (h.dows) order by g limit 1) end,
-       h.anchor, h.offset_min
+       h.anchor, coalesce(h.offset_min, 0)
 from owner o cross join today t cross join habits h
 where not exists (
   select 1 from public.life_tasks x

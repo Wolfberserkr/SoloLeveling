@@ -20,6 +20,13 @@ it('strength DTO: one [exercise, rest] group per exercise', () => {
   expect(groups[6].workoutSteps[0].endCondition.conditionTypeKey).toBe('lap.button');
   expect(groups.map((g: any) => g.stepOrder)).toEqual([1, 4, 7, 10, 13, 16, 19]);
 });
+it('strength DTO: exercise and rest steps carry no.target like the library DTO', () => {
+  const t = Object.fromEntries(SESS.UA.ex.map((e) => [e.k, { kg: null, reps: e.r[0], sets: e.s, note: '' }]));
+  const groups = (buildStrengthWorkout('UA', t, 'n', 'd') as any).workoutSegments[0].workoutSteps;
+  for (const g of groups) {
+    for (const s of g.workoutSteps) expect(s.targetType).toEqual({ workoutTargetTypeId: 1, workoutTargetTypeKey: 'no.target' });
+  }
+});
 it('strength DTO: assisted pull-up has no weight, assist in the description', () => {
   const t = Object.fromEntries(SESS.UB.ex.map((e) => [e.k, { kg: null, assistKg: e.k === 'pullup' ? -20 : null, reps: 6, sets: 3, note: '' }]));
   const step = (buildStrengthWorkout('UB', t, 'n', 'd') as any).workoutSegments[0].workoutSteps[1].workoutSteps[0];

@@ -206,6 +206,15 @@ it('rides: swap reason after a night shift', () => {
   const p = planAhead(D, { ...ctx(day(1)), afterNight: new Set([day(1)]) });
   expect(p[0].ride).toMatchObject({ ...swapExpect, reason: 'after a night shift' });
 });
+it('rides: a planned E1 after a night shift is capped at 60 min, no from', () => {
+  const D = data({ cycle: { t: tick(day(42), 5) } }); // week 7: E1 is 75 min
+  expect(planAhead(D, ctx(day(43)))[0].ride).toMatchObject({ code: 'E1', minutes: 75 });
+  const p = planAhead(D, { ...ctx(day(43)), afterNight: new Set([day(43)]) })[0];
+  expect(p.ride).toEqual({ code: 'E1', minutes: 60, reason: 'after a night shift' });
+  expect(p.reason).toBe('after a night shift');
+  expect(p.garmin!.name).toBe(`Viking E1 · Endurance 60 min (${garminDate(day(43))})`);
+  expect((p.garmin!.dto as any).workoutSegments[0].workoutSteps[0].endConditionValue).toBe(3600);
+});
 it('rides: swap reason readiness', () => {
   const D = data({ cycle: { t: tick(day(0), 2) } });
   const r = planAhead(D, { ...ctx(day(1)), health: { hrvStatus: 'LOW' } })[0].ride!;
