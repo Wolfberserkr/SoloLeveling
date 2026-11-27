@@ -32,7 +32,9 @@ his shifts. He chose this approach:
 4. **Moves ahead of time on Telegram**:
    - "swap today and tomorrow"
    - "move Lower B to Tuesday, I'm on nights"
-   - "make Thursday my rest day"
+   - "make Thursday my rest day": an **extra day off** (the owner's call). Nothing
+     from the lap is planned that day, everything after it moves back a day, and
+     the lap keeps its own rest day.
 
    Jarvis rewrites the 7-day plan and replies with the new order, any rule changes
    (a hard ride turned into E1) and any shift conflicts. The watch follows at the
@@ -191,8 +193,12 @@ comparison false. Drop the flag. The checklist replaces it.
 - **The freeze:** a pin on today that differs from the frozen day drops the
   freeze. The owner's explicit move beats the morning freeze.
 - **New life-bot tool `viking_move`**:
-  - Input: `{ moves: [{ what, date }], clear? }`. `what` is a session (`UA|LA|UB|LB`),
-    a ride code from the plan, `rest`, or a cycle day number. "Swap today and
+  - Input: `{ moves: [{ what, date }], clear? }`. `what` is one of:
+    - a session (`UA|LA|UB|LB`);
+    - a ride code from the plan;
+    - `off`: an extra day off, the default meaning of "rest day" or "day off";
+    - a cycle day number (8 moves the lap's own rest day, only when he asks for
+      exactly that). "Swap today and
     tomorrow" is two moves.
   - It validates:
     - dates within today … today + 6;
@@ -281,8 +287,19 @@ These are Claude's calls unless marked as the owner's.
   open box. So:
   - a pinned session done on its date is a normal tick, with no swap message;
   - a pinned ride on a gym-day cycle fills its own box;
-  - a pinned rest settles as `done` at the end of its date.
+  - a pinned box 8 (the lap's own rest day, moved) settles as `done` at the end of
+    its date.
+
   The pin is then dropped because its box is filled.
+- **An extra day off** (`off`, the owner's call) is stored as `plan/pins[date] = 0`.
+  - The planner plans that date as `rest`, with the reason "day off", and places
+    no box, so the lap moves back a day.
+  - At the end of that date, with no tick, `endOfDay` writes no tick and returns a
+    new result `'off'`. The engine doesn't add the date to `slidDates`, so the
+    weekly briefing doesn't count it as the cycle waiting, then drops the pin.
+  - If he trains anyway, the session or ride ticks as usual and the pin is
+    dropped.
+  - An `off` pin can't share a date with another pin.
 - **A move to a day already done this lap is refused.** `viking_move` replies with
   the reason and what's next ("Upper A is done this lap; next is Lower B"). Moves
   never close a lap. Only a session the watch records can start a new lap, as now.
