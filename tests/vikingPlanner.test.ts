@@ -244,6 +244,11 @@ it('gymTick: filled box → newLap', () => {
   const D = data({ cycle: { a: tick(day(0), 1), b: tick(day(1), 2) } });
   expect(gymTick(D, day(2), 'UA', 1)).toMatchObject({ doc: { day: 1 }, newLap: true, early: [] });
 });
+it('gymTick: a full lap rolls over to a fresh one', () => {
+  const full = Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8].map((d) => [`t${d}`, tick(day(d - 1), d)]));
+  expect(gymTick(data({ cycle: full }), day(8), 'UA', 1)).toMatchObject({ doc: { day: 1 }, early: [], newLap: false });
+  expect(gymTick(data({ cycle: full }), day(8), 'LA', 1)).toMatchObject({ doc: { day: 2 }, early: [1], newLap: false });
+});
 it('rideTick: defers on a gym day', () => {
   const D = data({ cycle: { a: tick(day(0), 1) }, rides: { r: ride(day(1), 50, 'E1') } });
   expect(rideTick(D, day(1), 9)).toBeNull();

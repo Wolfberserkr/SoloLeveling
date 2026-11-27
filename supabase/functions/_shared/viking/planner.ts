@@ -79,7 +79,9 @@ export function gymTick(
   // The first tick opens the lap: days before it are passed, so it is a new
   // lap when it isn't where the last workout left the cycle.
   if (!ticksOf(hist).length) return { ...t, early: [], newLap: bike(viking(hist)).current().day !== day };
-  const boxes = bike(viking(hist)).lap().boxes;
+  // A full lap rolls over (as in lap()): the tick lands in a fresh, fully open lap.
+  const filled = bike(viking(hist)).lap().boxes;
+  const boxes = filled.some((b) => b.status === 'open') ? filled : filled.map((b) => ({ day: b.day, status: 'open' as const }));
   const newLap = boxes[day - 1].status !== 'open';
   const early = newLap || pins[date] === day ? [] : boxes.filter((b) => b.day < day && b.status === 'open').map((b) => b.day);
   return { ...t, early, newLap };

@@ -652,6 +652,34 @@ it('engine: a day-off pin ahead plans rest and the lap moves back a day', async 
   expect(days[2]).toMatchObject({ date: '2026-11-28', session: 'UB' });
 });
 
+const fullLap = () => Object.assign({}, ...[1, 2, 3, 4, 5, 6, 7, 8].map((d) => tk(`2026-11-${18 + d}`, d)));
+
+it('engine: an in-order rollover is a normal tick, not a new lap', async () => {
+  const s = new MemoryStore({ cycle: fullLap() });
+  s.set('plan', 'state', st0('2026-11-26'));
+  s.inbox(at(UA, '2026-11-27', 'ua27'));
+  await run(s, '2026-11-27T18:00:00Z');
+  expect(s.get('cycle', '2026-11-27_auto_1')).toBeDefined();
+  const [m] = recaps(s);
+  expect(m.text).not.toContain('New lap');
+  expect(m.text).not.toContain('Swapped');
+  expect(m.kb?.some((row) => row[0].data.startsWith('vks:')) ?? false).toBe(false);
+  expect(plan(s).days[0]).toMatchObject({ date: '2026-11-28', session: 'LA' });
+});
+
+it('engine: a rollover that starts with Lower A is a swap', async () => {
+  const s = new MemoryStore({ cycle: fullLap() });
+  s.set('plan', 'state', st0('2026-11-26'));
+  s.inbox(at(LA, '2026-11-27', 'la27'));
+  await run(s, '2026-11-27T18:00:00Z');
+  expect(s.get('cycle', '2026-11-27_auto_2')).toBeDefined();
+  const [m] = recaps(s);
+  expect(m.text).toContain('↔️ Swapped: Upper A moves to tomorrow.');
+  expect(m.text).not.toContain('New lap');
+  expect(m.kb!.filter((row) => row[0].data.startsWith('vks:'))).toEqual([[{ text: '✖️ Skip Upper A', data: 'vks:la27:1' }]]);
+  expect(plan(s).days[0]).toMatchObject({ date: '2026-11-28', session: 'UA' });
+});
+
 it('engine: new lap recap names the passed days', async () => {
   const s = new MemoryStore({ cycle: { ...tk('2026-11-24', 1), ...tk('2026-11-25', 2), ...tk('2026-11-26', 4) } });
   s.set('plan', 'state', st0('2026-11-26'));
