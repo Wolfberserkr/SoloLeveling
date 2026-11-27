@@ -5,7 +5,7 @@
 // ═════════════════════════════════════════════════════════════════════════
 import type { PlanState, VikingStore } from '../_shared/viking/engine.ts';
 import { shortName, type GarminIn } from '../_shared/viking/garminImport.ts';
-import { gymTick, planAhead, type Health, type Pins, type PlanCurrent, type PlanDay } from '../_shared/viking/planner.ts';
+import { fixTick, planAhead, type Health, type Pins, type PlanCurrent, type PlanDay } from '../_shared/viking/planner.ts';
 import { nextSync, resolveMoves } from '../_shared/viking/moves.ts';
 import { dayName } from '../_shared/viking/recap.ts';
 import { EXBY, ORDER, SESS, type SessionKey } from '../_shared/viking/data.ts';
@@ -508,8 +508,13 @@ async function fixOnce(db: Db, userId: string, tz: string, today: string, input:
     if (!(await createDoc(db, userId, 'workouts', docId, next))) throw new Error(`${docId} was just saved by the import; ask again to correct it`);
     const DD = await data();
     DD.workouts[docId] = next;
-    const t = gymTick(DD, date, sk, Date.now());
-    if (t) {
+    // Before the latest tick it only fills an open box of this lap (see fixTick).
+    const t = fixTick(DD, date, sk, Date.now());
+    if (t && 'none' in t) {
+      tick = t.none === 'before-lap'
+        ? `no cycle change: ${date} is before this lap began`
+        : `no cycle change: ${SESS[sk].n} is already ${t.none === 'skip' ? 'skipped' : t.none} this lap`;
+    } else if (t) {
       await putDoc(db, userId, 'cycle', t.id, t.doc);
       tick = `cycle day ${t.doc.day} ticked${t.newLap ? ' (a new lap started)' : ''}`;
     }

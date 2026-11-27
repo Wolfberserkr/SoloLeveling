@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { dn, emptyData, iso, type CycleDoc, type RideDoc, type VikingData, type WorkoutDoc } from '../supabase/functions/_shared/viking/logic.ts';
+import { dn, emptyData, iso, viking, type CycleDoc, type RideDoc, type VikingData, type WorkoutDoc } from '../supabase/functions/_shared/viking/logic.ts';
+import { bike } from '../supabase/functions/_shared/viking/bikeLogic.ts';
 import { garminDate } from '../supabase/functions/_shared/viking/garmin.ts';
-import { endOfDay, gymTick, planAhead, planOrder, rideTick, tickId, type PlanCtx } from '../supabase/functions/_shared/viking/planner.ts';
+import { endOfDay, fixTick, gymTick, planAhead, planOrder, rideTick, tickId, type PlanCtx } from '../supabase/functions/_shared/viking/planner.ts';
+import { resolveMoves } from '../supabase/functions/_shared/viking/moves.ts';
 
 const START = '2026-01-05';
 function data(over: Partial<VikingData> = {}): VikingData {
@@ -180,6 +182,72 @@ it('planAhead: a day-off pin on today drops the freeze', () => {
   expect(p[0]).toEqual({ date: day(2), cycleDay: 0, kind: 'rest', reason: 'day off' });
   expect(p.filter((x) => x.cycleDay === 3).map((x) => x.date)).toEqual([day(3)]);
   expect(p[1].reason).not.toBe('frozen');
+});
+it('planAhead: a frozen hard ride with Lower B pinned tomorrow becomes E1', () => {
+  // ticks 1, 2 → today's frozen day is box 3 (H1); the owner pins LB (box 5) on tomorrow.
+  const D = data({ cycle: { a: tick(day(0), 1), b: tick(day(1), 2) } });
+  const fz = planAhead(D, ctx(day(2)))[0];
+  expect(fz).toMatchObject({ cycleDay: 3, ride: { code: 'H1' } });
+  const frozen = { date: day(2), day: { ...fz, reason: 'frozen' } };
+  const p = planAhead(D, { ...ctx(day(2)), frozen, pins: { [day(3)]: 5 } });
+  expect(p[0]).toMatchObject({ date: day(2), cycleDay: 3, reason: 'Lower B tomorrow' });
+  expect(p[0].ride).toMatchObject({ code: 'E1', from: 'H1', reason: 'Lower B tomorrow' });
+  expect(p[0].ride!.minutes).toBeLessThanOrEqual(60);
+  expect(p[1]).toMatchObject({ date: day(3), cycleDay: 5, session: 'LB' });
+  expect(planOrder(D, { ...ctx(day(2)), frozen, pins: { [day(3)]: 5 } }).map((x) => x.day).slice(0, 3)).toEqual([3, 5, 4]);
+  // the same freeze with no Lower tomorrow stays as it was
+  expect(planAhead(D, { ...ctx(day(2)), frozen, pins: { [day(3)]: 4 } })[0].reason).toBe('frozen');
+});
+it('viking_move preview: pinning LB tomorrow after a frozen hard ride shows today as E1', () => {
+  const D = data({ cycle: { a: tick(day(0), 1), b: tick(day(1), 2) } });
+  const frozen = { date: day(2), day: { ...planAhead(D, ctx(day(2)))[0], reason: 'frozen' } };
+  const r = resolveMoves(D, {}, [{ what: 'LB', date: day(3) }], day(2));
+  expect(r.errors).toEqual([]);
+  // as moveOnce builds it: the freeze and the new pins
+  const p = planAhead(D, { ...ctx(day(2)), frozen, pins: r.pins });
+  expect(p[0].ride).toMatchObject({ code: 'E1', from: 'H1', reason: 'Lower B tomorrow' });
+});
+// viking_fix creating a session: ticks 1 (d0), 2 (d1), 4 (d3); the fix lands on d2, before the latest tick.
+const fixed = (extra: Record<string, CycleDoc> = {}) =>
+  data({ cycle: { a: tick(day(0), 1, 1), b: tick(day(1), 2, 2), c: tick(day(3), 4, 3), ...extra } });
+const lapOf = (D: VikingData) => bike(viking(D)).lap();
+const withTick = (D: VikingData, t: { id: string; doc: CycleDoc }) => ({ ...D, cycle: { ...D.cycle, [t.id]: t.doc } });
+it('fixTick: a back-dated session on a box already done writes no tick and never opens a lap', () => {
+  expect(fixTick(fixed(), day(2), 'UA', 10)).toEqual({ none: 'done' });
+  // the double-Upper-B probe: UB ticked on d3, a fix creates UB on d2
+  expect(fixTick(fixed(), day(2), 'UB', 10)).toEqual({ none: 'done' });
+  expect(bike(viking(fixed())).current().day).toBe(3);
+});
+it('fixTick: a back-dated session on an open box fills it, with no new lap', () => {
+  const D = fixed();
+  const t = fixTick(D, day(2), 'LB', 10);
+  expect(t).toEqual({ id: tickId(day(2), 5), doc: { date: day(2), day: 5, status: 'done', savedAt: 10 }, early: [], newLap: false });
+  const D2 = withTick(D, t as { id: string; doc: CycleDoc });
+  expect(lapOf(D2).boxes.map((b) => b.status)).toEqual(['done', 'done', 'open', 'done', 'done', 'open', 'open', 'open']);
+  expect(lapOf(D2).passed).toEqual(lapOf(D).passed);
+  expect(bike(viking(D2)).current().day).toBe(3);
+  // the rest of the lap is planned once: 3, 6, 7, 8, then a fresh lap
+  expect(planOrder(D2, ctx(day(4))).map((x) => x.day)).toEqual([3, 6, 7, 8, 1, 2, 3]);
+});
+it('fixTick: a skipped or passed box is not open either', () => {
+  expect(fixTick(fixed({ s: { date: day(3), day: 5, status: 'skip', savedAt: 4 } }), day(2), 'LB', 10)).toEqual({ none: 'skip' });
+  // the first tick, LB (5) on d0, opens the lap: 1–4 passed
+  const P = data({ cycle: { a: tick(day(0), 5, 1), b: tick(day(3), 6, 2) } });
+  expect(lapOf(P).boxes[3].status).toBe('passed');
+  expect(fixTick(P, day(2), 'UB', 10)).toEqual({ none: 'passed' });
+});
+it('fixTick: an open box whose tick would land before this lap began is left alone', () => {
+  // UA d0, LA d1, then UA again on d3 starts a new lap; box 4 (UB) is open in it.
+  const D = data({ cycle: { a: tick(day(0), 1, 1), b: tick(day(1), 2, 2), c: tick(day(3), 1, 3) } });
+  expect(lapOf(D).boxes[3].status).toBe('open');
+  expect(fixTick(D, day(2), 'UB', 10)).toEqual({ none: 'before-lap' });
+});
+it('fixTick: on or after the latest tick it is gymTick', () => {
+  const D = fixed();
+  expect(fixTick(D, day(3), 'LB', 10)).toEqual(gymTick(D, day(3), 'LB', 10));
+  expect(fixTick(D, day(4), 'UA', 10)).toEqual(gymTick(D, day(4), 'UA', 10));
+  expect((fixTick(D, day(4), 'UA', 10) as { newLap: boolean }).newLap).toBe(true);
+  expect(fixTick(data(), day(4), 'UA', 10)).toEqual(gymTick(data(), day(4), 'UA', 10));
 });
 it('planOrder: a date with only later-pinned boxes left is a free day', () => {
   const D = data({ cycle: { a: tick(day(0), 1), b: tick(day(1), 2), c: tick(day(2), 3), d: tick(day(3), 4), e: tick(day(4), 5), f: tick(day(5), 6), g: tick(day(6), 7) } });

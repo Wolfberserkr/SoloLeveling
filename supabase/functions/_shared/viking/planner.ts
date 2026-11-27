@@ -87,6 +87,29 @@ export function gymTick(
   return { ...t, early, newLap };
 }
 
+/** viking_fix's tick for a session it creates on `date`. On or after the
+ *  latest tick it is `gymTick`. Before it, the session's box is filled only
+ *  when it is open in the current lap and the tick lands in that lap; it
+ *  never starts a new lap. Otherwise `none` says why: the box is done,
+ *  skipped or passed this lap, or `date` is before this lap began. */
+export function fixTick(
+  D: VikingData, date: string, sk: SessionKey, savedAt: number,
+): ReturnType<typeof gymTick> | { none: 'done' | 'skip' | 'passed' | 'before-lap' } {
+  const last = latestTickDate(D);
+  if (last == null || date >= last) return gymTick(D, date, sk, savedAt);
+  const day = dayOfSession(sk);
+  const t = mk(date, day, 'done', savedAt);
+  if (D.cycle[t.id]) return null;
+  const before = bike(viking(D)).lap();
+  const box = before.boxes[day - 1];
+  if (box.status !== 'open') return { none: box.status };
+  // The tick sorts by its date: it must fill this lap's box and change nothing else.
+  const after = bike(viking({ ...D, cycle: { ...D.cycle, [t.id]: t.doc } })).lap();
+  const want = { ...before, boxes: before.boxes.map((b) => (b.day === day ? { day, status: 'done' as const, date } : b)) };
+  if (JSON.stringify(after) !== JSON.stringify(want)) return { none: 'before-lap' };
+  return { ...t, early: [], newLap: false };
+}
+
 /** Tick for a ride day: ≥ 20 min of rides dated `date`, not before the latest
  *  tick and with no tick on that date. Fills the date's pinned box when it is
  *  an open ride box, else the first open box when that is a ride day. On a
@@ -178,16 +201,24 @@ const planStart = (D: VikingData, today: string) =>
  *  every open box is pinned to a later date. */
 export type PlanSlot = { date: string; day: number; free?: { day: number; date: string } };
 
-/** The frozen day is kept only when no pin moves its box: not a different box
- *  onto today, and not its own box to another date. */
+/** The frozen day is kept only when no pin moves its box (not a different box
+ *  onto today, and not its own box to another date), and when it still keeps
+ *  the hard-ride rule: a frozen hard ride goes when a Lower is planned
+ *  tomorrow, so today is planned afresh (and swapped to E1). */
 function freezeKept(D: VikingData, ctx: PlanCtx): boolean {
   const fz = ctx.frozen;
   if (!fz || fz.date !== ctx.today || !D.settings) return false;
   const busy = Object.values(D.workouts).some((w) => w.date === ctx.today) || hasTickOn(D, ctx.today);
   if (busy || fz.day.cycleDay !== bike(viking(D)).current().day) return false;
   const pins = ctx.pins ?? {};
-  return (pins[ctx.today] === undefined || pins[ctx.today] === fz.day.cycleDay)
+  const pinsKeep = (pins[ctx.today] === undefined || pins[ctx.today] === fz.day.cycleDay)
     && !Object.entries(pins).some(([d, p]) => d !== ctx.today && p === fz.day.cycleDay);
+  if (!pinsKeep) return false;
+  if (!fz.day.ride || !RIDES[fz.day.ride.code].hard) return true;
+  // Today places the frozen box either way, so tomorrow's slot is the same with or without the freeze.
+  const next = placeBoxes(D, ctx, 2, true)[1]?.day ?? 0;
+  const nx = next ? cycleDay(next).gym : null;
+  return nx !== 'LA' && nx !== 'LB';
 }
 
 /** Which box each of the next `days` dates places, simulated on a copy of the
@@ -196,6 +227,11 @@ function freezeKept(D: VikingData, ctx: PlanCtx): boolean {
  *  to a later date in the window. A full lap rolls over to a fresh one. */
 export function planOrder(D: VikingData, ctx: PlanCtx, days = 7): PlanSlot[] {
   if (!D.settings) return [];
+  return placeBoxes(D, ctx, days, freezeKept(D, ctx));
+}
+
+/** planOrder, with today's frozen box placed first when `kept`. */
+function placeBoxes(D: VikingData, ctx: PlanCtx, days: number, kept: boolean): PlanSlot[] {
   const b = bike(viking(D)), pins = ctx.pins ?? {};
   const t0 = planStart(D, ctx.today);
   const fresh = (): Box[] => Array.from({ length: 8 }, (_, i) => ({ day: i + 1, status: 'open' as const }));
@@ -204,7 +240,6 @@ export function planOrder(D: VikingData, ctx: PlanCtx, days = 7): PlanSlot[] {
   if (!ticksOf(D).length) boxes = boxes.map((x) => (x.day < b.current().day ? { ...x, status: 'passed' as const } : x));
   const dates = Array.from({ length: days }, (_, i) => iso(t0 + i));
   const out: PlanSlot[] = [];
-  const kept = freezeKept(D, ctx);
   dates.forEach((date, i) => {
     if (kept && i === 0) {
       const day = ctx.frozen!.day.cycleDay;
