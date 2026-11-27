@@ -225,7 +225,7 @@ it('engine: a throw on the cycle put still ticks on retry', async () => {
     for (const a of first.assumptions) expect(m.text).toContain(`• ${a}`);
     if (sk === 'LA') {
       expect(m.text).toContain('Romanian deadlift: 2 of 3 sets');
-      expect((s.get('plan', 'current') as PlanCurrent).days[0]).toMatchObject({ date: '2026-11-26', cycleDay: 3 });
+      expect((s.get('plan', 'current') as PlanCurrent).days[0]).toMatchObject({ date: '2026-11-26', cycleDay: 1 }); // LA ticked early: Upper A is still open
     } else {
       expect(m.text).toContain('1 unrecognised set left out');
       expect(m.text).toContain('Cycle moved');
@@ -315,7 +315,10 @@ it('engine: a gated tick never loads', async () => {
 
 it('engine: a ride or settle write error keeps plan/state and resumes next run', async () => {
   const s = new MemoryStore({
-    cycle: { '2026-11-23_auto_7': { date: '2026-11-23', day: 7, status: 'skip', savedAt: 1 } },
+    cycle: {
+      ...Object.fromEntries([1, 2, 3, 4, 5, 6].map((d) => [`2026-11-${16 + d}_auto_${d}`, { date: `2026-11-${16 + d}`, day: d, status: 'done', savedAt: d }])),
+      '2026-11-23_auto_7': { date: '2026-11-23', day: 7, status: 'skip', savedAt: 7 },
+    },
     rides: { r25: { date: '2026-11-25', type: 'easy', minutes: 30 } },
   });
   s.set('plan', 'state', { since: '2026-11-22', settledThrough: '2026-11-22', slidDates: [], ridesSeen: [], resets: {}, suggestions: [], blocks: {} });

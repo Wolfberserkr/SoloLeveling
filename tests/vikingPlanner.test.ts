@@ -17,6 +17,9 @@ function workout(date: string, session: WorkoutDoc['session'], entries: WorkoutD
 }
 const ctx = (t: string): PlanCtx => ({ today: t, afterNight: new Set(), overrides: {}, resets: {} });
 const tick = (date: string, d: number, savedAt = 0): CycleDoc => ({ date, day: d, status: 'done', savedAt });
+/** A lap with days 1..n ticked, the last one on `date`, one date apart. */
+const through = (n: number, date: string): Record<string, CycleDoc> =>
+  Object.fromEntries(Array.from({ length: n }, (_, i) => [`t${i + 1}`, tick(iso(dn(date) - (n - 1 - i)), i + 1, i + 1)]));
 const ride = (date: string, minutes: number, code?: RideDoc['code']): RideDoc =>
   ({ date, type: code === 'H1' || code === 'H2' || code === 'H3' ? 'hard' : 'easy', minutes, ...(code ? { code } : {}) });
 
@@ -42,7 +45,7 @@ it('planAhead: day 1 is tomorrow when today already has a workout', () => {
   expect(p.map((x) => x.date)).toEqual([1, 2, 3, 4, 5, 6, 7].map(day));
 });
 it('planAhead: day 1 is tomorrow when today already has a tick', () => {
-  const D = data({ cycle: { t: tick(day(0), 3) } });
+  const D = data({ cycle: through(3, day(0)) });
   expect(planAhead(D, ctx(day(0)))[0]).toMatchObject({ date: day(1), cycleDay: 4, kind: 'gym', session: 'UB' });
 });
 it('planAhead: names, descriptions and markers', () => {
@@ -70,7 +73,7 @@ it('planAhead: a window change alone keeps the hash', () => {
   expect(b[1].garmin!.hash).toBe(a[1].garmin!.hash);
 });
 it('planAhead: a deload week gym day is named · deload', () => {
-  const D = data({ cycle: { t: tick(day(35), 1) } }); // week 6
+  const D = data({ cycle: through(1, day(35)) }); // week 6
   const p = planAhead(D, ctx(day(36)));
   expect(p[0]).toMatchObject({ kind: 'gym', session: 'LA' });
   expect(p[0].garmin!.name).toBe(`Viking Lower A · deload (${garminDate(day(36))})`);
@@ -93,9 +96,9 @@ it('planAhead: an H1 9 days back leaves day 3 an H1', () => {
 });
 it('planAhead: phase 2 day 7 is H3, or H2 after a planned/logged H3', () => {
   const s2 = { startDate: START, startWeight: 102, phaseMode: '2' as const, kcalAdjust: 0 };
-  const D = data({ settings: s2, cycle: { t: tick(day(0), 6) } });
+  const D = data({ settings: s2, cycle: through(6, day(0)) });
   expect(planAhead(D, ctx(day(1)))[0]).toMatchObject({ kind: 'ride', cycleDay: 7, ride: { code: 'H3' } });
-  const D2 = data({ settings: s2, cycle: { t: tick(day(0), 6) }, rides: { r: ride(day(-6), 45, 'H3') } });
+  const D2 = data({ settings: s2, cycle: through(6, day(0)), rides: { r: ride(day(-6), 45, 'H3') } });
   expect(planAhead(D2, ctx(day(1)))[0].ride).toMatchObject({ code: 'H2' });
   // a full 16-day plan alternates: the second day 7 sees the planned H3 8 days earlier
   const p = planAhead(D, ctx(day(1)), 16);
@@ -113,9 +116,9 @@ it('planAhead: planned hard rides count against the cap', () => {
 });
 it('planAhead: phase B day 6 is L1 until one is ridden in the break, then E1', () => {
   const sB = { startDate: START, startWeight: 102, phaseMode: 'B' as const, kcalAdjust: 0 };
-  const D = data({ settings: sB, cycle: { t: tick(day(0), 5) } });
+  const D = data({ settings: sB, cycle: through(5, day(0)) });
   expect(planAhead(D, ctx(day(1)))[0]).toMatchObject({ kind: 'ride', ride: { code: 'L1', minutes: 120 } });
-  const D2 = data({ settings: sB, cycle: { t: tick(day(0), 5) }, rides: { r: ride(day(0), 130, 'L1') } });
+  const D2 = data({ settings: sB, cycle: through(5, day(0)), rides: { r: ride(day(0), 130, 'L1') } });
   expect(planAhead(D2, ctx(day(1)))[0].ride).toMatchObject({ code: 'E1', minutes: 90 });
 });
 it('planAhead: days parameter', () => {
@@ -124,23 +127,23 @@ it('planAhead: days parameter', () => {
 
 it('endOfDay: missed gym day slides; rest ticks done; phase-1 day 7 ticks skip', () => {
   expect(endOfDay(data({ workouts: { a: workout(day(0), 'UA', []) } }), day(1), 1)).toBe('slid');
-  expect((endOfDay(data({ cycle: { t: { date: day(0), day: 7, status: 'done', savedAt: 0 } } }), day(1), 1) as any).doc).toMatchObject({ day: 8, status: 'done' });
-  expect((endOfDay(data({ cycle: { t: { date: day(0), day: 6, status: 'done', savedAt: 0 } } }), day(1), 1) as any).doc).toMatchObject({ day: 7, status: 'skip' });
+  expect((endOfDay(data({ cycle: through(7, day(0)) }), day(1), 1) as any).doc).toMatchObject({ day: 8, status: 'done' });
+  expect((endOfDay(data({ cycle: through(6, day(0)) }), day(1), 1) as any).doc).toMatchObject({ day: 7, status: 'skip' });
 });
 it('endOfDay: ids, ride days slide, phase-2 day 7 slides, existing tick → null', () => {
-  expect(endOfDay(data({ cycle: { t: tick(day(0), 7) } }), day(1), 5)).toEqual({
+  expect(endOfDay(data({ cycle: through(7, day(0)) }), day(1), 5)).toEqual({
     id: `${day(1)}_auto_8`, doc: { date: day(1), day: 8, status: 'done', savedAt: 5 },
   });
-  expect(endOfDay(data({ cycle: { t: tick(day(0), 2) } }), day(1), 1)).toBe('slid'); // day 3 ride
+  expect(endOfDay(data({ cycle: through(2, day(0)) }), day(1), 1)).toBe('slid'); // day 3 ride
   const s2 = { startDate: START, startWeight: 102, phaseMode: '2' as const, kcalAdjust: 0 };
-  expect(endOfDay(data({ settings: s2, cycle: { t: tick(day(0), 6) } }), day(1), 1)).toBe('slid');
-  expect(endOfDay(data({ cycle: { t: tick(day(1), 2) } }), day(1), 1)).toBeNull();
+  expect(endOfDay(data({ settings: s2, cycle: through(6, day(0)) }), day(1), 1)).toBe('slid');
+  expect(endOfDay(data({ cycle: through(2, day(1)) }), day(1), 1)).toBeNull();
 });
 it('gymTick: a different session realigns', () => {
   expect(gymTick(data({ workouts: { a: workout(day(0), 'UA', []) } }), day(1), 'UB', 1)).toMatchObject({ realigned: true, doc: { day: 4 } });
 });
 it('gymTick: the matching session ticks the current day', () => {
-  expect(gymTick(data({ cycle: { t: tick(day(0), 1) } }), day(1), 'LA', 7)).toEqual({
+  expect(gymTick(data({ cycle: through(1, day(0)) }), day(1), 'LA', 7)).toEqual({
     id: `${day(1)}_auto_2`, doc: { date: day(1), day: 2, status: 'done', savedAt: 7 }, realigned: false,
   });
 });
@@ -154,41 +157,41 @@ it('settle: late import after midnight', () => {
   expect(endOfDay(D, day(1), 1)).toBe('slid');
   const t = gymTick(D, day(1), 'LA', 2)!;
   expect(t.doc).toMatchObject({ date: day(1), day: 2, status: 'done' });
-  const D2 = { ...D, cycle: { [t.id]: t.doc } };
+  const D2 = { ...D, cycle: { d1: tick(day(0), 1, 1), [t.id]: t.doc } };
   expect(planAhead(D2, ctx(day(2)))[0].cycleDay).toBe(3);
   expect(endOfDay(D2, day(1), 3)).toBeNull();
   expect(gymTick(D2, day(1), 'LA', 4)).toBeNull();
 });
 it('rideTick: 2 × 15 min counts', () => {
   // cycle at day 3 (a ride day): two 15-min rides dated today → done
-  const D = data({ cycle: { t: tick(day(0), 2) }, rides: { a: ride(day(1), 15, 'H1'), b: ride(day(1), 15, 'E1') } });
+  const D = data({ cycle: through(2, day(0)), rides: { a: ride(day(1), 15, 'H1'), b: ride(day(1), 15, 'E1') } });
   expect(rideTick(D, day(1), 9)).toEqual({ id: `${day(1)}_auto_3`, doc: { date: day(1), day: 3, status: 'done', savedAt: 9 } });
 });
 it('rideTick: under 20 min total → null', () => {
-  const D = data({ cycle: { t: tick(day(0), 2) }, rides: { a: ride(day(1), 15, 'H1'), b: ride(day(0), 30, 'E1') } });
+  const D = data({ cycle: through(2, day(0)), rides: { a: ride(day(1), 15, 'H1'), b: ride(day(0), 30, 'E1') } });
   expect(rideTick(D, day(1), 9)).toBeNull();
 });
 it('rideTick: a stale gym-day ride never ticks a later ride day', () => {
   // the ride on day(0) was a gym day (day 2, ticked by its workout); the cycle is now at day 3
-  const D = data({ cycle: { t: tick(day(0), 2) }, rides: { a: ride(day(-1), 40, 'E1') } });
+  const D = data({ cycle: through(2, day(0)), rides: { a: ride(day(-1), 40, 'E1') } });
   expect(rideTick(D, day(-1), 9)).toBeNull();
   // a ride dated the same day as the latest tick (a gym day) → that date already has a tick
-  const D2 = data({ cycle: { t: tick(day(0), 2) }, rides: { a: ride(day(0), 40, 'E1') } });
+  const D2 = data({ cycle: through(2, day(0)), rides: { a: ride(day(0), 40, 'E1') } });
   expect(rideTick(D2, day(0), 9)).toBeNull();
 });
 it('rideTick: a ride on a gym cycle day → null; rest day 8 → null', () => {
-  expect(rideTick(data({ cycle: { t: tick(day(0), 1) } , rides: { a: ride(day(1), 40, 'E1') } }), day(1), 1)).toBeNull();
-  expect(rideTick(data({ cycle: { t: tick(day(0), 7) } , rides: { a: ride(day(1), 40, 'E1') } }), day(1), 1)).toBeNull();
+  expect(rideTick(data({ cycle: through(1, day(0)) , rides: { a: ride(day(1), 40, 'E1') } }), day(1), 1)).toBeNull();
+  expect(rideTick(data({ cycle: through(7, day(0)) , rides: { a: ride(day(1), 40, 'E1') } }), day(1), 1)).toBeNull();
 });
 it('rideTick: phase-1 day 7 (optional R1) ticks done when ridden', () => {
-  const D = data({ cycle: { t: tick(day(0), 6) }, rides: { a: ride(day(1), 30, 'R1') } });
+  const D = data({ cycle: through(6, day(0)), rides: { a: ride(day(1), 30, 'R1') } });
   expect(rideTick(D, day(1), 1)!.doc).toMatchObject({ day: 7, status: 'done' });
 });
 
 // Each swap: cycle at day 3 (H1) on the plan's first date.
 const swapExpect = { code: 'E1', minutes: 60, from: 'H1' };
 it('rides: swap reason deload week', () => {
-  const D = data({ cycle: { t: tick(day(35), 2) } }); // week 6
+  const D = data({ cycle: through(2, day(35)) }); // week 6
   const p = planAhead(D, ctx(day(36)));
   expect(p[0].ride).toMatchObject({ ...swapExpect, reason: 'deload week' });
   expect(p[0].reason).toBe('deload week');
@@ -196,18 +199,18 @@ it('rides: swap reason deload week', () => {
   expect(p[0].garmin!.dto.description).toBe(`Project Viking week 6 · Foundation cut. deload week [viking:${p[0].garmin!.hash}]`);
 });
 it('rides: swap reason hard-ride cap', () => {
-  const D = data({ cycle: { t: tick(day(0), 2) }, rides: { r: ride(day(-1), 45, 'H2') } }); // phase 1 cap 1
+  const D = data({ cycle: through(2, day(0)), rides: { r: ride(day(-1), 45, 'H2') } }); // phase 1 cap 1
   const r = planAhead(D, ctx(day(1)))[0].ride!;
   expect(r).toMatchObject(swapExpect);
   expect(r.reason).toMatch(/^hard-ride cap/);
 });
 it('rides: swap reason after a night shift', () => {
-  const D = data({ cycle: { t: tick(day(0), 2) } });
+  const D = data({ cycle: through(2, day(0)) });
   const p = planAhead(D, { ...ctx(day(1)), afterNight: new Set([day(1)]) });
   expect(p[0].ride).toMatchObject({ ...swapExpect, reason: 'after a night shift' });
 });
 it('rides: a planned E1 after a night shift is capped at 60 min, no from', () => {
-  const D = data({ cycle: { t: tick(day(42), 5) } }); // week 7: E1 is 75 min
+  const D = data({ cycle: through(5, day(42)) }); // week 7: E1 is 75 min
   expect(planAhead(D, ctx(day(43)))[0].ride).toMatchObject({ code: 'E1', minutes: 75 });
   const p = planAhead(D, { ...ctx(day(43)), afterNight: new Set([day(43)]) })[0];
   expect(p.ride).toEqual({ code: 'E1', minutes: 60, reason: 'after a night shift' });
@@ -216,14 +219,14 @@ it('rides: a planned E1 after a night shift is capped at 60 min, no from', () =>
   expect((p.garmin!.dto as any).workoutSegments[0].workoutSteps[0].endConditionValue).toBe(3600);
 });
 it('rides: swap reason readiness', () => {
-  const D = data({ cycle: { t: tick(day(0), 2) } });
+  const D = data({ cycle: through(2, day(0)) });
   const r = planAhead(D, { ...ctx(day(1)), health: { hrvStatus: 'LOW' } })[0].ride!;
   expect(r).toMatchObject(swapExpect);
   expect(r.reason).toMatch(/^readiness/);
   expect(r.reason).toBe('readiness: HRV LOW');
 });
 it('rides: readiness texts, first match only; good health keeps the ride', () => {
-  const D = data({ cycle: { t: tick(day(0), 2) } });
+  const D = data({ cycle: through(2, day(0)) });
   const why = (health: PlanCtx['health']) => planAhead(D, { ...ctx(day(1)), health })[0].ride!.reason;
   expect(why({ readiness: 35, sleepH: 5.2 })).toBe('readiness 35');
   expect(why({ sleepH: 5.2 })).toBe('readiness: sleep 5.2 h');
@@ -240,7 +243,7 @@ it('rides: readiness swaps today only', () => {
 });
 
 it('planAhead: a frozen today is kept when health changes, dropped when the cycle moved', () => {
-  const D = data({ cycle: { t1: tick(day(-1), 2, 1) } });
+  const D = data({ cycle: through(2, day(-1)) });
   const f = planAhead(D, ctx(day(0)))[0];
   expect(f).toMatchObject({ date: day(0), cycleDay: 3, ride: { code: 'H1' } });
   const frozen = { date: day(0), day: f };
@@ -250,13 +253,13 @@ it('planAhead: a frozen today is kept when health changes, dropped when the cycl
   // without the freeze the same health swaps today's ride
   expect(planAhead(D, { ...ctx(day(0)), health: { hrvStatus: 'LOW' } })[0].ride).toMatchObject({ code: 'E1', from: 'H1' });
   // a late realign of yesterday → current 4; today still has no tick → freeze ignored
-  const D2 = data({ cycle: { t1: tick(day(-1), 2, 1), t2: tick(day(-1), 3, 2) } });
+  const D2 = data({ cycle: { ...through(2, day(-1)), t3: tick(day(-1), 3, 3) } });
   expect(planAhead(D2, { ...ctx(day(0)), health: { hrvStatus: 'LOW' }, frozen })[0]).toMatchObject({ date: day(0), cycleDay: 4 });
 });
 it('planAhead: a freeze is dropped once today has a tick, and ignored for another date', () => {
-  const D = data({ cycle: { t1: tick(day(-1), 2, 1) } });
+  const D = data({ cycle: through(2, day(-1)) });
   const f = planAhead(D, ctx(day(0)))[0];
-  const D2 = data({ cycle: { t1: tick(day(-1), 2, 1), t2: tick(day(0), 3, 2) } });
+  const D2 = data({ cycle: { ...through(2, day(-1)), t3: tick(day(0), 3, 3) } });
   // cycle moved to 4 as well, but the "today has a tick" rule alone puts day 1 on tomorrow
   expect(planAhead(D2, { ...ctx(day(0)), frozen: { date: day(0), day: f } })[0]).toMatchObject({ date: day(1), cycleDay: 4 });
   const p = planAhead(D, { ...ctx(day(0)), health: { hrvStatus: 'LOW' }, frozen: { date: day(-1), day: f } });

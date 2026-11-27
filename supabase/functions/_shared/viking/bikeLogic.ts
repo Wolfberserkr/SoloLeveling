@@ -5,14 +5,14 @@
 //   1. no hard ride within 24 h before Lower A / Lower B
 //   2. hard rides per rolling 8 days ≤ the phase's cap
 //   3. deload weeks: Z1–Z2 only, max 60 min, no intervals
-//   4. the 8-day cycle is a sequence: it advances on done / skip, not weekdays
+//   4. the 8-day cycle is a per-lap checklist: done / skip fill a box, not weekdays
 //   5. H3 sprints are hidden before phase 2
 import {
   BENCHMARKS, BIKE_PHASES, CYCLE, DELOAD_MAX_MIN, DELOAD_RULE, HARD_WINDOW_DAYS, RIDES, RIDE_CODES,
   Z2_TARGET, ZONES, type BenchId, type CycleDay, type RideCode, type ZoneId,
 } from './bikePlan.ts';
 import { SESS, type PhaseKey, type SessionKey } from './data.ts';
-import { dn, iso, num, sum, type Flag, type RideDoc, type Viking } from './logic.ts';
+import { dn, iso, num, sum, type CycleDoc, type Flag, type RideDoc, type Viking } from './logic.ts';
 
 export const isHard = (r: Pick<RideDoc, 'code' | 'type'>) => (r.code ? RIDES[r.code].hard : r.type === 'hard');
 const isLower = (sk: SessionKey | null | undefined) => sk === 'LA' || sk === 'LB';
@@ -20,6 +20,33 @@ const isLower = (sk: SessionKey | null | undefined) => sk === 'LA' || sk === 'LB
 export const cycleDay = (n: number): CycleDay => CYCLE[(((n - 1) % 8) + 8) % 8];
 export const dayOfSession = (sk: SessionKey) => CYCLE.find((c) => c.gym === sk)!.day;
 export const nextDay = (n: number) => (n % 8) + 1;
+
+export type Box = { day: number; status: 'open' | 'done' | 'skip'; date?: string };
+/** `boxes`: days 1–8 of the current lap. `passed`: the open days of the lap
+ *  closed by the most recent already-filled tick, `[]` otherwise. */
+export type Lap = { boxes: Box[]; passed: number[] };
+
+const emptyLap = (): Box[] => Array.from({ length: 8 }, (_, i) => ({ day: i + 1, status: 'open' as const }));
+
+/** Walk the ticks (already sorted by date, then savedAt) into the current
+ *  lap. A tick fills its box; a tick on a box already filled, or after a full
+ *  lap, starts a new lap. */
+export function lap(ticks: CycleDoc[]): Lap {
+  let boxes = emptyLap(), passed: number[] = [];
+  for (const t of ticks) {
+    const i = t.day - 1;
+    if (i < 0 || i > 7) continue;
+    if (boxes[i].status !== 'open' || boxes.every((b) => b.status !== 'open')) {
+      passed = boxes.filter((b) => b.status === 'open').map((b) => b.day);
+      boxes = emptyLap();
+    }
+    boxes[i] = { day: t.day, status: t.status, date: t.date };
+  }
+  return { boxes, passed };
+}
+
+/** The first open box of a lap, or null when it is full. */
+export const firstOpen = (l: Lap): number | null => l.boxes.find((b) => b.status === 'open')?.day ?? null;
 
 /** Ride codes open in a phase (H3 sprints only from phase 2). */
 export const codesFor = (ph: PhaseKey): RideCode[] => RIDE_CODES.filter((c) => ph !== '1' || !RIDES[c].fromPhase2);
@@ -101,13 +128,21 @@ export function bike(v: Viking) {
   const W = v.sorted('workouts');
   const capOf = (d: string) => BIKE_PHASES[v.phaseOf(d)].hardCap;
 
-  /** Where the cycle stands: the day after the last tick. With no ticks yet
-   *  it lines up behind the last logged gym session. */
+  const theLap = () => lap(ticks);
+
+  /** Where the cycle stands: the first open box of the current lap (day 1
+   *  when the lap is full). With no ticks yet it lines up behind the last
+   *  logged gym session. */
   function current(): { day: number; lastDate: string | null } {
     const last = ticks[ticks.length - 1];
-    if (last) return { day: nextDay(last.day), lastDate: last.date };
+    if (last) return { day: firstOpen(theLap()) ?? 1, lastDate: last.date };
     const lw = W[W.length - 1];
     return { day: lw ? nextDay(dayOfSession(lw.session)) : 1, lastDate: null };
+  }
+
+  /** The next open box after `day` in this lap, in cycle order; 1 when none. */
+  function after(day: number): number {
+    return theLap().boxes.find((b) => b.day > day && b.status === 'open')?.day ?? 1;
   }
 
   /** Hard rides in the rolling window ending on day number `end`. */
@@ -131,7 +166,7 @@ export function bike(v: Viking) {
       // …or, for a ride being logged now, one coming up next in the cycle:
       // today's Lower day itself, or the day after this ride day.
       else if (pending && d >= dn(T) - 1) {
-        const cur = cycleDay(current().day), nx = cycleDay(nextDay(cur.day));
+        const cur = cycleDay(current().day), nx = cycleDay(after(cur.day));
         const upcoming = cur.gym ? (isLower(cur.gym) ? cur.gym : null) : isLower(nx.gym) ? nx.gym : null;
         if (upcoming)
           out.push({ l: 'warn', t: 'Lower day next', b: `${SESS[upcoming].n} is next in the cycle. No hard ride within 24 h before it: ride easy (E1/R1) or move the hard ride after it.` });
@@ -148,12 +183,10 @@ export function bike(v: Viking) {
     const { codes, optional } = dayRides(cd, ph);
     const rx = codes.map((c) => prescribe(c, wk, ph, deload));
     const flags: Flag[] = [];
-    if (cd.gym && cd.gym !== v.nextSession())
-      flags.push({ l: 'info', t: 'Gym rotation differs', b: `The cycle says ${SESS[cd.gym].n}, your last session points to ${SESS[v.nextSession()].n} next. The next session the watch records lines the cycle back up.` });
     if (rx.some((x) => RIDES[x.code].hard)) {
       const n = hardIn(t) + 1, cap = BIKE_PHASES[ph].hardCap;
       if (n > cap) flags.push({ l: 'warn', t: 'Hard-ride cap reached', b: `${n - 1} hard ride${n - 1 === 1 ? '' : 's'} in the last ${HARD_WINDOW_DAYS} days already (cap ${cap}). Ride E1 or R1 today instead.` });
-      const nx = cycleDay(nextDay(day));
+      const nx = cycleDay(after(day));
       if (isLower(nx.gym)) flags.push({ l: 'warn', t: 'Lower day tomorrow', b: `${SESS[nx.gym!].n} follows this day. Keep today's ride easy.` });
     }
     // Jarvis's planner (plan/current) swaps a hard ride the day before a Lower
@@ -214,6 +247,6 @@ export function bike(v: Viking) {
     return done('aerobic') && done('climb') ? null : { wk: dlWk };
   }
 
-  return { current, hardIn, rideFlags, today, week, series, retestDue, capOf };
+  return { lap: theLap, current, after, hardIn, rideFlags, today, week, series, retestDue, capOf };
 }
 export type Bike = ReturnType<typeof bike>;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BENCHMARKS } from '@/features/viking/bikePlan';
 import {
-  bike, codesFor, cycleDay, dayRides, mmss, parseTime, prescribe, zoneLabel,
+  bike, codesFor, cycleDay, dayRides, firstOpen, mmss, parseTime, prescribe, zoneLabel,
 } from '@/features/viking/bikeLogic';
 import {
   dn, emptyData, iso, viking, type CycleDoc, type RideDoc, type VikingData, type WorkoutDoc,
@@ -23,15 +23,11 @@ const tick = (date: string, d: number, savedAt = 0): CycleDoc => ({ date, day: d
 const wo = (date: string, session: WorkoutDoc['session']): WorkoutDoc =>
   ({ date, session, week: 1, phase: '1', deload: false, entries: [{ ex: 'x', sets: [{ kg: 1, reps: 1 }] }], savedAt: 0 });
 const B = (d: VikingData) => bike(viking(d));
+/** Ticks for days 1..n of one lap, one per date, the last on `lastDate`. */
+const through = (n: number, lastDate: string): Record<string, CycleDoc> =>
+  Object.fromEntries(Array.from({ length: n }, (_, i) => [`k${i}`, tick(iso(dn(lastDate) - (n - 1 - i)), i + 1, i)]));
 
 describe('cycle', () => {
-  it('words a rotation mismatch for the watch, not the retired logger', () => {
-    // cycle on day 1 (Upper A), but the last session was Upper A, so the rotation says Lower A
-    const t = B(data({ cycle: { a: tick(day(0), 8) }, workouts: { w: wo(day(0), 'UA') } })).today(day(1));
-    const f = t.flags.find((x) => x.t === 'Gym rotation differs');
-    expect(f?.b).toBe('The cycle says Upper A, your last session points to Lower A next. The next session the watch records lines the cycle back up.');
-  });
-
   it('starts at day 1 (Upper A + optional R1)', () => {
     const t = B(data()).today(day(0));
     expect(t.day).toBe(1);
@@ -41,10 +37,10 @@ describe('cycle', () => {
   });
 
   it('advances on ticks, not weekdays, and wraps 8 → 1', () => {
-    expect(B(data({ cycle: { a: tick(day(0), 2) } })).current().day).toBe(3);
-    expect(B(data({ cycle: { a: tick(day(0), 8) } })).current().day).toBe(1);
-    // ten days later, still the day after the last tick
-    expect(B(data({ cycle: { a: tick(day(0), 3) } })).today(day(10)).day).toBe(4);
+    expect(B(data({ cycle: through(2, day(8)) })).current().day).toBe(3);
+    expect(B(data({ cycle: through(8, day(8)) })).current().day).toBe(1);
+    // ten days later, still the first day not done yet
+    expect(B(data({ cycle: through(3, day(8)) })).today(day(18)).day).toBe(4);
   });
 
   it('lines up behind the last logged gym session when nothing is ticked', () => {
@@ -85,18 +81,18 @@ describe('prescription', () => {
   });
 
   it('deload weeks change the suggestion on the hard-ride day', () => {
-    const d = data({ cycle: { a: tick(wkDay(6), 2) } });
+    const d = data({ cycle: through(2, wkDay(6)) });
     const t = B(d).today(wkDay(6, 1));
     expect(t.deload).toBe(true);
     expect(t.rx.every((r) => r.code === 'E1' && r.min[1] <= 60)).toBe(true);
-    expect(B(data({ cycle: { a: tick(wkDay(5), 2) } })).today(wkDay(5, 1)).rx.map((r) => r.code)).toEqual(['H1', 'H2']);
+    expect(B(data({ cycle: through(2, wkDay(5)) })).today(wkDay(5, 1)).rx.map((r) => r.code)).toEqual(['H1', 'H2']);
   });
 });
 
 describe('rules', () => {
   it('warns on a hard ride the day before a Lower session', () => {
     // Day 1 done → day 2 (Lower A) is next: a hard ride now lands before it.
-    const d = data({ cycle: { a: tick(day(0), 1) } });
+    const d = data({ cycle: through(1, day(0)) });
     const f = B(d).rideFlags({ date: day(1), code: 'H1', type: 'hard', minutes: 60 }, day(1), true);
     expect(f.map((x) => x.t)).toContain('Lower day next');
     // Same ride logged after the fact, with Lower B the next day.
@@ -105,7 +101,7 @@ describe('rules', () => {
   });
 
   it('no Lower warning on the plan’s own hard-ride day', () => {
-    const d = data({ cycle: { a: tick(day(1), 2) } });
+    const d = data({ cycle: through(2, day(1)) });
     const f = B(d).rideFlags({ date: day(2), code: 'H1', type: 'hard', minutes: 60 }, day(2), true);
     expect(f).toEqual([]);
   });
@@ -200,5 +196,53 @@ describe('formatting', () => {
     expect(zoneLabel(['Z2'])).toBe('Z2 · 115–135 bpm');
     expect(zoneLabel(['Z1'])).toBe('Z1 · under 115 bpm');
     expect(zoneLabel(['Z4', 'Z5'])).toBe('Z4–Z5 · 151–186 bpm');
+  });
+});
+
+describe('lap', () => {
+  const t = (date: string, d: number, status: CycleDoc['status'] = 'done', savedAt = 0): CycleDoc =>
+    ({ date, day: d, status, savedAt });
+  const seq = (...days: number[]) => Object.fromEntries(days.map((d, i) => [`k${i}`, t(day(i), d, 'done', i)]));
+  const L = (...days: number[]) => B(data({ cycle: seq(...days) }));
+
+  it('lap: in order', () => {
+    const b = L(1, 2, 3);
+    expect(firstOpen(b.lap())).toBe(4);
+    expect(b.lap().passed).toEqual([]);
+    expect(b.current().day).toBe(4);
+  });
+
+  it('lap: one early (27 Nov case)', () => {
+    expect(L(1, 2, 4).current().day).toBe(3);
+    expect(L(1, 2, 4, 3).current().day).toBe(5);
+  });
+
+  it('lap: two early', () => {
+    const b = L(1, 4, 5);
+    expect(b.current().day).toBe(2);
+    expect(b.after(2)).toBe(3);
+  });
+
+  it('lap: filled box starts a new lap and reports passed', () => {
+    const b = L(1, 2, 4, 1);
+    expect(b.lap().boxes.map((x) => x.status)).toEqual(['done', 'open', 'open', 'open', 'open', 'open', 'open', 'open']);
+    expect(b.lap().passed).toEqual([3, 5, 6, 7, 8]);
+    expect(b.current().day).toBe(2);
+  });
+
+  it('lap: full lap rolls over', () => {
+    const b = L(1, 2, 3, 4, 5, 6, 7, 8);
+    expect(b.current().day).toBe(1);
+    expect(b.lap().boxes.every((x) => x.status === 'done')).toBe(true);
+    expect(b.after(8)).toBe(1);
+  });
+
+  it('lap: skips count as filled', () => {
+    const cycle = { a: t(day(0), 1, 'done', 0), b: t(day(1), 2, 'skip', 1) };
+    expect(B(data({ cycle })).current().day).toBe(3);
+  });
+
+  it('lap: no ticks', () => {
+    expect(B(data({ workouts: { w: wo(day(0), 'UA') } })).current()).toEqual({ day: 2, lastDate: null });
   });
 });
