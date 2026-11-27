@@ -172,6 +172,15 @@ it('planAhead: a pin moving the frozen day\'s box elsewhere drops the freeze', (
   expect(p[0].reason).not.toBe('frozen');
   expect(p.filter((x) => x.cycleDay === 3).map((x) => x.date)).toEqual([day(4)]);
 });
+it('planAhead: a day-off pin on today drops the freeze', () => {
+  const D = data({ cycle: { a: tick(day(0), 1), b: tick(day(1), 2) } });
+  const fz = planAhead(D, ctx(day(2)))[0]; // box 3
+  const frozen = { date: day(2), day: { ...fz, reason: 'frozen' } };
+  const p = planAhead(D, { ...ctx(day(2)), frozen, pins: { [day(2)]: 0 } });
+  expect(p[0]).toEqual({ date: day(2), cycleDay: 0, kind: 'rest', reason: 'day off' });
+  expect(p.filter((x) => x.cycleDay === 3).map((x) => x.date)).toEqual([day(3)]);
+  expect(p[1].reason).not.toBe('frozen');
+});
 it('planOrder: a date with only later-pinned boxes left is a free day', () => {
   const D = data({ cycle: { a: tick(day(0), 1), b: tick(day(1), 2), c: tick(day(2), 3), d: tick(day(3), 4), e: tick(day(4), 5), f: tick(day(5), 6), g: tick(day(6), 7) } });
   const c = { ...ctx(day(7)), pins: { [day(9)]: 8 } };

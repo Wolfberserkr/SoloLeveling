@@ -184,7 +184,7 @@ function freezeKept(D: VikingData, ctx: PlanCtx): boolean {
   const busy = Object.values(D.workouts).some((w) => w.date === ctx.today) || hasTickOn(D, ctx.today);
   if (busy || fz.day.cycleDay !== bike(viking(D)).current().day) return false;
   const pins = ctx.pins ?? {};
-  return (!pins[ctx.today] || pins[ctx.today] === fz.day.cycleDay)
+  return (pins[ctx.today] === undefined || pins[ctx.today] === fz.day.cycleDay)
     && !Object.entries(pins).some(([d, p]) => d !== ctx.today && p === fz.day.cycleDay);
 }
 
