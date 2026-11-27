@@ -2,7 +2,7 @@
 // Pure functions over the logged data: `today` and `savedAt` are passed in.
 import { PHASES, SESS, type PhaseKey, type SessionKey } from './data.ts';
 import { BIKE_PHASES, RIDES, type RideCode } from './bikePlan.ts';
-import { bike, cycleDay, dayOfSession, dayRides, isHard, nextDay, prescribe, type Rx } from './bikeLogic.ts';
+import { bike, cycleDay, dayOfSession, dayRides, isHard, prescribe, type Box, type Rx } from './bikeLogic.ts';
 import { dn, iso, viking, type CycleDoc, type RideDoc, type VikingData } from './logic.ts';
 import { nextTargets, type Overrides, type Progress, type Resets } from './targets.ts';
 import { buildRideWorkout, buildStrengthWorkout, withMarker, workoutName, type GarminDto } from './garmin.ts';
@@ -35,6 +35,8 @@ export type PlanCtx = {
   overrides: Overrides;
   resets: Resets;
   frozen?: { date: string; day: PlanDay };
+  /** date → box the owner moved there (0 = an extra day off). */
+  pins?: Pins;
 };
 
 /** The swapped ride's length cap. */
@@ -159,14 +161,48 @@ function readinessWhy(h: Health | undefined): string | null {
   return null;
 }
 
+/** The first planned date: today, or tomorrow when today already has a
+ *  workout or tick. */
+const planStart = (D: VikingData, today: string) =>
+  dn(today) + (Object.values(D.workouts).some((w) => w.date === today) || hasTickOn(D, today) ? 1 : 0);
+
+/** Which box each of the next `days` dates places, simulated on a copy of the
+ *  lap (`day` 0 = a day off). A pin whose box is open and not yet placed
+ *  places it on its date; any other date places the first open box not pinned
+ *  to a later date in the window. A full lap rolls over to a fresh one. */
+export function planOrder(D: VikingData, ctx: PlanCtx, days = 7): Array<{ date: string; day: number }> {
+  if (!D.settings) return [];
+  const b = bike(viking(D)), pins = ctx.pins ?? {};
+  const t0 = planStart(D, ctx.today);
+  const fresh = (): Box[] => Array.from({ length: 8 }, (_, i) => ({ day: i + 1, status: 'open' as const }));
+  let boxes: Box[] = b.lap().boxes.map((x) => ({ ...x }));
+  // With no ticks the cycle lines up behind the last workout: earlier boxes are behind us.
+  if (!ticksOf(D).length) boxes = boxes.map((x) => (x.day < b.current().day ? { ...x, status: 'passed' as const } : x));
+  const dates = Array.from({ length: days }, (_, i) => iso(t0 + i));
+  const out: Array<{ date: string; day: number }> = [];
+  dates.forEach((date, i) => {
+    if (pins[date] === 0) { out.push({ date, day: 0 }); return; }
+    if (!boxes.some((x) => x.status === 'open')) boxes = fresh();
+    const open = boxes.filter((x) => x.status === 'open').map((x) => x.day);
+    const pin = pins[date];
+    const later = new Set(dates.slice(i + 1).map((d) => pins[d]).filter((p) => p >= 1 && p <= 8));
+    const day = pin >= 1 && pin <= 8 && open.includes(pin) ? pin
+      : open.find((n) => !later.has(n)) ?? open[0];
+    boxes[day - 1] = { day, status: 'done', date };
+    out.push({ date, day });
+  });
+  return out;
+}
+
 /** The next `days` dates from today (or tomorrow when today already has a
- *  workout or tick), one cycle day each. */
+ *  workout or tick), one planned box each (see `planOrder`). */
 export function planAhead(D: VikingData, ctx: PlanCtx, days = 7): PlanDay[] {
   if (!D.settings) return [];
   const v = viking(D), b = bike(v);
   const logged = v.sorted('rides');
   const cur = b.current().day;
   const todayBusy = Object.values(D.workouts).some((w) => w.date === ctx.today) || hasTickOn(D, ctx.today);
+  const order = planOrder(D, ctx, days);
 
   const out: PlanDay[] = [];
   /** Rides planned so far, as ride docs for the window and cap checks. */
@@ -175,21 +211,22 @@ export function planAhead(D: VikingData, ctx: PlanCtx, days = 7): PlanDay[] {
     if (p.ride) planned.push({ date: p.date, code: p.ride.code, type: RIDES[p.ride.code].hard ? 'hard' : 'easy', minutes: p.ride.minutes });
   };
 
-  let t = dn(ctx.today) + (todayBusy ? 1 : 0);
-  let n = cur;
+  let first = 0;
   const fz = ctx.frozen;
-  if (fz && fz.date === ctx.today && !todayBusy && fz.day.cycleDay === cur) {
+  if (fz && fz.date === ctx.today && !todayBusy && fz.day.cycleDay === cur
+    && (!ctx.pins?.[ctx.today] || ctx.pins[ctx.today] === fz.day.cycleDay)) {
     out.push(fz.day);
     addPlanned(fz.day);
-    t++;
-    n = nextDay(fz.day.cycleDay);
+    first = 1;
   }
 
   // Phase B day 6: L1 until one is ridden (or planned) since the break began.
   const breakStart = v.cfg.phaseMode === 'auto' ? dn(v.cfg.startDate) + 26 * 7 : dn(v.cfg.startDate);
 
-  for (; out.length < days; t++, n = nextDay(n)) {
-    const date = iso(t), cd = cycleDay(n);
+  for (let i = first; i < order.length; i++) {
+    const { date, day: n } = order[i], t = dn(date);
+    if (n === 0) { out.push({ date, cycleDay: 0, kind: 'rest', reason: 'day off' }); continue; }
+    const cd = cycleDay(n);
     const wk = v.weekOf(date), ph = v.phaseOf(date), deload = v.isDeloadWeek(wk);
     const base = `Project Viking week ${wk} · ${PHASES[ph].n}`;
     const desc = (reason?: string) =>
@@ -223,7 +260,8 @@ export function planAhead(D: VikingData, ctx: PlanCtx, days = 7): PlanDay[] {
       const hard = RIDES[code].hard, heavy = hard || code === 'L1';
       const cap = BIKE_PHASES[ph].hardCap;
       const nHard = hard ? b.hardIn(t, all) : 0;
-      const nx = cycleDay(nextDay(n)).gym;
+      const nd = i + 1 < order.length ? order[i + 1].day : b.after(n);
+      const nx = nd ? cycleDay(nd).gym : null;
       if (hard && nHard + 1 > cap) reason = `hard-ride cap: ${nHard} in the last 8 days (${BIKE_PHASES[ph].n} allows ${cap})`;
       else if (hard && (nx === 'LA' || nx === 'LB')) reason = `${SESS[nx].n} tomorrow`;
       else if (heavy && ctx.afterNight.has(date)) reason = 'after a night shift';

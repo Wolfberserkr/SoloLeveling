@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { dn, emptyData, iso, type CycleDoc, type RideDoc, type VikingData, type WorkoutDoc } from '../supabase/functions/_shared/viking/logic.ts';
 import { garminDate } from '../supabase/functions/_shared/viking/garmin.ts';
-import { endOfDay, gymTick, planAhead, rideTick, tickId, type PlanCtx } from '../supabase/functions/_shared/viking/planner.ts';
+import { endOfDay, gymTick, planAhead, planOrder, rideTick, tickId, type PlanCtx } from '../supabase/functions/_shared/viking/planner.ts';
 
 const START = '2026-01-05';
 function data(over: Partial<VikingData> = {}): VikingData {
@@ -118,6 +118,49 @@ it('planAhead: phase B day 6 is L1 until one is ridden in the break, then E1', (
   const D2 = data({ settings: sB, cycle: { t: tick(day(0), 5) }, rides: { r: ride(day(0), 130, 'L1') } });
   expect(planAhead(D2, ctx(day(1)))[0].ride).toMatchObject({ code: 'E1', minutes: 90 });
 });
+it('planOrder: fills open boxes in order, skipping filled', () => {
+  const D = data({ cycle: { a: tick(day(0), 1), b: tick(day(1), 2), c: tick(day(2), 4) } });
+  expect(planOrder(D, ctx(day(3))).map((x) => x.day)).toEqual([3, 5, 6, 7, 8, 1, 2]);
+});
+it('planOrder: a pin places its box on its date', () => {
+  const D = data({ cycle: { a: tick(day(0), 1) } });
+  const c = { ...ctx(day(1)), pins: { [day(3)]: 2 } };
+  expect(planOrder(D, c).map((x) => x.day).slice(0, 4)).toEqual([3, 4, 2, 5]);
+});
+it('planOrder: a day off moves everything back a day', () => {
+  const D = data({ cycle: { a: tick(day(0), 1) } });
+  const c = { ...ctx(day(1)), pins: { [day(2)]: 0 } };
+  expect(planOrder(D, c).map((x) => x.day).slice(0, 4)).toEqual([2, 0, 3, 4]);
+});
+it('planOrder: pins for filled boxes are ignored', () => {
+  const D = data({ cycle: { a: tick(day(0), 1) } });
+  const c = { ...ctx(day(1)), pins: { [day(2)]: 1 } };
+  expect(planOrder(D, c).map((x) => x.day).slice(0, 3)).toEqual([2, 3, 4]);
+});
+it('planAhead: a day off is a rest day with no workout', () => {
+  const D = data({ cycle: { a: tick(day(0), 1) } });
+  const p = planAhead(D, { ...ctx(day(1)), pins: { [day(2)]: 0 } });
+  expect(p[1]).toEqual({ date: day(2), cycleDay: 0, kind: 'rest', reason: 'day off' });
+  expect(p[2]).toMatchObject({ cycleDay: 3 });
+});
+it('planAhead: a hard ride pinned before Lower becomes E1', () => {
+  // ticks 1, 2 → order 3 (H1), 4, 5 (LB). Pin box 3 the day before LB.
+  const D = data({ cycle: { a: tick(day(0), 1), b: tick(day(1), 2) } });
+  const p = planAhead(D, { ...ctx(day(2)), pins: { [day(3)]: 3 } });
+  expect(p.map((x) => x.cycleDay).slice(0, 3)).toEqual([4, 3, 5]);
+  expect(p[1].ride).toMatchObject({ code: 'E1', from: 'H1', reason: 'Lower B tomorrow' });
+});
+it('planAhead: the frozen day is kept only when no pin on today differs', () => {
+  const D = data({ cycle: { a: tick(day(0), 1) } });
+  const fz = planAhead(D, ctx(day(1)))[0];
+  const frozen = { date: day(1), day: { ...fz, reason: 'frozen' } };
+  expect(planAhead(D, { ...ctx(day(1)), frozen })[0].reason).toBe('frozen');
+  expect(planAhead(D, { ...ctx(day(1)), frozen, pins: { [day(1)]: 2 } })[0].reason).toBe('frozen');
+  const p = planAhead(D, { ...ctx(day(1)), frozen, pins: { [day(1)]: 3 } });
+  expect(p[0]).toMatchObject({ cycleDay: 3 });
+  expect(p[0].reason).not.toBe('frozen');
+});
+
 it('planAhead: days parameter', () => {
   expect(planAhead(data(), ctx(day(0)), 3)).toHaveLength(3);
 });
