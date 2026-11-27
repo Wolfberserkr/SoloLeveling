@@ -161,16 +161,38 @@ function readinessWhy(h: Health | undefined): string | null {
   return null;
 }
 
+const BOX_NAMES = ['UA', 'LA', 'Ride', 'UB', 'LB', 'E1', 'Ride', 'Rest'];
+const dayLabel = (date: string) => {
+  const d = new Date(`${date}T00:00:00Z`);
+  return `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getUTCDay()]} ${d.getUTCDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()]}`;
+};
+
 /** The first planned date: today, or tomorrow when today already has a
  *  workout or tick. */
 const planStart = (D: VikingData, today: string) =>
   dn(today) + (Object.values(D.workouts).some((w) => w.date === today) || hasTickOn(D, today) ? 1 : 0);
 
+/** One planned date: `day` 0 is a day off, or (with `free`) a date on which
+ *  every open box is pinned to a later date. */
+export type PlanSlot = { date: string; day: number; free?: { day: number; date: string } };
+
+/** The frozen day is kept only when no pin moves its box: not a different box
+ *  onto today, and not its own box to another date. */
+function freezeKept(D: VikingData, ctx: PlanCtx): boolean {
+  const fz = ctx.frozen;
+  if (!fz || fz.date !== ctx.today || !D.settings) return false;
+  const busy = Object.values(D.workouts).some((w) => w.date === ctx.today) || hasTickOn(D, ctx.today);
+  if (busy || fz.day.cycleDay !== bike(viking(D)).current().day) return false;
+  const pins = ctx.pins ?? {};
+  return (!pins[ctx.today] || pins[ctx.today] === fz.day.cycleDay)
+    && !Object.entries(pins).some(([d, p]) => d !== ctx.today && p === fz.day.cycleDay);
+}
+
 /** Which box each of the next `days` dates places, simulated on a copy of the
  *  lap (`day` 0 = a day off). A pin whose box is open and not yet placed
  *  places it on its date; any other date places the first open box not pinned
  *  to a later date in the window. A full lap rolls over to a fresh one. */
-export function planOrder(D: VikingData, ctx: PlanCtx, days = 7): Array<{ date: string; day: number }> {
+export function planOrder(D: VikingData, ctx: PlanCtx, days = 7): PlanSlot[] {
   if (!D.settings) return [];
   const b = bike(viking(D)), pins = ctx.pins ?? {};
   const t0 = planStart(D, ctx.today);
@@ -179,15 +201,26 @@ export function planOrder(D: VikingData, ctx: PlanCtx, days = 7): Array<{ date: 
   // With no ticks the cycle lines up behind the last workout: earlier boxes are behind us.
   if (!ticksOf(D).length) boxes = boxes.map((x) => (x.day < b.current().day ? { ...x, status: 'passed' as const } : x));
   const dates = Array.from({ length: days }, (_, i) => iso(t0 + i));
-  const out: Array<{ date: string; day: number }> = [];
+  const out: PlanSlot[] = [];
+  const kept = freezeKept(D, ctx);
   dates.forEach((date, i) => {
+    if (kept && i === 0) {
+      const day = ctx.frozen!.day.cycleDay;
+      boxes[day - 1] = { day, status: 'done', date };
+      out.push({ date, day });
+      return;
+    }
     if (pins[date] === 0) { out.push({ date, day: 0 }); return; }
     if (!boxes.some((x) => x.status === 'open')) boxes = fresh();
     const open = boxes.filter((x) => x.status === 'open').map((x) => x.day);
     const pin = pins[date];
     const later = new Set(dates.slice(i + 1).map((d) => pins[d]).filter((p) => p >= 1 && p <= 8));
-    const day = pin >= 1 && pin <= 8 && open.includes(pin) ? pin
-      : open.find((n) => !later.has(n)) ?? open[0];
+    const day = pin >= 1 && pin <= 8 && open.includes(pin) ? pin : open.find((n) => !later.has(n));
+    if (day == null) {
+      const d = dates.slice(i + 1).find((x) => open.includes(pins[x]))!;
+      out.push({ date, day: 0, free: { day: pins[d], date: d } });
+      return;
+    }
     boxes[day - 1] = { day, status: 'done', date };
     out.push({ date, day });
   });
@@ -200,8 +233,6 @@ export function planAhead(D: VikingData, ctx: PlanCtx, days = 7): PlanDay[] {
   if (!D.settings) return [];
   const v = viking(D), b = bike(v);
   const logged = v.sorted('rides');
-  const cur = b.current().day;
-  const todayBusy = Object.values(D.workouts).some((w) => w.date === ctx.today) || hasTickOn(D, ctx.today);
   const order = planOrder(D, ctx, days);
 
   const out: PlanDay[] = [];
@@ -213,8 +244,7 @@ export function planAhead(D: VikingData, ctx: PlanCtx, days = 7): PlanDay[] {
 
   let first = 0;
   const fz = ctx.frozen;
-  if (fz && fz.date === ctx.today && !todayBusy && fz.day.cycleDay === cur
-    && (!ctx.pins?.[ctx.today] || ctx.pins[ctx.today] === fz.day.cycleDay)) {
+  if (fz && freezeKept(D, ctx)) {
     out.push(fz.day);
     addPlanned(fz.day);
     first = 1;
@@ -224,7 +254,12 @@ export function planAhead(D: VikingData, ctx: PlanCtx, days = 7): PlanDay[] {
   const breakStart = v.cfg.phaseMode === 'auto' ? dn(v.cfg.startDate) + 26 * 7 : dn(v.cfg.startDate);
 
   for (let i = first; i < order.length; i++) {
-    const { date, day: n } = order[i], t = dn(date);
+    const { date, day: n, free } = order[i], t = dn(date);
+    if (free) {
+      const cd = cycleDay(free.day), nm = cd.gym ? SESS[cd.gym].n : BOX_NAMES[free.day - 1];
+      out.push({ date, cycleDay: 0, kind: 'rest', reason: `free day: ${nm} is pinned to ${dayLabel(free.date)}` });
+      continue;
+    }
     if (n === 0) { out.push({ date, cycleDay: 0, kind: 'rest', reason: 'day off' }); continue; }
     const cd = cycleDay(n);
     const wk = v.weekOf(date), ph = v.phaseOf(date), deload = v.isDeloadWeek(wk);
