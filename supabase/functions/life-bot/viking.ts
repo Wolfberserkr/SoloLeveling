@@ -5,7 +5,7 @@
 // ═════════════════════════════════════════════════════════════════════════
 import type { PlanState, VikingStore } from '../_shared/viking/engine.ts';
 import { shortName, type GarminIn } from '../_shared/viking/garminImport.ts';
-import { gymTick, type Health, type PlanCurrent, type PlanDay } from '../_shared/viking/planner.ts';
+import { gymTick, type Health, type Pins, type PlanCurrent, type PlanDay } from '../_shared/viking/planner.ts';
 import { EXBY, ORDER, SESS, type SessionKey } from '../_shared/viking/data.ts';
 import { RIDES } from '../_shared/viking/bikePlan.ts';
 import { COLLS, emptyData, viking, type Coll, type SetEntry, type Settings, type VikingData, type WorkoutDoc } from '../_shared/viking/logic.ts';
@@ -156,6 +156,30 @@ export async function withVikingLease<T>(db: Db, userId: string, now: Date, fn: 
   }
 }
 
+/**
+ * Changes plan/pins: sets `set`, drops `remove`, keeps every other key. A
+ * read and a compare-and-set on updated_at (PostgREST can't express `data - key`),
+ * retried on a lost race, so a concurrent viking_move and tick never lose each
+ * other's keys. A missing doc is created.
+ */
+export async function editPins(db: Db, userId: string, set: Pins, remove: string[]): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { data: row, error } = await db.from(TABLE).select('data,updated_at').eq('user_id', userId).eq('coll', 'plan').eq('doc_id', 'pins').maybeSingle();
+    fail('plan/pins read failed', error);
+    const next: Row = { ...((row?.data ?? {}) as Row), ...set };
+    for (const d of remove) delete next[d];
+    if (!row) {
+      if (await createDoc(db, userId, 'plan', 'pins', next)) return;
+      continue; // someone created it meanwhile: re-read theirs
+    }
+    const { data: upd, error: e2 } = await db.from(TABLE).update({ data: next, updated_at: new Date().toISOString() })
+      .eq('user_id', userId).eq('coll', 'plan').eq('doc_id', 'pins').eq('updated_at', row.updated_at).select('doc_id');
+    fail('plan/pins update failed', e2);
+    if ((upd ?? []).length) return;
+  }
+  throw new Error('plan/pins: edit kept losing to other writers');
+}
+
 // ── The store ───────────────────────────────────────────────────────────────
 
 const hm = (s: unknown) => (typeof s === 'string' ? s : '');
@@ -190,18 +214,21 @@ export function supabaseStore(db: Db, userId: string, chatId: number, tz: string
 
     async load() {
       const t = today();
-      const [D, inboxR, planR, snapR, decR] = await Promise.all([
+      const [D, inboxR, planR, snapR, decR, insR] = await Promise.all([
         loadData(db, userId),
         db.from(TABLE).select('doc_id,data').eq('user_id', userId).eq('coll', 'garmin_in').is('data->>processedAt', null),
-        db.from(TABLE).select('doc_id,data').eq('user_id', userId).eq('coll', 'plan').in('doc_id', ['current', 'state', 'garmin', 'weekly']),
+        db.from(TABLE).select('doc_id,data').eq('user_id', userId).eq('coll', 'plan').in('doc_id', ['current', 'state', 'garmin', 'weekly', 'pins']),
         db.from(TABLE).select('doc_id,data').eq('user_id', userId).eq('coll', 'plan').gte('doc_id', addDays(t, -SNAPSHOT_DAYS)).lte('doc_id', t),
         db.from(TABLE).select('doc_id,data').eq('user_id', userId).eq('coll', 'plan').like('doc_id', 'decision-%')
           .gt('updated_at', new Date(Date.now() - DECISION_DAYS * 86_400_000).toISOString()),
+        db.from(TABLE).select('insertedAt:data->>insertedAt,date:data->>date').eq('user_id', userId).eq('coll', 'garmin_in')
+          .gte('data->>date', addDays(t, -8)),
       ]);
       fail('garmin_in read failed', inboxR.error);
       fail('plan read failed', planR.error);
       fail('plan snapshots read failed', snapR.error);
       fail('plan decisions read failed', decR.error);
+      fail('garmin_in delivery read failed', insR.error);
 
       const inbox = ((inboxR.data ?? []) as Row[])
         .map((r) => ({ ...(r.data as GarminIn), activityId: (r.data as GarminIn)?.activityId ?? String(r.doc_id) }))
@@ -215,12 +242,18 @@ export function supabaseStore(db: Db, userId: string, chatId: number, tz: string
         if (d && (d.status === 'ok' || d.status === 'no') && typeof d.decidedAt === 'string')
           decisions[String(r.doc_id).slice('decision-'.length)] = { status: d.status, decidedAt: d.decidedAt };
       }
+      const pins: Pins = {};
+      for (const [k, v] of Object.entries((plan.pins ?? {}) as Row))
+        if (DATE_RE.test(k) && Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 8) pins[k] = v as number;
+      const inserted = ((insR.data ?? []) as Row[])
+        .filter((r) => typeof r.date === 'string' && typeof r.insertedAt === 'string')
+        .map((r) => ({ date: r.date as string, insertedAt: r.insertedAt as string }));
       return {
         D,
         current: (plan.current ?? null) as PlanCurrent | null,
         state: (plan.state ?? null) as PlanState | null,
         garmin: (plan.garmin ?? {}) as Record<string, { mirroredAt: string; hash: string }>,
-        inbox, snapshots, decisions,
+        inbox, snapshots, decisions, pins, inserted,
       };
     },
 
@@ -252,6 +285,8 @@ export function supabaseStore(db: Db, userId: string, chatId: number, tz: string
     put: (coll, id, data) => putDoc(db, userId, coll, id, data),
 
     async merge(coll, id, patch) { await mergeDoc(db, userId, coll, id, patch); },
+
+    unpin: (dates) => editPins(db, userId, {}, dates),
 
     claim: (key) => claimKey(db, userId, key),
 
