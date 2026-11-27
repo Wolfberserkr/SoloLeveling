@@ -5,7 +5,9 @@
 // ═════════════════════════════════════════════════════════════════════════
 import type { PlanState, VikingStore } from '../_shared/viking/engine.ts';
 import { shortName, type GarminIn } from '../_shared/viking/garminImport.ts';
-import { gymTick, type Health, type Pins, type PlanCurrent, type PlanDay } from '../_shared/viking/planner.ts';
+import { gymTick, planAhead, type Health, type Pins, type PlanCurrent, type PlanDay } from '../_shared/viking/planner.ts';
+import { nextSync, resolveMoves } from '../_shared/viking/moves.ts';
+import { dayName } from '../_shared/viking/recap.ts';
 import { EXBY, ORDER, SESS, type SessionKey } from '../_shared/viking/data.ts';
 import { RIDES } from '../_shared/viking/bikePlan.ts';
 import { COLLS, emptyData, viking, type Coll, type SetEntry, type Settings, type VikingData, type WorkoutDoc } from '../_shared/viking/logic.ts';
@@ -182,6 +184,14 @@ export async function editPins(db: Db, userId: string, set: Pins, remove: string
 
 // ── The store ───────────────────────────────────────────────────────────────
 
+/** plan/pins with anything that isn't `date → 0–8` left out. */
+function pinsOf(raw: unknown): Pins {
+  const pins: Pins = {};
+  for (const [k, v] of Object.entries((raw ?? {}) as Row))
+    if (DATE_RE.test(k) && Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 8) pins[k] = v as number;
+  return pins;
+}
+
 const hm = (s: unknown) => (typeof s === 'string' ? s : '');
 const numOr = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 
@@ -195,6 +205,39 @@ function healthOf(d: Row | undefined): Health | undefined {
   if (bodyBattery !== undefined) h.bodyBattery = bodyBattery;
   if (sleepStress !== undefined) h.sleepStress = sleepStress;
   return h;
+}
+
+/** The shift and readiness context the planner needs for the 8 days from `t`. */
+export async function planContext(db: Db, userId: string, tz: string, t: string): ReturnType<VikingStore['context']> {
+  const last = addDays(t, 7);
+  const [shR, hR, dpR] = await Promise.all([
+    db.from('life_shifts').select('ends_at').eq('user_id', userId).eq('status', 'confirmed')
+      .gte('ends_at', zonedTime(t, '00:00', tz).toISOString()).lte('ends_at', zonedTime(last, '08:00', tz).toISOString()),
+    db.from('life_health').select('data,updated_at').eq('user_id', userId).eq('local_date', t).maybeSingle(),
+    db.from('life_day_plan').select('local_date,train_window,wake_at').eq('user_id', userId).gte('local_date', t).lte('local_date', last),
+  ]);
+  fail('life_shifts read failed', shR.error);
+  fail('life_health read failed', hR.error);
+  fail('life_day_plan read failed', dpR.error);
+  // Local dates on which a confirmed shift ends between 00:00 and 08:00 local.
+  const afterNight = new Set<string>();
+  for (const s of (shR.data ?? []) as Row[]) {
+    const lp = localParts(new Date(String(s.ends_at)), tz);
+    if (lp.hour < 8 || (lp.hour === 8 && lp.minute === 0)) afterNight.add(lp.date);
+  }
+  const windows: Record<string, string> = {}, wakeAt: Record<string, string> = {};
+  for (const r of (dpR.data ?? []) as Row[]) {
+    const d = String(r.local_date);
+    if (r.train_window) windows[d] = String(r.train_window);
+    if (r.wake_at) wakeAt[d] = new Date(String(r.wake_at)).toISOString();
+  }
+  return {
+    afterNight, windows, wakeAt,
+    health: healthOf(hR.data?.data as Row | undefined),
+    // The raw timestamptz string (microseconds): it becomes plan/state.healthSeenAt, which the
+    // routines compare in SQL against life_health.updated_at, so it must not be truncated to ms.
+    healthUpdatedAt: hR.data?.updated_at ? String(hR.data.updated_at) : undefined,
+  };
 }
 
 export function supabaseStore(db: Db, userId: string, chatId: number, tz: string): VikingStore {
@@ -242,9 +285,7 @@ export function supabaseStore(db: Db, userId: string, chatId: number, tz: string
         if (d && (d.status === 'ok' || d.status === 'no') && typeof d.decidedAt === 'string')
           decisions[String(r.doc_id).slice('decision-'.length)] = { status: d.status, decidedAt: d.decidedAt };
       }
-      const pins: Pins = {};
-      for (const [k, v] of Object.entries((plan.pins ?? {}) as Row))
-        if (DATE_RE.test(k) && Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 8) pins[k] = v as number;
+      const pins = pinsOf(plan.pins);
       const inserted = ((insR.data ?? []) as Row[])
         .filter((r) => typeof r.date === 'string' && typeof r.insertedAt === 'string')
         .map((r) => ({ date: r.date as string, insertedAt: r.insertedAt as string }));
@@ -297,37 +338,7 @@ export function supabaseStore(db: Db, userId: string, chatId: number, tz: string
 
     send: (text, kb) => sendMessage(chatId, text, kb),
 
-    async context(t: string) {
-      const last = addDays(t, 7);
-      const [shR, hR, dpR] = await Promise.all([
-        db.from('life_shifts').select('ends_at').eq('user_id', userId).eq('status', 'confirmed')
-          .gte('ends_at', zonedTime(t, '00:00', tz).toISOString()).lte('ends_at', zonedTime(last, '08:00', tz).toISOString()),
-        db.from('life_health').select('data,updated_at').eq('user_id', userId).eq('local_date', t).maybeSingle(),
-        db.from('life_day_plan').select('local_date,train_window,wake_at').eq('user_id', userId).gte('local_date', t).lte('local_date', last),
-      ]);
-      fail('life_shifts read failed', shR.error);
-      fail('life_health read failed', hR.error);
-      fail('life_day_plan read failed', dpR.error);
-      // Local dates on which a confirmed shift ends between 00:00 and 08:00 local.
-      const afterNight = new Set<string>();
-      for (const s of (shR.data ?? []) as Row[]) {
-        const lp = localParts(new Date(String(s.ends_at)), tz);
-        if (lp.hour < 8 || (lp.hour === 8 && lp.minute === 0)) afterNight.add(lp.date);
-      }
-      const windows: Record<string, string> = {}, wakeAt: Record<string, string> = {};
-      for (const r of (dpR.data ?? []) as Row[]) {
-        const d = String(r.local_date);
-        if (r.train_window) windows[d] = String(r.train_window);
-        if (r.wake_at) wakeAt[d] = new Date(String(r.wake_at)).toISOString();
-      }
-      return {
-        afterNight, windows, wakeAt,
-        health: healthOf(hR.data?.data as Row | undefined),
-        // The raw timestamptz string (microseconds): it becomes plan/state.healthSeenAt, which the
-        // routines compare in SQL against life_health.updated_at, so it must not be truncated to ms.
-        healthUpdatedAt: hR.data?.updated_at ? String(hR.data.updated_at) : undefined,
-      };
-    },
+    context: (t) => planContext(db, userId, tz, t),
   };
 }
 
@@ -511,5 +522,56 @@ async function fixOnce(db: Db, userId: string, tz: string, today: string, input:
     sets: sets.map((st, i) => ({ set: i + 1, kg: st.kg, reps: st.reps, ...(st.est?.length ? { stillAssumed: st.est } : {}) })),
     ...(tick ? { tick } : {}),
     note: 'The plan and the watch pick this up at the next tick.',
+  };
+}
+
+let moveChain: Promise<unknown> = Promise.resolve();
+
+/** viking_move: pin boxes to dates (or extra days off), then preview the 7
+ *  days. Like viking_fix, parallel calls in one turn run one after another. */
+export function vikingMove(db: Db, userId: string, tz: string, today: string, input: Row): Promise<unknown> {
+  const run = moveChain.then(() => moveOnce(db, userId, tz, today, input));
+  moveChain = run.catch(() => undefined);
+  return run;
+}
+
+async function moveOnce(db: Db, userId: string, tz: string, today: string, input: Row): Promise<unknown> {
+  if (!(await switchedOn(db, userId))) return OFF;
+  const moves = (Array.isArray(input.moves) ? input.moves as Row[] : [])
+    .map((m) => ({ what: String(m?.what ?? ''), date: String(m?.date ?? '') }));
+  const clear = input.clear === true;
+  if (!moves.length && !clear) throw new Error('Give moves, clear, or both');
+  const [D, rawPins, state] = await Promise.all([
+    loadData(db, userId), getDoc(db, userId, 'plan', 'pins'), getDoc<PlanState>(db, userId, 'plan', 'state'),
+  ]);
+  if (!D.settings) throw new Error('Project Viking has no settings yet');
+  const old = pinsOf(rawPins);
+  const r = resolveMoves(D, old, moves, today, clear);
+  if (r.errors.length) return { ok: false, errors: r.errors, note: 'Nothing was changed.' };
+  const set: Pins = Object.fromEntries(Object.entries(r.pins).filter(([d, p]) => old[d] !== p));
+  const remove = Object.keys(old).filter((d) => !(d in r.pins));
+  if (Object.keys(set).length || remove.length) await editPins(db, userId, set, remove);
+
+  // The preview, as the next tick will build it (minus decisions it hasn't folded yet).
+  const cx = await planContext(db, userId, tz, today);
+  const overrides = { kg: Object.fromEntries((state?.suggestions ?? []).filter((x) => x.status === 'ok').map((x) => [x.ex, x.kg])) };
+  const days = planAhead(D, {
+    today, afterNight: cx.afterNight, windows: cx.windows, health: cx.health, overrides, resets: state?.resets ?? {},
+    frozen: state?.frozen?.date === today ? state.frozen : undefined, pins: r.pins,
+  });
+  const warnings: string[] = [];
+  for (const d of days) {
+    if ((r.pins[d.date] ?? 0) < 1) continue;
+    if (d.kind === 'gym' && !cx.windows[d.date]) warnings.push(`No training window on ${d.date}`);
+    const hard = !!d.ride && (RIDES[d.ride.code].hard || (!!d.ride.from && RIDES[d.ride.from].hard));
+    if (hard && cx.afterNight.has(d.date)) warnings.push(`Hard ride the morning after a night shift on ${d.date}`);
+  }
+  try { await clearPlanHash(db, userId); } catch (err) { console.error('life-bot: plan/current hash not cleared', err); }
+  const sync = nextSync(Date.now(), tz);
+  return {
+    ok: true,
+    pins: Object.fromEntries(Object.keys(r.pins).filter((d) => d >= today).sort().map((d) => [d, r.pins[d] === 0 ? 'day off' : dayName(r.pins[d])])),
+    next7Days: days.map(dayLine), warnings, nextSync: sync,
+    note: `Saved. The plan rebuilds within a minute; the watch gets it at the next sync, about ${sync} local.`,
   };
 }

@@ -17,10 +17,12 @@ import { answerCallback, downloadFile, dropButtonRow, sendMessage, settleButtons
 import { tick } from './tick.ts';
 import { bookJob, liveEvents, undoJob } from './calendar.ts';
 import { bookedText, busyFromEvents, eventTitle, OFFER_TTL_MS, slotLabel } from '../_shared/scheduling.ts';
-import { clearPlanHash, createDoc, getDoc, putDoc, vikingOn } from './viking.ts';
+import { clearPlanHash, createDoc, getDoc, loadData, putDoc, vikingOn } from './viking.ts';
 import type { PlanState } from '../_shared/viking/engine.ts';
 import type { WorkoutDoc } from '../_shared/viking/logic.ts';
-import { confirmReps } from '../_shared/viking/recap.ts';
+import { confirmReps, dayName } from '../_shared/viking/recap.ts';
+import { skipTicks, swapDays } from '../_shared/viking/moves.ts';
+import type { SessionKey } from '../_shared/viking/data.ts';
 import { shortName } from '../_shared/viking/garminImport.ts';
 
 type Row = Record<string, unknown>;
@@ -302,7 +304,7 @@ async function handleCallback(cb: Row) {
     await settleButtons(chatId, messageId, '↩️ Removed');
     return answerCallback(String(cb.id));
   }
-  if (kind === 'vk' || kind === 'vr') {
+  if (kind === 'vk' || kind === 'vr' || kind === 'vks') {
     // A DB error must still answer the tap, or Telegram shows a spinner.
     try {
       const { data: prof, error: profErr } = await db.from('life_profile').select('prefs').eq('user_id', uid).maybeSingle();
@@ -332,6 +334,38 @@ async function handleCallback(cb: Row) {
         if (verb === 'all') await settleButtons(chatId, messageId, '✅ All confirmed');
         else await dropButtonRow(chatId, messageId, (cb.message as Row).reply_markup as never, String(cb.data), '✅ Reps confirmed');
         return answerCallback(String(cb.id));
+      }
+
+      // Skip the days a swap passed. The days are recomputed now, not read off
+      // the keyboard (it shows at most 3), and only still-open boxes are filled.
+      if (kind === 'vks' && verb) {
+        let date: string | null = null, session: SessionKey | undefined;
+        if (/^r\d{4}-\d{2}-\d{2}$/.test(id)) date = id.slice(1);
+        else {
+          const gin = await getDoc<{ date?: unknown; result?: unknown }>(db, uid, 'garmin_in', id);
+          const m = typeof gin?.result === 'string' ? /^\d{4}-\d{2}-\d{2}_(UA|LA|UB|LB)$/.exec(gin.result) : null;
+          if (m && typeof gin?.date === 'string') { date = gin.date; session = m[1] as SessionKey; }
+        }
+        if (!date) return answerCallback(String(cb.id), 'Already gone');
+        const D = await loadData(db, uid);
+        const passed = swapDays(D, date, session);
+        const days = verb === 'all' ? passed : passed.filter((d) => d === Number(verb));
+        const ticks = skipTicks(D, date, days, Date.now());
+        const written: number[] = [];
+        for (const t of ticks) if (await createDoc(db, uid, 'cycle', t.id, t.doc)) written.push(t.doc.day);
+        // The tapped row goes; "all" takes every skip row with it, and the confirm rows (if any) stay.
+        const markup = (cb.message as Row).reply_markup as { inline_keyboard?: Array<Array<{ callback_data?: string }>> } | undefined;
+        const kb = verb !== 'all' ? markup : {
+          inline_keyboard: (markup?.inline_keyboard ?? []).filter((row) => !row.some((b) => b.callback_data?.startsWith(`vks:${id}:`) && b.callback_data !== cb.data)),
+        };
+        if (!written.length) {
+          await dropButtonRow(chatId, messageId, kb as never, String(cb.data), '✅ Already done');
+          return answerCallback(String(cb.id), 'Already done');
+        }
+        await rebuild();
+        const names = written.map(dayName).join(', ');
+        await dropButtonRow(chatId, messageId, kb as never, String(cb.data), `✖️ Skipped ${names}`);
+        return answerCallback(String(cb.id), `Skipped ${names}`);
       }
       return answerCallback(String(cb.id));
     } catch (err) {

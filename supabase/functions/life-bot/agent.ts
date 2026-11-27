@@ -14,7 +14,7 @@ import { gtasksEnabled } from './gtasks.ts';
 import { bookedText, eventTitle, isOutdoorErrand, jobIdOf, matchJarvisEvents, nightBusy, pickSlots, slotLabel, busyFromEvents } from '../_shared/scheduling.ts';
 import { moveEvent, removeEvents } from '../_shared/booking.ts';
 import { bookJob, bridge, gcalEnabled, liveEvents } from './calendar.ts';
-import { vikingFix, vikingStatus } from './viking.ts';
+import { vikingFix, vikingMove, vikingStatus } from './viking.ts';
 
 // deno-lint-ignore no-explicit-any
 export type Db = any;
@@ -292,7 +292,10 @@ const TOOLS: Anthropic.Tool[] = [
     name: 'queue_job',
     description: 'Hand work to the background routines (Gmail, Garmin, Strava, Sheets, kind "news" for a fresh Aruba news roundup, and kind "calendar" only for events the owner made themselves when they explicitly ask). Appointments and blocks go through add_event/edit_event instead. '
       + 'When the Garmin-first Viking plan is on, kind "garmin" jobs never move, unschedule or delete the "Viking …" training workouts: '
-      + 'the plan places those itself (correct a logged session with viking_fix; a skipped day just waits in the cycle).',
+      + 'the plan places those itself (correct a logged session with viking_fix). '
+      + 'Sessions can be done in any order: Jarvis treats a session the watch records early as a swap and offers skip buttons. '
+      + "Use viking_move for 'swap today and tomorrow', 'move X to <day>' or a day off. "
+      + 'For a same-morning swap, tell him to start the other dated workout on the watch; viking_move reaches the watch at the next sync.',
     input_schema: {
       type: 'object',
       properties: {
@@ -332,6 +335,30 @@ const TOOLS: Anthropic.Tool[] = [
         reps: { type: 'number' },
       },
       required: ['date', 'session', 'exercise'],
+    },
+  },
+  {
+    name: 'viking_move',
+    description: 'Swap or move Project Viking days ahead of time, e.g. "swap today and tomorrow" (two moves), "move Lower B to Saturday", '
+      + '"day off on Friday", or to fit training around shifts. Each move pins one day of the 8-day cycle to a date from today to today + 6; '
+      + 'a new move on a date replaces that date\'s old one. It returns the 7-day preview (session or ride per date, any rule swap and its '
+      + 'reason), warnings, and when the watch gets it: the watch updates at the next sync. clear: true drops every earlier move first.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        moves: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              what: { type: 'string', description: "UA/LA/UB/LB, a ride code, 'off' for an extra day off (the meaning of 'rest day' / 'day off'), or a cycle day 1–8 ('8' only to move the lap's own rest day)" },
+              date: { type: 'string', description: 'YYYY-MM-DD local' },
+            },
+            required: ['what', 'date'],
+          },
+        },
+        clear: { type: 'boolean', description: 'Drop every earlier move before applying these' },
+      },
     },
   },
   { name: 'inbox_pending', description: 'Emails waiting for a delete/keep decision.', input_schema: { type: 'object', properties: {} } },
@@ -714,6 +741,8 @@ async function runTool(ctx: Ctx, name: string, input: Row): Promise<unknown> {
       return vikingStatus(db, userId, today);
     case 'viking_fix':
       return vikingFix(db, userId, ctx.tz, today, input);
+    case 'viking_move':
+      return vikingMove(db, userId, ctx.tz, today, input);
     case 'inbox_pending':
       return must(await db.from('life_inbox').select('id,sender,subject,category,reason,action,status').eq('user_id', userId).in('status', ['pending', 'asked']).order('created_at').limit(50));
     case 'inbox_rule':
