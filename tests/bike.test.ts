@@ -23,9 +23,6 @@ const tick = (date: string, d: number, savedAt = 0): CycleDoc => ({ date, day: d
 const wo = (date: string, session: WorkoutDoc['session']): WorkoutDoc =>
   ({ date, session, week: 1, phase: '1', deload: false, entries: [{ ex: 'x', sets: [{ kg: 1, reps: 1 }] }], savedAt: 0 });
 const B = (d: VikingData) => bike(viking(d));
-/** Ticks for days 1..n of one lap, one per date, the last on `lastDate`. */
-const through = (n: number, lastDate: string): Record<string, CycleDoc> =>
-  Object.fromEntries(Array.from({ length: n }, (_, i) => [`k${i}`, tick(iso(dn(lastDate) - (n - 1 - i)), i + 1, i)]));
 
 describe('cycle', () => {
   it('starts at day 1 (Upper A + optional R1)', () => {
@@ -37,10 +34,10 @@ describe('cycle', () => {
   });
 
   it('advances on ticks, not weekdays, and wraps 8 → 1', () => {
-    expect(B(data({ cycle: through(2, day(8)) })).current().day).toBe(3);
-    expect(B(data({ cycle: through(8, day(8)) })).current().day).toBe(1);
-    // ten days later, still the first day not done yet
-    expect(B(data({ cycle: through(3, day(8)) })).today(day(18)).day).toBe(4);
+    expect(B(data({ cycle: { a: tick(day(0), 2) } })).current().day).toBe(3);
+    expect(B(data({ cycle: { a: tick(day(0), 8) } })).current().day).toBe(1);
+    // ten days later, still the day after the last tick
+    expect(B(data({ cycle: { a: tick(day(0), 3) } })).today(day(10)).day).toBe(4);
   });
 
   it('lines up behind the last logged gym session when nothing is ticked', () => {
@@ -81,18 +78,18 @@ describe('prescription', () => {
   });
 
   it('deload weeks change the suggestion on the hard-ride day', () => {
-    const d = data({ cycle: through(2, wkDay(6)) });
+    const d = data({ cycle: { a: tick(wkDay(6), 2) } });
     const t = B(d).today(wkDay(6, 1));
     expect(t.deload).toBe(true);
     expect(t.rx.every((r) => r.code === 'E1' && r.min[1] <= 60)).toBe(true);
-    expect(B(data({ cycle: through(2, wkDay(5)) })).today(wkDay(5, 1)).rx.map((r) => r.code)).toEqual(['H1', 'H2']);
+    expect(B(data({ cycle: { a: tick(wkDay(5), 2) } })).today(wkDay(5, 1)).rx.map((r) => r.code)).toEqual(['H1', 'H2']);
   });
 });
 
 describe('rules', () => {
   it('warns on a hard ride the day before a Lower session', () => {
     // Day 1 done → day 2 (Lower A) is next: a hard ride now lands before it.
-    const d = data({ cycle: through(1, day(0)) });
+    const d = data({ cycle: { a: tick(day(0), 1) } });
     const f = B(d).rideFlags({ date: day(1), code: 'H1', type: 'hard', minutes: 60 }, day(1), true);
     expect(f.map((x) => x.t)).toContain('Lower day next');
     // Same ride logged after the fact, with Lower B the next day.
@@ -101,7 +98,7 @@ describe('rules', () => {
   });
 
   it('no Lower warning on the plan’s own hard-ride day', () => {
-    const d = data({ cycle: through(2, day(1)) });
+    const d = data({ cycle: { a: tick(day(1), 2) } });
     const f = B(d).rideFlags({ date: day(2), code: 'H1', type: 'hard', minutes: 60 }, day(2), true);
     expect(f).toEqual([]);
   });
@@ -240,6 +237,25 @@ describe('lap', () => {
   it('lap: skips count as filled', () => {
     const cycle = { a: t(day(0), 1, 'done', 0), b: t(day(1), 2, 'skip', 1) };
     expect(B(data({ cycle })).current().day).toBe(3);
+  });
+
+  it('lap: a lone tick passes the days before it', () => {
+    const b = L(5);
+    expect(b.lap().boxes.map((x) => x.status)).toEqual(['passed', 'passed', 'passed', 'passed', 'done', 'open', 'open', 'open']);
+    expect(b.current().day).toBe(6);
+  });
+
+  it('lap: a new lap opened mid-lap passes the days before it', () => {
+    const b = L(1, 2, 3, 4, 5, 4);
+    expect(b.lap().boxes.map((x) => x.status)).toEqual(['passed', 'passed', 'passed', 'done', 'open', 'open', 'open', 'open']);
+    expect(b.lap().passed).toEqual([6, 7, 8]);
+    expect(b.current().day).toBe(5);
+  });
+
+  it('lap: after a rollover an early session leaves earlier days open', () => {
+    const b = L(1, 2, 3, 4, 5, 6, 7, 8, 4);
+    expect(b.lap().boxes.slice(0, 4).map((x) => x.status)).toEqual(['open', 'open', 'open', 'done']);
+    expect(b.current().day).toBe(1);
   });
 
   it('lap: no ticks', () => {

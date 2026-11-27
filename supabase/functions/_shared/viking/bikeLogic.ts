@@ -21,7 +21,7 @@ export const cycleDay = (n: number): CycleDay => CYCLE[(((n - 1) % 8) + 8) % 8];
 export const dayOfSession = (sk: SessionKey) => CYCLE.find((c) => c.gym === sk)!.day;
 export const nextDay = (n: number) => (n % 8) + 1;
 
-export type Box = { day: number; status: 'open' | 'done' | 'skip'; date?: string };
+export type Box = { day: number; status: 'open' | 'done' | 'skip' | 'passed'; date?: string };
 /** `boxes`: days 1–8 of the current lap. `passed`: the open days of the lap
  *  closed by the most recent already-filled tick, `[]` otherwise. */
 export type Lap = { boxes: Box[]; passed: number[] };
@@ -29,19 +29,28 @@ export type Lap = { boxes: Box[]; passed: number[] };
 const emptyLap = (): Box[] => Array.from({ length: 8 }, (_, i) => ({ day: i + 1, status: 'open' as const }));
 
 /** Walk the ticks (already sorted by date, then savedAt) into the current
- *  lap. A tick fills its box; a tick on a box already filled, or after a full
- *  lap, starts a new lap. */
+ *  lap. A tick fills its open box. A lap opened by a tick (the first one, or
+ *  one on a box already filled) marks the days before it `passed`: it carries
+ *  on from that session. A lap opened by a full rollover starts fully open,
+ *  so an early session there is a swap. */
 export function lap(ticks: CycleDoc[]): Lap {
   let boxes = emptyLap(), passed: number[] = [];
-  for (const t of ticks) {
+  const open = () => boxes.filter((b) => b.status === 'open');
+  const fresh = (day: number) => {
+    boxes = emptyLap();
+    for (let i = 0; i < day - 1; i++) boxes[i] = { day: i + 1, status: 'passed' };
+  };
+  ticks.forEach((t, n) => {
     const i = t.day - 1;
-    if (i < 0 || i > 7) continue;
-    if (boxes[i].status !== 'open' || boxes.every((b) => b.status !== 'open')) {
-      passed = boxes.filter((b) => b.status === 'open').map((b) => b.day);
-      boxes = emptyLap();
+    if (i < 0 || i > 7) return;
+    if (n === 0) fresh(t.day);
+    else if (!open().length) boxes = emptyLap();
+    else if (boxes[i].status !== 'open') {
+      passed = open().map((b) => b.day);
+      fresh(t.day);
     }
     boxes[i] = { day: t.day, status: t.status, date: t.date };
-  }
+  });
   return { boxes, passed };
 }
 
