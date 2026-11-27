@@ -37,6 +37,7 @@ async function fetchAll(uid: string): Promise<VikingData> {
       .from(TABLE)
       .select('coll, doc_id, data')
       .eq('user_id', uid)
+      .in('coll', ['settings', ...COLLS])
       .order('coll')
       .order('doc_id')
       .range(from, from + PAGE - 1);

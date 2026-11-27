@@ -230,17 +230,19 @@ export function viking(D: VikingData) {
     return A[A.length - 1];
   }
 
-  function coach(T: string): Flag[] {
+  /** `garmin`: training comes from the watch, so no input nags or kcal buttons, and watch-worded advice. */
+  function coach(T: string, opts: { garmin?: boolean } = {}): Flag[] {
     const out: Flag[] = [];
+    const g = !!opts.garmin;
     const t = dn(T), wk = weekOf(T), ph = phaseOf(T), P = PHASES[ph];
     const recentAdj = !!cfg.adjDate && t - dn(cfg.adjDate) < 14;
-    if (!D.weights[T]) out.push({ l: 'info', t: 'Weigh in today', b: 'Morning, after the bathroom, before food. Only the 7-day average matters.' });
-    if (isDeloadWeek(wk)) out.push({ l: 'info', t: 'Deload week', b: 'Same exercises and weights, half the sets. The logger halves them for you.' });
+    if (!g && !D.weights[T]) out.push({ l: 'info', t: 'Weigh in today', b: 'Morning, after the bathroom, before food. Only the 7-day average matters.' });
+    if (isDeloadWeek(wk)) out.push({ l: 'info', t: 'Deload week', b: 'Same exercises and weights, half the sets. ' + (g ? 'The watch shows them halved.' : 'The logger halves them for you.') });
     if (wk <= 4) out.push({ l: 'info', t: 'Technique weeks', b: 'Stay at 3 reps in reserve on every set until week 5.' });
     if (wk % 4 === 0) out.push({ l: 'info', t: 'Progress photos this week', b: 'Front, side, back. Same spot, same light, away from the overhead lights.' });
     const ws = sorted('waist');
     const lw = ws[ws.length - 1];
-    if (!lw || t - dn(lw.date) >= 7) out.push({ l: 'info', t: 'Measure your waist', b: 'At the navel, once a week, same morning.' });
+    if (!g && (!lw || t - dn(lw.date) >= 7)) out.push({ l: 'info', t: 'Measure your waist', b: 'At the navel, once a week, same morning.' });
 
     // Weight trend
     const a0 = avg7(t), a1 = avg7(t - 7), a2 = avg7(t - 14);
@@ -289,7 +291,7 @@ export function viking(D: VikingData) {
     }
     if (downs >= 2 && ups === 0) out.push({ l: 'act', t: 'Lifts falling', b: 'Main lifts are down over two weeks. Add 150–200 kcal on training days and check your sleep.' });
     const pl = Object.keys(H).filter(plateau).map((k) => EXBY[k]?.n).filter(Boolean);
-    if (pl.length) out.push({ l: 'warn', t: 'Stuck exercises', b: `${pl.slice(0, 3).join(', ')}: no progress in 3 sessions. Swap each for a similar exercise.` });
+    if (pl.length) out.push({ l: 'warn', t: 'Stuck exercises', b: `${pl.slice(0, 3).join(', ')}: no progress in 3 sessions. ${g ? 'Jarvis will offer a reset on Telegram.' : 'Swap each for a similar exercise.'}` });
 
     // Rides: the bike plan's rules (hard-ride cap, deload, Lower-day spacing)
     // live in bikeLogic.ts and are merged in on the Today tab.
@@ -301,7 +303,8 @@ export function viking(D: VikingData) {
       out.push({ l: 'warn', t: 'Short on sleep', b: `Averaging ${k1(sum(sl) / sl.length)} h. Aim for 7–9 h per 24 h: blackout curtains, cool room, same window per shift block.` });
 
     const rank: Record<FlagLevel, number> = { act: 0, warn: 1, info: 2, good: 3 };
-    return out.sort((a, b) => rank[a.l] - rank[b.l]);
+    const flags = g ? out.map(({ adj: _a, al: _l, ...f }) => f) : out;
+    return flags.sort((a, b) => rank[a.l] - rank[b.l]);
   }
 
   return {

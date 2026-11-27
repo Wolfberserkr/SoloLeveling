@@ -4,9 +4,9 @@ A personal training site with three sides, all behind one Supabase sign-in:
 
 - **Project Viking** (`src/features/viking/`) — the 52-week training plan.
   This is the main side of the site (it replaced the Solo Leveling RPG).
-- **Ascend** (`src/features/ascend/`) — a life-RPG, picked from the chooser. It is retired in
-  PR 2 of the Garmin-first work (chooser, pages and `ascend-reminders` cron job go; its code
-  and tables are kept).
+- **Ascend** (`src/features/ascend/`) — a life-RPG, now retired: the chooser, its pages
+  (`/ascend` redirects to `/`) and its `ascend-reminders` cron job are gone (migration 0038).
+  Its code and tables are kept.
 - **Reset** (`src/features/reset/`) — D's separate workout portal.
 
 Built as an installable PWA: **Vite + React + TypeScript + Tailwind**, backed by
@@ -14,16 +14,18 @@ Built as an installable PWA: **Vite + React + TypeScript + Tailwind**, backed by
 
 ## Project Viking
 
-After sign-in a chooser offers Project Viking or Ascend (once per launch; a
-reload stays where you were). Viking is a phone-first tracker with five tabs:
+Sign-in lands on Viking, a phone-first dashboard with five tabs. It is **read-only**:
+training is recorded on the Garmin watch and Jarvis fills the data in (see *Fed from Garmin*
+below). The only things typed in the app are Settings, the first-run setup and benchmark retests.
 
-| Tab | What it does |
+| Tab | What it shows |
+
 |---|---|
-| Today | Week and phase on a 52-week strip, next session in the rotation, 7-day tiles, the **coach**, morning weigh-in, sleep/steps/supplements check-in |
-| Train | Session logger (Upper A → Lower A → Upper B → Lower B) with suggested weights, deload toggle, est. 1-rep-max chart, editable history |
-| Body | Weight chart with 7-day average and the checkpoint corridor, waist log, Month 3/6/9/12 checkpoints |
-| Fuel | Calories / protein / water against the phase target, the plan's four meals as tick boxes, extras, 14-day bars |
-| Ride | The bike plan: ride log (code, time, distance, HR, cadence, Z2 minutes, notes, Strava link) with live rule warnings, weekly summary (Z2 vs target, hard rides vs cap, ride time), HR zones, **Benchmarks** (baseline vs retests with a trend chart), sleep and steps |
+| Today | Week and phase on a 52-week strip, **Next on your watch** (the next training day in Jarvis's plan, its top 3 targets and any swap reason), the 8-day cycle card, 7-day tiles and the **coach** |
+| Train | Est. 1-rep-max chart per lift and the session history (fix a session by telling Jarvis on Telegram) |
+| Body | Weight chart with 7-day average and the checkpoint corridor, recent Garmin weigh-ins, waist chart, Month 3/6/9/12 checkpoints |
+| Fuel | Calories / protein / water against the phase target, the plan's four meals as eaten or not, extras, 14-day bars |
+| Ride | The bike plan: rides from Garmin with rule warnings, weekly summary (Z2 vs target, hard rides vs cap, ride time), HR zones, **Benchmarks** (log a retest; baseline vs retests with a trend chart), sleep and steps |
 
 **The plan is data, the rules are pure functions.**
 `vikingData.ts` holds the phases (Foundation cut → Main cut → Diet break →
@@ -60,14 +62,16 @@ Rides stay in the `rides` collection (old easy/hard rides still count);
 (`supabase/migrations/0028_viking.sql`): `(user_id, coll, doc_id) → data jsonb`,
 owner-only RLS, no edge function. The UI renders from a localStorage cache and
 writes optimistically; a failed write shows a toast and reloads the server copy.
-Unsaved logger input is kept as a per-user draft in localStorage.
+`fetchAll` loads only `settings` and the app's collections; the Today card reads
+`plan/current` on its own and reloads it when the app comes back to the front.
 
 **Fed from Garmin.** With the switch `life_profile.prefs.vikingGarmin` on, training is recorded
 on the Garmin watch: the Jarvis sync routine copies each strength activity in, life-bot's tick
 turns it into a Viking workout, ticks the cycle (which waits instead of skipping a missed day),
 sets the next targets and plans the next 7 days as ready-made Garmin workouts, which the sync
-puts on the watch. Rules: `supabase/functions/_shared/viking/`. The app logger above stays until
-PR 2, which makes the app read-only (charts, history, Settings and the benchmark retest stay).
+puts on the watch. Rules: `supabase/functions/_shared/viking/`. The app only shows the result;
+its coach runs with `{ garmin: true }` (no weigh-in or waist nags, no kcal buttons, deload and
+stall advice worded for the watch).
 Switching on and off, and rollback: [`docs/LIFE_ASSISTANT.md`](docs/LIFE_ASSISTANT.md#project-viking-from-garmin).
 
 The old Solo Leveling RPG code was removed. Its database tables were left in
