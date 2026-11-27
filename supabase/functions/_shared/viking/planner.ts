@@ -2,7 +2,7 @@
 // Pure functions over the logged data: `today` and `savedAt` are passed in.
 import { PHASES, SESS, type PhaseKey, type SessionKey } from './data.ts';
 import { BIKE_PHASES, RIDES, type RideCode } from './bikePlan.ts';
-import { bike, cycleDay, dayOfSession, dayRides, nextDay, prescribe, type Rx } from './bikeLogic.ts';
+import { bike, cycleDay, dayOfSession, dayRides, isHard, nextDay, prescribe, type Rx } from './bikeLogic.ts';
 import { dn, iso, viking, type CycleDoc, type RideDoc, type VikingData } from './logic.ts';
 import { nextTargets, type Overrides, type Progress, type Resets } from './targets.ts';
 import { buildRideWorkout, buildStrengthWorkout, withMarker, workoutName, type GarminDto } from './garmin.ts';
@@ -48,51 +48,103 @@ const ticksOf = (D: VikingData) => Object.values(D.cycle);
 const latestTickDate = (D: VikingData): string | null =>
   ticksOf(D).reduce<string | null>((m, t) => (m == null || t.date > m ? t.date : m), null);
 const hasTickOn = (D: VikingData, date: string) => ticksOf(D).some((t) => t.date === date);
-const currentDay = (D: VikingData) => bike(viking(D)).current().day;
 const mk = (date: string, day: number, status: CycleDoc['status'], savedAt: number) =>
   ({ id: tickId(date, day), doc: { date, day, status, savedAt } });
 
-/** Tick for a gym session on `date`: the current day when it matches, else
- *  the session's own day (a realign). Null when that tick already exists. */
+/** date → cycle day 1–8, or 0 for an extra day off. */
+export type Pins = Record<string, number>;
+
+/** Total minutes of the rides dated `date`. */
+const rideMinutes = (D: VikingData, date: string) =>
+  Object.values(D.rides).filter((r) => r.date === date).reduce((a, r) => a + (Number(r.minutes) || 0), 0);
+
+/** Ride-first swap threshold: the shortest planned ride that isn't optional. */
+const SWAP_RIDE_MIN = 45;
+
+/** Tick for a gym session on `date`: the session's own box. `early` lists the
+ *  open boxes before it (none when the date is pinned to it); `newLap` is set
+ *  when that box was already filled. Null when that tick already exists. */
 export function gymTick(
-  D: VikingData, date: string, sk: SessionKey, savedAt: number,
-): { id: string; doc: CycleDoc; realigned: boolean } | null {
+  D: VikingData, date: string, sk: SessionKey, savedAt: number, pins: Pins = {},
+): { id: string; doc: CycleDoc; early: number[]; newLap: boolean } | null {
   // With no ticks yet the cycle lines up behind the last workout; the one
   // being ticked (or anything later) isn't history for this decision.
   const hist = ticksOf(D).length ? D
     : { ...D, workouts: Object.fromEntries(Object.entries(D.workouts).filter(([, w]) => w.date < date)) };
-  const cur = currentDay(hist);
-  const realigned = cycleDay(cur).gym !== sk;
-  const t = mk(date, realigned ? dayOfSession(sk) : cur, 'done', savedAt);
-  return D.cycle[t.id] ? null : { ...t, realigned };
+  const day = dayOfSession(sk);
+  const t = mk(date, day, 'done', savedAt);
+  if (D.cycle[t.id]) return null;
+  // The first tick opens the lap: days before it are passed, so it is a new
+  // lap when it isn't where the last workout left the cycle.
+  if (!ticksOf(hist).length) return { ...t, early: [], newLap: bike(viking(hist)).current().day !== day };
+  const boxes = bike(viking(hist)).lap().boxes;
+  const newLap = boxes[day - 1].status !== 'open';
+  const early = newLap || pins[date] === day ? [] : boxes.filter((b) => b.day < day && b.status === 'open').map((b) => b.day);
+  return { ...t, early, newLap };
 }
 
-/** Tick for a ride day: ≥ 20 min of rides dated `date` on a no-gym day that
- *  has rides, not before the latest tick and with no tick on that date. */
-export function rideTick(D: VikingData, date: string, savedAt: number): { id: string; doc: CycleDoc } | null {
+/** Tick for a ride day: ≥ 20 min of rides dated `date`, not before the latest
+ *  tick and with no tick on that date. Fills the date's pinned box when it is
+ *  an open ride box, else the first open box when that is a ride day. On a
+ *  gym day it waits for `endOfDay` (a ride-first swap). */
+export function rideTick(D: VikingData, date: string, savedAt: number, pins: Pins = {}): { id: string; doc: CycleDoc } | null {
   if (!D.settings) return null;
-  const mins = Object.values(D.rides).filter((r) => r.date === date).reduce((a, r) => a + (Number(r.minutes) || 0), 0);
-  if (mins < 20 || hasTickOn(D, date)) return null;
+  if (rideMinutes(D, date) < 20 || hasTickOn(D, date)) return null;
   const last = latestTickDate(D);
   if (last != null && date < last) return null;
-  const v = viking(D);
-  const cur = bike(v).current().day, cd = cycleDay(cur);
-  if (cd.gym || !dayRides(cd, v.phaseOf(date)).codes.length) return null;
-  const t = mk(date, cur, 'done', savedAt);
+  const v = viking(D), b = bike(v), ph = v.phaseOf(date);
+  const isRideBox = (n: number) => { const cd = cycleDay(n); return !cd.gym && dayRides(cd, ph).codes.length > 0; };
+  const pin = pins[date];
+  const pinned = pin >= 1 && pin <= 8 && b.lap().boxes[pin - 1].status === 'open' && isRideBox(pin);
+  const day = pinned ? pin : b.current().day;
+  if (!isRideBox(day)) return null;
+  const t = mk(date, day, 'done', savedAt);
   return D.cycle[t.id] ? null : t;
 }
 
 /** Settle a finished date. Null: a tick is already dated `date` (or the cycle
- *  has already been ticked past it, so there's nothing to settle). */
-export function endOfDay(D: VikingData, date: string, savedAt: number): { id: string; doc: CycleDoc } | 'slid' | null {
+ *  has already been ticked past it, so there's nothing to settle).
+ *  `'off'`: the date is an extra day off. `'wait'`: a ride-first swap that
+ *  needs Garmin to have delivered the date first. */
+export function endOfDay(
+  D: VikingData, date: string, savedAt: number, o: { pins?: Pins; delivered?: boolean } = {},
+): { id: string; doc: CycleDoc; early?: number[] } | 'slid' | 'off' | 'wait' | null {
   if (hasTickOn(D, date)) return null;
   const last = latestTickDate(D);
   if (last != null && date < last) return null;
-  const v = viking(D);
-  const cur = bike(v).current().day, cd = cycleDay(cur);
-  if (cur === 8) return mk(date, cur, 'done', savedAt);
-  if (!cd.gym && dayRides(cd, v.phaseOf(date)).optional) return mk(date, cur, 'skip', savedAt);
+  const pins = o.pins ?? {}, delivered = o.delivered ?? true;
+  if (pins[date] === 0) return 'off';
+  const v = viking(D), b = bike(v), ph = v.phaseOf(date);
+  const boxes = b.lap().boxes;
+  const cur = b.current().day, cd = cycleDay(cur);
+
+  const swap = cd.gym && !Object.values(D.workouts).some((w) => w.date === date) && rideMinutes(D, date) >= SWAP_RIDE_MIN
+    ? rideSwapBox(D, v, b, date, ph) : null;
+  if (swap) {
+    if (!delivered) return 'wait';
+    const t = mk(date, swap, 'done', savedAt);
+    return D.cycle[t.id] ? null : { ...t, early: [cur] };
+  }
+
+  const pin = pins[date];
+  const day = pin >= 1 && pin <= 8 && boxes[pin - 1].status === 'open' ? pin : cur, pcd = cycleDay(day);
+  if (day === 8) return mk(date, day, 'done', savedAt);
+  if (!pcd.gym && dayRides(pcd, ph).optional) return mk(date, day, 'skip', savedAt);
   return 'slid';
+}
+
+/** The open ride box a ride-first swap on `date` fills, or null (an extra).
+ *  Hard ride → the first open hard-ride box. Easy ride → box 6, else the
+ *  first open hard box in a deload week or at the hard-ride cap. */
+function rideSwapBox(D: VikingData, v: ReturnType<typeof viking>, b: ReturnType<typeof bike>, date: string, ph: PhaseKey): number | null {
+  const open = b.lap().boxes.filter((x) => x.status === 'open').map((x) => x.day);
+  const rideBox = (n: number) => { const cd = cycleDay(n), r = dayRides(cd, ph); return !cd.gym && !r.optional && r.codes.length > 0 ? r : null; };
+  const hardBox = open.find((n) => rideBox(n)?.codes.some((c) => RIDES[c].hard)) ?? null;
+  const rode = Object.values(D.rides).filter((r) => r.date === date);
+  if (rode.some((r) => isHard(r))) return hardBox;
+  if (open.includes(6) && rideBox(6)) return 6;
+  const wk = v.weekOf(date);
+  return v.isDeloadWeek(wk) || b.hardIn(dn(date)) >= BIKE_PHASES[ph].hardCap ? hardBox : null;
 }
 
 /** First matching readiness flag, as the swap reason. */

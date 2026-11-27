@@ -132,7 +132,8 @@ export async function runVikingTick(
         } else {
           const r = endOfDay(D, it.date, savedAt);
           if (r === 'slid') state.slidDates = [...state.slidDates.filter((x) => x !== it.date), it.date].slice(-KEEP_SLID);
-          else if (r) await tickPut(r);
+          else if (r === 'wait') break; // delivered is always true until the engine learns to wait
+          else if (r && r !== 'off') await tickPut(r);
           state.settledThrough = it.date;
         }
       } catch (e) {
@@ -159,7 +160,7 @@ export async function runVikingTick(
         const r = resultFromDoc(doc, res.docId, doc.session, planned, D, res.dropped);
         const without: VikingData = { ...D, workouts: { ...D.workouts } };
         delete without.workouts[res.docId];
-        recap = { text: recapText(r, targetsAt(without, doc.session, a.date), targetsAt(D, doc.session, a.date), !!t?.realigned), kb: confirmKeyboard(r, id) };
+        recap = { text: recapText(r, targetsAt(without, doc.session, a.date), targetsAt(D, doc.session, a.date), !!t?.newLap), kb: confirmKeyboard(r, id) };
       } else if ('skip' in res) {
         await s.put('garmin_in', id, { ...a, processedAt: nowIso, result: res.skip });
         if (res.skip === 'not-viking') recap = { text: notVikingText(a.name, a.date), kb: null };
@@ -171,7 +172,7 @@ export async function runVikingTick(
         if (t) await tickPut(t);
         await s.put('garmin_in', id, { ...a, processedAt: nowIso, result: res.docId, dropped: res.dropped });
         out.imported++;
-        recap = { text: recapText(res, before, targetsAt(D, res.session, a.date), !!t?.realigned), kb: confirmKeyboard(res, id) };
+        recap = { text: recapText(res, before, targetsAt(D, res.session, a.date), !!t?.newLap), kb: confirmKeyboard(res, id) };
       }
     } catch (e) {
       const attempts = (a.attempts ?? 0) + 1, first = a.firstFailedAt ?? nowIso;

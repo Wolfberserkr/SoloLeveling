@@ -465,7 +465,7 @@ async function fixOnce(db: Db, userId: string, tz: string, today: string, input:
     const t = gymTick(DD, date, sk, Date.now());
     if (t) {
       await putDoc(db, userId, 'cycle', t.id, t.doc);
-      tick = `cycle day ${t.doc.day} ticked${t.realigned ? ' (the cycle realigned to this session)' : ''}`;
+      tick = `cycle day ${t.doc.day} ticked${t.newLap ? ' (a new lap started)' : ''}`;
     }
   } else {
     await putDoc(db, userId, 'workouts', docId, next);

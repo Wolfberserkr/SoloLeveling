@@ -136,18 +136,18 @@ it('endOfDay: ids, ride days slide, phase-2 day 7 slides, existing tick → null
   expect(endOfDay(data({ settings: s2, cycle: { t: tick(day(0), 6) } }), day(1), 1)).toBe('slid');
   expect(endOfDay(data({ cycle: { t: tick(day(1), 2) } }), day(1), 1)).toBeNull();
 });
-it('gymTick: a different session realigns', () => {
-  expect(gymTick(data({ workouts: { a: workout(day(0), 'UA', []) } }), day(1), 'UB', 1)).toMatchObject({ realigned: true, doc: { day: 4 } });
+it('gymTick: with no ticks a session off the cycle opens a new lap', () => {
+  expect(gymTick(data({ workouts: { a: workout(day(0), 'UA', []) } }), day(1), 'UB', 1)).toMatchObject({ early: [], newLap: true, doc: { day: 4 } });
 });
 it('gymTick: the matching session ticks the current day', () => {
   expect(gymTick(data({ cycle: { t: tick(day(0), 1) } }), day(1), 'LA', 7)).toEqual({
-    id: `${day(1)}_auto_2`, doc: { date: day(1), day: 2, status: 'done', savedAt: 7 }, realigned: false,
+    id: `${day(1)}_auto_2`, doc: { date: day(1), day: 2, status: 'done', savedAt: 7 }, early: [], newLap: false,
   });
 });
 it('gymTick: the workout being ticked does not count as history', () => {
   // no ticks yet; D already holds today's LA workout → still day 2, not a realign
   const D = data({ workouts: { a: workout(day(0), 'UA', []), b: workout(day(1), 'LA', []) } });
-  expect(gymTick(D, day(1), 'LA', 1)).toMatchObject({ realigned: false, doc: { day: 2 } });
+  expect(gymTick(D, day(1), 'LA', 1)).toMatchObject({ early: [], newLap: false, doc: { day: 2 } });
 });
 it('settle: late import after midnight', () => {
   const D = data({ workouts: { a: workout(day(0), 'UA', []) } });
@@ -158,6 +158,55 @@ it('settle: late import after midnight', () => {
   expect(planAhead(D2, ctx(day(2)))[0].cycleDay).toBe(3);
   expect(endOfDay(D2, day(1), 3)).toBeNull();
   expect(gymTick(D2, day(1), 'LA', 4)).toBeNull();
+});
+it('gymTick: early returns the passed open boxes', () => {
+  const D = data({ cycle: { a: tick(day(0), 1), b: tick(day(1), 2) } });
+  expect(gymTick(D, day(2), 'UB', 1)).toMatchObject({ doc: { day: 4 }, early: [3], newLap: false });
+});
+it('gymTick: a pinned session is not early', () => {
+  const D = data({ cycle: { a: tick(day(0), 1), b: tick(day(1), 2) } });
+  expect(gymTick(D, day(2), 'UB', 1, { [day(2)]: 4 })).toMatchObject({ doc: { day: 4 }, early: [] });
+});
+it('gymTick: filled box → newLap', () => {
+  const D = data({ cycle: { a: tick(day(0), 1), b: tick(day(1), 2) } });
+  expect(gymTick(D, day(2), 'UA', 1)).toMatchObject({ doc: { day: 1 }, newLap: true, early: [] });
+});
+it('rideTick: defers on a gym day', () => {
+  const D = data({ cycle: { a: tick(day(0), 1) }, rides: { r: ride(day(1), 50, 'E1') } });
+  expect(rideTick(D, day(1), 9)).toBeNull();
+});
+it('rideTick: fills a pinned ride box', () => {
+  const D = data({ cycle: { a: tick(day(0), 1) }, rides: { r: ride(day(1), 50, 'H1') } });
+  expect(rideTick(D, day(1), 9, { [day(1)]: 3 })).toMatchObject({ id: `${day(1)}_auto_3`, doc: { day: 3, status: 'done' } });
+});
+const swapped = (rides: Record<string, RideDoc>, extra: Partial<VikingData> = {}) =>
+  data({ cycle: { a: tick(day(0), 1) }, rides, ...extra });
+it('endOfDay: ride-first swap fills the ride box', () => {
+  const r = endOfDay(swapped({ r: ride(day(1), 50, 'E1') }), day(1), 5, { delivered: true }) as any;
+  expect(r).toMatchObject({ id: `${day(1)}_auto_6`, doc: { day: 6, status: 'done', savedAt: 5 }, early: [2] });
+});
+it('endOfDay: hard ride takes box 3', () => {
+  expect((endOfDay(swapped({ r: ride(day(1), 50, 'H1') }), day(1), 5, { delivered: true }) as any).doc.day).toBe(3);
+});
+it('endOfDay: waits until delivered', () => {
+  expect(endOfDay(swapped({ r: ride(day(1), 50, 'E1') }), day(1), 5, { delivered: false })).toBe('wait');
+});
+it('endOfDay: 30 min ride on a gym day stays extra', () => {
+  expect(endOfDay(swapped({ r: ride(day(1), 30, 'E1') }), day(1), 5, { delivered: true })).toBe('slid');
+});
+it('endOfDay: ride on a day with a workout stays extra', () => {
+  const D = swapped({ r: ride(day(1), 50, 'E1') }, { workouts: { w: workout(day(1), 'LA', []) } });
+  const g = gymTick(D, day(1), 'LA', 6)!;
+  const D2 = { ...D, cycle: { ...D.cycle, [g.id]: g.doc } };
+  expect(endOfDay(D2, day(1), 7, { delivered: true })).toBeNull();
+  expect(endOfDay(D, day(1), 7, { delivered: true })).toBe('slid');
+});
+it('endOfDay: day off', () => {
+  expect(endOfDay(data({ cycle: { a: tick(day(0), 1) } }), day(1), 5, { pins: { [day(1)]: 0 } })).toBe('off');
+});
+it('endOfDay: pinned rest box 8 ticks done', () => {
+  const r = endOfDay(data({ cycle: { a: tick(day(0), 1) } }), day(1), 5, { pins: { [day(1)]: 8 } }) as any;
+  expect(r.doc).toMatchObject({ day: 8, status: 'done' });
 });
 it('rideTick: 2 × 15 min counts', () => {
   // cycle at day 3 (a ride day): two 15-min rides dated today → done
