@@ -13,6 +13,15 @@ function plan(days: PlanDay[], over: Partial<PlanCurrent> = {}): PlanCurrent {
 }
 
 describe('next on your watch', () => {
+  it('skips a day off', () => {
+    const p = plan([
+      { date: '2026-11-27', cycleDay: 0, kind: 'rest', reason: 'day off' },
+      { date: '2026-11-28', cycleDay: 0, kind: 'rest', reason: 'free day: Saturday' },
+      { date: '2026-11-29', cycleDay: 3, kind: 'ride', ride: { code: 'E1', minutes: 60 } },
+    ]);
+    expect(nextOnWatch(p, '2026-11-27')).toMatchObject({ date: '2026-11-29', kind: 'ride' });
+  });
+
   it('says Jarvis has no plan yet when there is none', () => {
     expect(nextOnWatch(null, '2026-11-27')).toEqual({ none: 'no-plan' });
   });

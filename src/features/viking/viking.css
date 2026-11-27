@@ -79,6 +79,14 @@
 .vk .watch .swap { margin-top:8px; color:var(--warn); }
 
 /* bike plan: cycle card + ride cards */
+.vk .lap { display:grid; grid-template-columns:repeat(8,minmax(0,1fr)); gap:4px; margin-top:10px; }
+.vk .lap .lb { display:flex; flex-direction:column; align-items:center; gap:2px; padding:6px 0; border:1px solid var(--line); border-radius:6px; background:var(--sunk); min-width:0; }
+.vk .lap .mark { font:600 15px/1 var(--display); }
+.vk .lap .nm { font:600 10px/1 var(--display); letter-spacing:.02em; color:var(--muted); text-transform:uppercase; }
+.vk .lap .done .mark { color:var(--good); }
+.vk .lap .skip, .vk .lap .passed { opacity:.6; }
+.vk .lap .open .mark { color:var(--muted); }
+.vk .lap .cur { outline:2px solid var(--accent); outline-offset:1px; }
 .vk .rides { margin-top:12px; display:flex; flex-direction:column; }
 .vk .ride { background:var(--sunk); border-radius:8px; padding:10px 12px; display:flex; flex-direction:column; gap:3px; }
 .vk .ride-head { display:flex; align-items:baseline; gap:8px; }

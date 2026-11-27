@@ -589,8 +589,12 @@ function RideCard({ rx }: { rx: Rx }) {
   );
 }
 
+const BOX_NAMES = ['UA', 'LA', 'Ride', 'UB', 'LB', 'E1', 'Ride', 'Rest'];
+
 function CycleCard({ ctx }: { ctx: Ctx }) {
   const { v, b, T } = ctx;
+  const boxes = b.lap().boxes;
+  const cur = b.current().day;
   const P = b.today(T);
   const last = v.sorted('cycle').slice(-1)[0];
   const due = b.retestDue(T);
@@ -602,6 +606,15 @@ function CycleCard({ ctx }: { ctx: Ctx }) {
       <div className="card-head">
         <div className="label">Cycle · day {P.day} of 8</div>
         <span className="label">{BIKE_PHASES[P.ph].n}{P.deload && <span className="st warn" style={{ marginLeft: 6 }}>Deload</span>}</span>
+      </div>
+      <div className="lap" role="list" aria-label="This lap">
+        {boxes.map((x) => (
+          <div key={x.day} role="listitem" className={`lb ${x.status}${x.day === cur ? ' cur' : ''}`}
+            aria-label={`Day ${x.day} ${BOX_NAMES[x.day - 1]}: ${x.status === 'done' ? 'done' : x.status === 'open' ? 'open' : 'skipped'}${x.day === cur ? ', next' : ''}`}>
+            <span className="mark" aria-hidden="true">{x.status === 'done' ? '✓' : x.status === 'open' ? '○' : '–'}</span>
+            <span className="nm">{BOX_NAMES[x.day - 1]}</span>
+          </div>
+        ))}
       </div>
       <div className="next">
         <div>
@@ -628,7 +641,7 @@ function CycleCard({ ctx }: { ctx: Ctx }) {
       <FlagList flags={flags} />
 
       <p className="muted small" style={{ marginTop: 12 }}>
-        The cycle runs in order and waits for you: Jarvis ticks a day off when the watch records its session or ride, so a missed day slides instead of being skipped.
+        Do the days in any order. Jarvis ticks a day when the watch records it, and the next day is the first one not done yet. Swap or move days on Telegram.
         {last && <> Last: day {last.day} {last.status === 'skip' ? 'skipped' : 'done'} {fmtD(last.date)}.</>}
       </p>
       <details className="more">
