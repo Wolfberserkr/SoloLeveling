@@ -1,27 +1,38 @@
 // Project Viking — the life-bot tick: import Garmin sessions, settle finished
-// days, fold decisions, rebuild the plan (and clear any retired calendar blocks). Pure TS:
+// days (waiting for Garmin before a ride-first swap), drop spent pins, fold
+// decisions, rebuild the plan (and clear any retired calendar blocks). Pure TS:
 // every read and write goes through the injected VikingStore; time is passed in.
-import { bike } from './bikeLogic.ts';
+import { bike, cycleDay } from './bikeLogic.ts';
 import type { SessionKey } from './data.ts';
-import { hashOf } from './garmin.ts';
+import { garminDate, hashOf } from './garmin.ts';
 import { importStrength, type GarminIn } from './garminImport.ts';
 import { viking, type CycleDoc, type RideDoc, type VikingData } from './logic.ts';
-import { endOfDay, gymTick, planAhead, rideTick, type Health, type PlanCurrent, type PlanDay } from './planner.ts';
+import {
+  endOfDay, gymTick, planAhead, planOrder, rideTick, type Health, type PlanCurrent, type PlanDay, type Pins,
+} from './planner.ts';
 import { nextTargets, type Overrides, type Progress, type Resets } from './targets.ts';
 import { suggestionsFor, weekSummary, type Suggestion } from './weekly.ts';
 import {
-  confirmKeyboard, notVikingText, poisonText, recapText, resultFromDoc, suggestionKeyboard, suggestionText,
-  type Keyboard,
+  confirmKeyboard, notVikingText, poisonText, recapText, resultFromDoc, rideSwapText, skipKeyboard,
+  suggestionKeyboard, suggestionText, type Keyboard,
 } from './recap.ts';
-import { addDays, localParts } from '../lifeLogic.ts';
+import { addDays, localParts, zonedTime } from '../lifeLogic.ts';
 
 export interface VikingStore {
-  load(): Promise<{ D: VikingData; current: PlanCurrent | null; state: PlanState | null; garmin: Record<string, { mirroredAt: string; hash: string }>; inbox: GarminIn[]; snapshots: Record<string, { session?: SessionKey; targets?: Record<string, Progress> }>; decisions: Record<string, { status: 'ok' | 'no'; decidedAt: string }> }>;
+  load(): Promise<{
+    D: VikingData; current: PlanCurrent | null; state: PlanState | null; garmin: Record<string, { mirroredAt: string; hash: string }>; inbox: GarminIn[];
+    snapshots: Record<string, { session?: SessionKey; targets?: Record<string, Progress> }>; decisions: Record<string, { status: 'ok' | 'no'; decidedAt: string }>;
+    /** plan/pins: date → box the owner moved there (0 = an extra day off). */
+    pins: Pins;
+    /** garmin_in dated in the last 8 days, processed or not. */
+    inserted: Array<{ date: string; insertedAt: string }>;
+  }>;
   hasWork(): Promise<boolean>;                       // a retry-ready garmin_in (no processedAt; no lastFailedAt or 15+ min since it), rides updated in the last 10 min, today's life_health.updated_at > plan/state.healthSeenAt, or plan/current is missing or its hash is empty
   put(coll: string, id: string, data: unknown): Promise<void>;
   merge(coll: string, id: string, patch: Record<string, unknown>): Promise<void>; // data = data || patch
   claim(key: string): Promise<boolean>;              // life_nudge_log insert; false if taken
   release(key: string): Promise<void>;               // delete that life_nudge_log key (life-bot may delete; the no-DELETE rule is for routines)
+  unpin(dates: string[]): Promise<void>;             // remove those dates from plan/pins, keeping any other key
   send(text: string, kb?: Keyboard | null): Promise<void>;
   context(today: string): Promise<{ afterNight: Set<string>; health?: Health; healthUpdatedAt?: string; windows: Record<string, string>; wakeAt: Record<string, string> }>;
   calendar: null | { remove(id: string): Promise<void> };  // only to clear training blocks made before they were retired
@@ -43,6 +54,8 @@ const POISON_MS = 60 * MIN;
 const POISON_TRIES = 3;
 const KEEP_RIDES = 60;
 const KEEP_SLID = 30;
+/** How long a ride-first swap waits for Garmin after the end of its date. */
+const SWAP_WAIT_MS = 12 * 60 * MIN;
 
 /** "2026-11-25T06:11" or "6:11" → "06:11". */
 function hm(s: string | undefined, dflt: string): string {
@@ -50,6 +63,11 @@ function hm(s: string | undefined, dflt: string): string {
   return m ? `${m[1].padStart(2, '0')}:${m[2]}` : dflt;
 }
 const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** The confirm rows, then the skip rows. */
+const rows = (...kbs: Array<Keyboard | null>): Keyboard | null => {
+  const kb = kbs.flatMap((k) => k ?? []);
+  return kb.length ? kb : null;
+};
 const log = (...a: unknown[]) => console.log('[viking]', ...a);
 
 export async function runVikingTick(
@@ -93,6 +111,32 @@ export async function runVikingTick(
   /** Targets for the session's next occurrence (one cycle on). */
   const targetsAt = (DD: VikingData, sk: SessionKey, date: string) =>
     nextTargets(viking(DD), sk, addDays(date, 8), overrides(), state.resets);
+  const pins: Pins = { ...L.pins };
+  /** Where the plan puts box `day` now: today, tomorrow, a date, or later this lap. */
+  const movedTo = (day: number): string => {
+    const slot = planOrder(D, { today, pins, frozen: state.frozen, afterNight: new Set(), overrides: overrides(), resets: state.resets })
+      .find((x) => x.day === day);
+    if (!slot) return 'later this lap';
+    return slot.date === today ? 'today' : slot.date === addDays(today, 1) ? 'tomorrow' : garminDate(slot.date);
+  };
+  const recapLines = (t: ReturnType<typeof gymTick>) => ({
+    swap: t?.early.length ? { early: t.early, to: movedTo(t.early[0]) } : null,
+    newLap: t?.newLap ? bike(viking(D)).lap().passed : null,
+  });
+  /** Garmin has certainly delivered date `d`: a mirror, or a later-dated
+   *  session copied in, after the end of `d` (local). */
+  const endOf = (d: string) => zonedTime(addDays(d, 1), '00:00', tz).getTime();
+  const delivered = (d: string) => {
+    const end = endOf(d);
+    return Object.values(L.garmin).some((g) => Date.parse(g.mirroredAt) > end)
+      || L.inserted.some((x) => x.date > d && Date.parse(x.insertedAt) > end);
+  };
+  /** A ride-first swap's message, once per date. Best effort, like the recap. */
+  const sendRideSwap = async (date: string, early: number[], day: number) => {
+    const gym = cycleDay(early[0]).gym;
+    if (!gym) return;
+    try { if (await s.claim(`vkswap:r${date}`)) await s.send(rideSwapText(date, gym, day), skipKeyboard(`r${date}`, early)); } catch (e) { log(`ride swap message lost for ${date}`, msg(e)); }
+  };
   const tickPut = async (t: { id: string; doc: CycleDoc }) => {
     await s.put('cycle', t.id, t.doc);
     D.cycle[t.id] = t.doc;
@@ -126,14 +170,23 @@ export async function runVikingTick(
       // processed, and the next tick picks up from the failed item.
       try {
         if (it.kind === 'ride') {
-          const t = rideTick(D, it.date, savedAt);
+          const t = rideTick(D, it.date, savedAt, pins);
           if (t) await tickPut(t);
           state.ridesSeen = [...state.ridesSeen, it.id].slice(-KEEP_RIDES);
         } else {
-          const r = endOfDay(D, it.date, savedAt);
+          let r = endOfDay(D, it.date, savedAt, { pins, delivered: delivered(it.date) });
+          if (r === 'wait' && nowMs >= endOf(it.date) + SWAP_WAIT_MS) {
+            log(`ride-swap wait capped ${it.date}`);
+            r = endOfDay(D, it.date, savedAt, { pins, delivered: true });
+          }
+          // Waiting for Garmin: stop here like a write error, so nothing after
+          // this date is decided and settledThrough stays put.
+          if (r === 'wait') break;
           if (r === 'slid') state.slidDates = [...state.slidDates.filter((x) => x !== it.date), it.date].slice(-KEEP_SLID);
-          else if (r === 'wait') break; // delivered is always true until the engine learns to wait
-          else if (r && r !== 'off') await tickPut(r);
+          else if (r && r !== 'off') {
+            await tickPut(r);
+            if (r.early?.length) await sendRideSwap(it.date, r.early, r.doc.day);
+          }
           state.settledThrough = it.date;
         }
       } catch (e) {
@@ -153,14 +206,15 @@ export async function runVikingTick(
       if ('skip' in res && res.skip === 'already') {
         // A retry after a failed write: finish the tick, processedAt and recap.
         const doc = D.workouts[res.docId];
-        const t = gymTick(D, a.date, doc.session, savedAt);
+        const t = gymTick(D, a.date, doc.session, savedAt, pins);
         if (t) await tickPut(t);
         await s.put('garmin_in', id, { ...a, processedAt: nowIso, result: res.docId, dropped: res.dropped });
         out.imported++;
         const r = resultFromDoc(doc, res.docId, doc.session, planned, D, res.dropped);
         const without: VikingData = { ...D, workouts: { ...D.workouts } };
         delete without.workouts[res.docId];
-        recap = { text: recapText(r, targetsAt(without, doc.session, a.date), targetsAt(D, doc.session, a.date), !!t?.newLap), kb: confirmKeyboard(r, id) };
+        const x = recapLines(t);
+        recap = { text: recapText(r, targetsAt(without, doc.session, a.date), targetsAt(D, doc.session, a.date), x.swap, x.newLap), kb: rows(confirmKeyboard(r, id), skipKeyboard(id, t?.early ?? [])) };
       } else if ('skip' in res) {
         await s.put('garmin_in', id, { ...a, processedAt: nowIso, result: res.skip });
         if (res.skip === 'not-viking') recap = { text: notVikingText(a.name, a.date), kb: null };
@@ -168,11 +222,12 @@ export async function runVikingTick(
         const before = targetsAt(D, res.session, a.date);
         await s.put('workouts', res.docId, res.doc);
         D.workouts[res.docId] = res.doc;
-        const t = gymTick(D, a.date, res.session, savedAt);
+        const t = gymTick(D, a.date, res.session, savedAt, pins);
         if (t) await tickPut(t);
         await s.put('garmin_in', id, { ...a, processedAt: nowIso, result: res.docId, dropped: res.dropped });
         out.imported++;
-        recap = { text: recapText(res, before, targetsAt(D, res.session, a.date), !!t?.newLap), kb: confirmKeyboard(res, id) };
+        const x = recapLines(t);
+        recap = { text: recapText(res, before, targetsAt(D, res.session, a.date), x.swap, x.newLap), kb: rows(confirmKeyboard(res, id), skipKeyboard(id, t?.early ?? [])) };
       }
     } catch (e) {
       const attempts = (a.attempts ?? 0) + 1, first = a.firstFailedAt ?? nowIso;
@@ -188,6 +243,27 @@ export async function runVikingTick(
     }
     if (recap) {
       try { if (await s.claim('vkrecap:' + id)) await s.send(recap.text, recap.kb); } catch (e) { log(`recap lost for ${id}; owner can use viking_status/viking_fix`, msg(e)); }
+    }
+  }
+
+  // 3b. Drop spent pins: settled past dates (a date the stream hasn't settled
+  // yet still needs its pin), dates that have a tick, and boxes filled this
+  // lap that the plan no longer places on their date (a next-lap pin the plan
+  // still places is kept).
+  {
+    const boxes = bike(viking(D)).lap().boxes;
+    const placed = new Set(planOrder(D, { today, pins, afterNight: new Set(), overrides: overrides(), resets: state.resets })
+      .filter((x) => pins[x.date] === x.day).map((x) => x.date));
+    const spent = Object.keys(pins).sort().filter((d) => {
+      const p = pins[d];
+      if ((d < today && d <= state.settledThrough) || Object.values(D.cycle).some((t) => t.date === d)) return true;
+      return p >= 1 && p <= 8 && boxes[p - 1].status !== 'open' && !placed.has(d);
+    });
+    if (spent.length) {
+      try {
+        await s.unpin(spent);
+        for (const d of spent) delete pins[d];
+      } catch (e) { log('pins not dropped; the plan ignores them until the next tick', msg(e)); }
     }
   }
 
@@ -215,7 +291,7 @@ export async function runVikingTick(
   }
   const days = planAhead(D, {
     today, afterNight: cx.afterNight, windows: cx.windows, health: cx.health,
-    overrides: overrides(), resets: state.resets, frozen: state.frozen,
+    overrides: overrides(), resets: state.resets, frozen: state.frozen, pins,
   });
   const pending = state.suggestions.filter((x) => x.status === 'pending');
   const hash = hashOf({ days, pending });

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { COLLS, emptyData, viking, type CycleDoc, type Settings, type VikingData, type WorkoutDoc } from '../supabase/functions/_shared/viking/logic.ts';
 import { importStrength, type GarminIn, type ImportResult } from '../supabase/functions/_shared/viking/garminImport.ts';
 import { nextTargets } from '../supabase/functions/_shared/viking/targets.ts';
@@ -34,6 +34,7 @@ class MemoryStore implements VikingStore {
   failPut: Array<(coll: string, id: string) => boolean> = [];
   failSend = false;
   calendar: VikingStore['calendar'] = null;
+  unpins: string[][] = [];
 
   constructor(seed: Partial<VikingData> = {}) {
     for (const c of COLLS) for (const [id, d] of Object.entries(seed[c] ?? {})) this.set(c, id, d);
@@ -65,8 +66,17 @@ class MemoryStore implements VikingStore {
     return {
       D: this.D(), current: (plan.current ?? null) as PlanCurrent | null, state: (plan.state ?? null) as PlanState | null,
       garmin: plan.garmin ?? {}, inbox: Object.values(this.all('garmin_in')).filter((x: any) => !x.processedAt) as GarminIn[],
-      snapshots, decisions,
+      snapshots, decisions, pins: plan.pins ?? {},
+      inserted: Object.values(this.all('garmin_in'))
+        .filter((x: any) => x.date >= addDays(today, -8))
+        .map((x: any) => ({ date: x.date, insertedAt: x.insertedAt })),
     };
+  }
+  async unpin(dates: string[]) {
+    this.unpins.push([...dates]);
+    const pins = { ...(this.get('plan', 'pins') ?? {}) };
+    for (const d of dates) delete pins[d];
+    this.set('plan', 'pins', pins);
   }
   async hasWork() {
     const now = this.clock.getTime();
@@ -141,9 +151,10 @@ it('engine: stream order', async () => {
   await run(s, T);
   const [first, second] = recaps(s);
   expect(first.text).toContain('Upper A saved');
-  expect(first.text).toContain('Cycle moved');
+  expect(first.text).toContain('🔄 New lap: Upper A started it.');
   expect(second.text).toContain('Lower A saved');
-  expect(second.text).not.toContain('Cycle moved');
+  expect(second.text).not.toContain('New lap');
+  expect(second.text).not.toContain('Swapped');
   expect(Object.keys(s.all('cycle')).sort()).toEqual(['2026-11-24_auto_1', '2026-11-25_auto_2']);
 });
 
@@ -228,7 +239,7 @@ it('engine: a throw on the cycle put still ticks on retry', async () => {
       expect((s.get('plan', 'current') as PlanCurrent).days[0]).toMatchObject({ date: '2026-11-26', cycleDay: 3 });
     } else {
       expect(m.text).toContain('1 unrecognised set left out');
-      expect(m.text).toContain('Cycle moved');
+      expect(m.text).toContain('🔄 New lap: Upper B started it.');
     }
   }
 });
@@ -415,5 +426,241 @@ it('engine: a block whose removal fails stays and is retried next tick', async (
   fail = false;
   expect((await run(s, later(T, 15))).calendarOps).toBe(1);
   expect((s.get('plan', 'state') as PlanState).blocks).toEqual({});
+});
+});
+
+const tk = (date: string, day: number, status: CycleDoc['status'] = 'done', savedAt = 1): Record<string, CycleDoc> =>
+  ({ [`${date}_auto_${day}`]: { date, day, status, savedAt } });
+const st0 = (settledThrough: string, o: Partial<PlanState> = {}): PlanState =>
+  ({ since: '2026-11-20', settledThrough, slidDates: [], ridesSeen: [], resets: {}, suggestions: [], blocks: {}, ...o });
+const at = (fx: GarminIn, date: string, activityId: string, hm = '07:00'): GarminIn =>
+  ({ ...fx, activityId, date, start: `${date}T${hm}`, startUtc: `${date}T11:00:00Z`, insertedAt: `${date}T20:00:00Z` });
+const plan = (s: MemoryStore) => s.get('plan', 'current') as PlanCurrent;
+const swaps = (s: MemoryStore) => s.sent.filter((m) => m.text.startsWith('↔️ You rode'));
+
+describe('viking engine: swaps', () => {
+afterEach(() => { vi.restoreAllMocks(); });
+
+it('engine: live 27–29 Nov scenario', async () => {
+  const s = new MemoryStore({
+    workouts: { '2026-11-22_LB': LB22 },
+    cycle: { ...tk('2026-11-24', 1), ...tk('2026-11-25', 2) },
+  });
+  s.inbox(at(UB, '2026-11-27', 'ub27'));
+  await run(s, '2026-11-27T18:00:00Z');
+  expect(s.get('cycle', '2026-11-27_auto_4')).toMatchObject({ day: 4, status: 'done' });
+  const [m] = recaps(s);
+  expect(m.text).toContain('Upper B');
+  expect(m.text).toContain('↔️ Swapped: Hard ride moves to tomorrow.');
+  expect(m.text).not.toContain('New lap');
+  const skip = m.kb!.filter((row) => row[0].data.startsWith('vks:'));
+  expect(skip).toEqual([[{ text: '✖️ Skip Hard ride', data: 'vks:ub27:3' }]]);
+  expect(m.kb![0][0].data.startsWith('vr:')).toBe(true); // confirm rows first, then skip rows
+  let days = plan(s).days;
+  expect(days[0]).toMatchObject({ date: '2026-11-28', cycleDay: 3, kind: 'ride' });
+  expect(days[1]).toMatchObject({ date: '2026-11-29', cycleDay: 5, session: 'LB' });
+  expect(days.filter((d) => d.session === 'UB')).toEqual([]);
+
+  // The 28 Nov ride ticks box 3 (the first open box); 29 Nov is Lower B.
+  s.set('rides', 'r28', { date: '2026-11-28', code: 'H1', type: 'hard', minutes: 60 });
+  await run(s, '2026-11-29T13:00:00Z');
+  expect(s.get('cycle', '2026-11-28_auto_3')).toMatchObject({ day: 3, status: 'done' });
+  days = plan(s).days;
+  expect(days[0]).toMatchObject({ date: '2026-11-29', cycleDay: 5, session: 'LB' });
+  expect(days.filter((d) => d.session === 'UB')).toEqual([]);
+  expect(plan(s).cycleDay).toBe(5);
+  expect(swaps(s)).toEqual([]);
+});
+
+const rideFirst = () => {
+  const s = new MemoryStore({
+    cycle: tk('2026-11-24', 1),
+    rides: { r25: { date: '2026-11-25', type: 'easy', minutes: 50 } },
+  });
+  s.set('plan', 'state', st0('2026-11-24'));
+  return s;
+};
+
+it('engine: ride-first swap waits for delivery, then sends once', async () => {
+  const s = rideFirst();
+  expect(await run(s, '2026-11-26T12:00:00Z')).toMatchObject({ ticks: 0 });
+  expect(s.all('cycle')).toEqual(tk('2026-11-24', 1));
+  expect((s.get('plan', 'state') as PlanState).settledThrough).toBe('2026-11-24');
+  expect((s.get('plan', 'state') as PlanState).slidDates).toEqual([]);
+  expect(s.sent).toEqual([]);
+  // A mirror before the end of 25 Nov (local) proves nothing; one after it does.
+  s.set('plan', 'garmin', { '2026-11-25': { mirroredAt: '2026-11-26T03:59:00Z', hash: '' } });
+  await run(s, '2026-11-26T12:15:00Z');
+  expect(s.all('cycle')).toEqual(tk('2026-11-24', 1));
+  s.set('plan', 'garmin', { '2026-11-25': { mirroredAt: '2026-11-26T05:00:00Z', hash: '' } });
+  expect(await run(s, '2026-11-26T12:30:00Z')).toMatchObject({ ticks: 1 });
+  expect(s.get('cycle', '2026-11-25_auto_6')).toMatchObject({ day: 6, status: 'done' });
+  expect((s.get('plan', 'state') as PlanState).settledThrough).toBe('2026-11-25');
+  expect(swaps(s)).toEqual([{
+    text: '↔️ You rode on Wed 25 Nov instead of Lower A: the ride counts as day 6, and Lower A is next.',
+    kb: [[{ text: '✖️ Skip Lower A', data: 'vks:r2026-11-25:2' }]],
+  }]);
+  expect(s.claims.has('vkswap:r2026-11-25')).toBe(true);
+  expect(plan(s).days[0]).toMatchObject({ date: '2026-11-26', session: 'LA' });
+  await run(s, '2026-11-26T12:45:00Z');
+  expect(swaps(s)).toHaveLength(1);
+});
+
+it('engine: a later garmin_in proves delivery', async () => {
+  const s = rideFirst();
+  await run(s, '2026-11-26T12:00:00Z');
+  expect(s.all('cycle')).toEqual(tk('2026-11-24', 1));
+  s.inbox({ ...at(UA, '2026-11-26', 'x26'), name: 'Morning stretch', sets: [], insertedAt: '2026-11-26T12:05:00Z' });
+  await run(s, '2026-11-26T12:15:00Z');
+  expect(s.get('cycle', '2026-11-25_auto_6')).toBeDefined();
+  expect(swaps(s)).toHaveLength(1);
+});
+
+it('engine: a failed ride-swap send never blocks the tick', async () => {
+  const s = rideFirst();
+  s.set('plan', 'garmin', { '2026-11-25': { mirroredAt: '2026-11-26T05:00:00Z', hash: '' } });
+  s.failSend = true;
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  expect(await run(s, '2026-11-26T12:00:00Z')).toMatchObject({ ticks: 1, rebuilt: true });
+  expect((s.get('plan', 'state') as PlanState).settledThrough).toBe('2026-11-25');
+  s.failSend = false;
+  await run(s, '2026-11-26T12:15:00Z');
+  expect(swaps(s)).toEqual([]);
+});
+
+it('engine: late gym import within the wait wins over the ride swap', async () => {
+  const s = rideFirst();
+  await run(s, '2026-11-26T12:00:00Z');
+  expect(s.all('cycle')).toEqual(tk('2026-11-24', 1));
+  s.inbox({ ...LA, insertedAt: '2026-11-26T03:00:00Z' }); // dated 25 Nov: not proof of delivery
+  await run(s, '2026-11-26T12:15:00Z');
+  expect(Object.keys(s.all('cycle')).sort()).toEqual(['2026-11-24_auto_1', '2026-11-25_auto_2']);
+  expect(recaps(s)).toHaveLength(1);
+  expect(recaps(s)[0].text).not.toContain('Swapped');
+  expect(swaps(s)).toEqual([]);
+  expect((s.get('plan', 'state') as PlanState).settledThrough).toBe('2026-11-25');
+});
+
+it('engine: wait is capped at 12 h', async () => {
+  const s = rideFirst();
+  const logs: string[] = [];
+  vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => { logs.push(a.join(' ')); });
+  // The end of 25 Nov in Aruba is 26 Nov 04:00Z; the cap is 16:00Z.
+  await run(s, '2026-11-26T15:59:00Z');
+  expect(s.all('cycle')).toEqual(tk('2026-11-24', 1));
+  expect(logs).toEqual([]);
+  await run(s, '2026-11-26T16:00:00Z');
+  expect(s.get('cycle', '2026-11-25_auto_6')).toBeDefined();
+  expect(logs).toEqual(['[viking] ride-swap wait capped 2026-11-25']);
+  expect(swaps(s)).toHaveLength(1);
+});
+
+it('engine: items after a waiting date wait too', async () => {
+  const s = rideFirst();
+  s.set('rides', 'r26', { date: '2026-11-26', type: 'easy', minutes: 30 });
+  await run(s, '2026-11-26T12:00:00Z');
+  expect((s.get('plan', 'state') as PlanState).ridesSeen).toEqual(['r25']);
+});
+
+it('engine: drops expired and filled pins', async () => {
+  const s = new MemoryStore({ cycle: { ...tk('2026-11-24', 1), ...tk('2026-11-25', 2), ...tk('2026-11-26', 3) } });
+  s.set('plan', 'state', st0('2026-11-25'));
+  s.set('plan', 'pins', {
+    '2026-11-23': 5,   // expired
+    '2026-11-26': 0,   // a day off he trained on anyway (a tick on that date)
+    '2026-11-27': 1,   // Upper A is already done this lap
+    '2026-11-28': 5,   // still good
+  });
+  await run(s, '2026-11-26T18:00:00Z');
+  expect(s.unpins).toEqual([['2026-11-23', '2026-11-26', '2026-11-27']]);
+  expect(s.get('plan', 'pins')).toEqual({ '2026-11-28': 5 });
+  const days = plan(s).days;
+  expect(days[0]).toMatchObject({ date: '2026-11-27', session: 'UB' });
+  expect(days[1]).toMatchObject({ date: '2026-11-28', session: 'LB' });
+  await run(s, '2026-11-26T18:15:00Z');
+  expect(s.unpins).toHaveLength(1);
+});
+
+it('engine: a past pin waits until its date is settled', async () => {
+  const s = new MemoryStore({ cycle: tk('2026-11-23', 7, 'skip') });
+  s.set('plan', 'state', st0('2026-11-23'));
+  s.set('plan', 'pins', { '2026-11-25': 0 });
+  s.failOnce('cycle'); // the day-8 tick on 24 Nov: the stream stops before 25 Nov
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  await run(s, '2026-11-26T12:00:00Z');
+  expect((s.get('plan', 'state') as PlanState).settledThrough).toBe('2026-11-23');
+  expect(s.unpins).toEqual([]);
+  await run(s, '2026-11-26T12:15:00Z');
+  const st = s.get('plan', 'state') as PlanState;
+  expect(st.settledThrough).toBe('2026-11-25');
+  expect(st.slidDates).toEqual([]); // 25 Nov settled as the day off
+  expect(s.unpins).toEqual([['2026-11-25']]);
+});
+
+it('engine: a pin for the next lap is kept while the plan places it', async () => {
+  const cycle = Object.assign({}, ...[1, 2, 3, 4, 5, 6].map((d) => tk(`2026-11-${19 + d}`, d)));
+  const s = new MemoryStore({ cycle });
+  s.set('plan', 'state', st0('2026-11-25'));
+  // Days 7 and 8 are left (27, 28 Nov); the new lap's Upper A pinned to 30 Nov.
+  s.set('plan', 'pins', { '2026-11-30': 1 });
+  await run(s, '2026-11-26T18:00:00Z');
+  expect(s.unpins).toEqual([]);
+  expect(plan(s).days.find((d) => d.date === '2026-11-30')).toMatchObject({ session: 'UA' });
+});
+
+it('engine: a pin reaches every tick call', async () => {
+  // Upper B pinned to 26 Nov with the hard ride still open: Upper B that day is not a swap.
+  const s = new MemoryStore({ cycle: { ...tk('2026-11-24', 1), ...tk('2026-11-25', 2) } });
+  s.set('plan', 'state', st0('2026-11-25'));
+  s.set('plan', 'pins', { '2026-11-26': 4 });
+  s.inbox(at(UB, '2026-11-26', 'ub26'));
+  await run(s, '2026-11-26T18:00:00Z');
+  expect(s.get('cycle', '2026-11-26_auto_4')).toBeDefined();
+  const [m] = recaps(s);
+  expect(m.text).not.toContain('Swapped');
+  expect(m.text).not.toContain('New lap');
+  expect(m.kb?.some((row) => row[0].data.startsWith('vks:')) ?? false).toBe(false);
+  expect(plan(s).days[0]).toMatchObject({ date: '2026-11-27', cycleDay: 3 });
+});
+
+it('engine: day off is not a slid date', async () => {
+  const s = new MemoryStore({ workouts: { '2026-11-22_LB': LB22 }, cycle: tk('2026-11-24', 1) });
+  s.set('plan', 'state', st0('2026-11-24'));
+  s.set('plan', 'pins', { '2026-11-25': 0 });
+  await run(s, '2026-11-26T12:00:00Z');
+  let st = s.get('plan', 'state') as PlanState;
+  expect(st.settledThrough).toBe('2026-11-25');
+  expect(st.slidDates).toEqual([]);
+  expect(s.all('cycle')).toEqual(tk('2026-11-24', 1));
+  expect(s.unpins).toEqual([['2026-11-25']]);
+  // Without the pin, the same day slides.
+  const s2 = new MemoryStore({ workouts: { '2026-11-22_LB': LB22 }, cycle: tk('2026-11-24', 1) });
+  s2.set('plan', 'state', st0('2026-11-24'));
+  await run(s2, '2026-11-26T12:00:00Z');
+  st = s2.get('plan', 'state') as PlanState;
+  expect(st.slidDates).toEqual(['2026-11-25']);
+});
+
+it('engine: a day-off pin ahead plans rest and the lap moves back a day', async () => {
+  const s = new MemoryStore({ cycle: { ...tk('2026-11-24', 1), ...tk('2026-11-25', 2) } });
+  s.set('plan', 'state', st0('2026-11-25'));
+  s.set('plan', 'pins', { '2026-11-27': 0 });
+  await run(s, '2026-11-26T12:00:00Z');
+  const days = plan(s).days;
+  expect(days[0]).toMatchObject({ date: '2026-11-26', cycleDay: 3 });
+  expect(days[1]).toMatchObject({ date: '2026-11-27', cycleDay: 0, kind: 'rest', reason: 'day off' });
+  expect(days[2]).toMatchObject({ date: '2026-11-28', session: 'UB' });
+});
+
+it('engine: new lap recap names the passed days', async () => {
+  const s = new MemoryStore({ cycle: { ...tk('2026-11-24', 1), ...tk('2026-11-25', 2), ...tk('2026-11-26', 4) } });
+  s.set('plan', 'state', st0('2026-11-26'));
+  s.inbox(at(UA, '2026-11-27', 'ua27'));
+  await run(s, '2026-11-27T18:00:00Z');
+  const [m] = recaps(s);
+  expect(m.text).toContain('🔄 New lap: Upper A started it, so Hard ride, Lower B, Endurance ride and 2 more were passed.');
+  expect(m.text).not.toContain('Swapped');
+  expect(m.kb?.some((row) => row[0].data.startsWith('vks:')) ?? false).toBe(false);
+  expect(plan(s).days[0]).toMatchObject({ date: '2026-11-28', session: 'LA' });
 });
 });

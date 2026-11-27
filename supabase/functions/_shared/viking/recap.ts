@@ -1,7 +1,8 @@
-// Project Viking — the Telegram recap of an import, its confirm buttons and the
-// suggestion buttons. Pure: no Node, Deno or DOM APIs. Copy is Telegram HTML.
+// Project Viking — the Telegram recap of an import, its confirm and skip
+// buttons, the swap messages and the suggestion buttons. Pure: no Node, Deno
+// or DOM APIs. Copy is Telegram HTML.
 import { SESS, type SessionKey } from './data.ts';
-import { dayOfSession } from './bikeLogic.ts';
+import { cycleDay } from './bikeLogic.ts';
 import { garminDate, type StrengthTarget } from './garmin.ts';
 import { assumptionsFor, shortName, type ImportResult } from './garminImport.ts';
 import type { VikingData, WorkoutDoc } from './logic.ts';
@@ -26,8 +27,54 @@ export function resultFromDoc(
   return { session, docId, doc, assumptions, dropped, merged: false };
 }
 
+/** A cycle day's name: its gym session, else what the day is for. */
+export function dayName(n: number): string {
+  const cd = cycleDay(n);
+  if (cd.gym) return SESS[cd.gym].n;
+  if (!cd.ride.length) return 'Rest day';
+  if (!cd.note) return 'Ride';
+  return /ride/i.test(cd.note) ? cd.note : `${cd.note} ride`;
+}
+
+/** "A", "A and B", "A, B and C", "A, B, C and 2 more". */
+function dayNames(days: number[]): string {
+  const n = days.map(dayName);
+  if (n.length > 3) return `${n.slice(0, 3).join(', ')} and ${n.length - 3} more`;
+  return n.length > 1 ? `${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}` : n.join('');
+}
+
+/** A gym session done early: the first day it passed and where that day goes now. */
+export function swapLine(early: number[], to: string): string {
+  return `↔️ Swapped: ${dayName(early[0])} moves to ${to}.`;
+}
+
+/** A session on a day already done this lap started a new one. */
+export function newLapLine(sk: SessionKey, passed: number[]): string {
+  const head = `🔄 New lap: ${SESS[sk].n} started it`;
+  return passed.length ? `${head}, so ${dayNames(passed)} ${passed.length === 1 ? 'was' : 'were'} passed.` : `${head}.`;
+}
+
+/** A ride on a gym day that counted as a ride day of the lap. */
+export function rideSwapText(date: string, gym: SessionKey, day: number): string {
+  const g = SESS[gym].n;
+  return `↔️ You rode on ${garminDate(date)} instead of ${g}: the ride counts as day ${day}, and ${g} is next.`;
+}
+
+/** One skip button per passed day (at most 3), plus "all" from two days.
+ *  `ref` is the activity id, or `r<date>` for a ride swap. */
+export function skipKeyboard(ref: string, days: number[]): Keyboard | null {
+  if (!days.length) return null;
+  return [
+    ...days.slice(0, 3).map((d) => [{ text: `✖️ Skip ${dayName(d)}`, data: `vks:${ref}:${d}` }]),
+    ...(days.length >= 2 ? [[{ text: '✖️ Skip all', data: `vks:${ref}:all` }]] : []),
+  ];
+}
+
+/** `swap`: the open days a session done early passed, and where the first one
+ *  is planned now. `newLap`: the days passed when the session started a new lap. */
 export function recapText(
-  r: ImportResult, before: Record<string, Progress>, after: Record<string, Progress>, realigned: boolean,
+  r: ImportResult, before: Record<string, Progress>, after: Record<string, Progress>,
+  swap: { early: number[]; to: string } | null, newLap: number[] | null,
 ): string {
   const lines = [`🏋️ <b>${SESS[r.session].n} saved</b> · ${garminDate(r.doc.date)}`];
   for (const a of r.assumptions) lines.push(`• ${escapeHtml(a)}`);
@@ -46,7 +93,8 @@ export function recapText(
     lines.push(`Reps weren't counted on ${plural(unknown.length, 'exercise')}, so their targets stay. `
       + `Reply e.g. "${shortName(e.ex)} ${e.sets.length}×${reps + 1}" if you did more.`);
   }
-  if (realigned) lines.push(`🔄 Cycle moved: ${SESS[r.session].n} is day ${dayOfSession(r.session)}, so the plan carries on from there.`);
+  if (swap?.early.length) lines.push(swapLine(swap.early, swap.to));
+  if (newLap) lines.push(newLapLine(r.session, newLap));
   return lines.join('\n');
 }
 
