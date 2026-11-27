@@ -25,6 +25,13 @@ const wo = (date: string, session: WorkoutDoc['session']): WorkoutDoc =>
 const B = (d: VikingData) => bike(viking(d));
 
 describe('cycle', () => {
+  it('words a rotation mismatch for the watch, not the retired logger', () => {
+    // cycle on day 1 (Upper A), but the last session was Upper A, so the rotation says Lower A
+    const t = B(data({ cycle: { a: tick(day(0), 8) }, workouts: { w: wo(day(0), 'UA') } })).today(day(1));
+    const f = t.flags.find((x) => x.t === 'Gym rotation differs');
+    expect(f?.b).toBe('The cycle says Upper A, your last session points to Lower A next. The next session the watch records lines the cycle back up.');
+  });
+
   it('starts at day 1 (Upper A + optional R1)', () => {
     const t = B(data()).today(day(0));
     expect(t.day).toBe(1);

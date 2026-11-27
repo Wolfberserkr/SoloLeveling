@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { nextOnWatch } from '@/features/viking/watchCard';
+import { nextOnWatch, nextPlanState } from '@/features/viking/watchCard';
 import type { PlanCurrent, PlanDay } from '../supabase/functions/_shared/viking/planner.ts';
 
 const t = (kg: number | null, reps: number, sets: number, extra: Record<string, unknown> = {}) =>
@@ -66,5 +66,29 @@ describe('next on your watch', () => {
   it('says rest when every planned day ahead is rest', () => {
     const p = plan([{ date: '2026-11-27', cycleDay: 8, kind: 'rest' }, { date: '2026-11-25', cycleDay: 2, kind: 'gym', session: 'LA' }]);
     expect(nextOnWatch(p, '2026-11-27')).toEqual({ none: 'rest' });
+  });
+
+  it('says it cannot reach the server when the plan never loaded', () => {
+    expect(nextOnWatch('offline', '2026-11-27')).toEqual({ none: 'offline' });
+  });
+});
+
+describe('plan load results', () => {
+  const p = plan([{ date: '2026-11-27', cycleDay: 8, kind: 'rest' }]);
+  const fail = { data: null, error: { message: 'Failed to fetch' } };
+
+  it('a failed first load is offline, not a forever "checking"', () => {
+    expect(nextPlanState(undefined, fail)).toBe('offline');
+    expect(nextPlanState('offline', fail)).toBe('offline');
+  });
+
+  it('a failed reload keeps the last plan', () => {
+    expect(nextPlanState(p, fail)).toBe(p);
+    expect(nextPlanState(null, fail)).toBeNull();
+  });
+
+  it('a good load replaces offline with the plan, or null when there is none', () => {
+    expect(nextPlanState('offline', { data: { data: p }, error: null })).toBe(p);
+    expect(nextPlanState(p, { data: null, error: null })).toBeNull();
   });
 });

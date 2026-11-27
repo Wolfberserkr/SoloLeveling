@@ -149,15 +149,15 @@ export function bike(v: Viking) {
     const rx = codes.map((c) => prescribe(c, wk, ph, deload));
     const flags: Flag[] = [];
     if (cd.gym && cd.gym !== v.nextSession())
-      flags.push({ l: 'info', t: 'Gym rotation differs', b: `The cycle says ${SESS[cd.gym].n}, the logger says ${SESS[v.nextSession()].n} is next. Logging a session lines the cycle back up.` });
+      flags.push({ l: 'info', t: 'Gym rotation differs', b: `The cycle says ${SESS[cd.gym].n}, your last session points to ${SESS[v.nextSession()].n} next. The next session the watch records lines the cycle back up.` });
     if (rx.some((x) => RIDES[x.code].hard)) {
       const n = hardIn(t) + 1, cap = BIKE_PHASES[ph].hardCap;
       if (n > cap) flags.push({ l: 'warn', t: 'Hard-ride cap reached', b: `${n - 1} hard ride${n - 1 === 1 ? '' : 's'} in the last ${HARD_WINDOW_DAYS} days already (cap ${cap}). Ride E1 or R1 today instead.` });
       const nx = cycleDay(nextDay(day));
       if (isLower(nx.gym)) flags.push({ l: 'warn', t: 'Lower day tomorrow', b: `${SESS[nx.gym!].n} follows this day. Keep today's ride easy.` });
     }
-    // "Hard ride in the last 24 h → Lower next" and "max 2 lifting days in a
-    // row" already show on the Next session card (TodayTab).
+    // Jarvis's planner (plan/current) swaps a hard ride the day before a Lower
+    // day, and the cycle order never puts three gym days in a row.
     if (deload) {
       const bad = rides.filter((r) => v.weekOf(r.date) === wk && isHard(r));
       if (bad.length) flags.push({ l: 'warn', t: 'Hard ride logged this deload', b: `${bad.length} hard ride${bad.length === 1 ? '' : 's'} this week. ${DELOAD_RULE}` });

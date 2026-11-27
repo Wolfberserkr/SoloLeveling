@@ -18,8 +18,7 @@ import {
 } from './vikingLogic';
 import { useVikingData, type SyncState } from './vikingDb';
 import { Chart, dateTicks } from './Chart';
-import { nextOnWatch } from './watchCard';
-import type { PlanCurrent } from '../../../supabase/functions/_shared/viking/planner.ts';
+import { nextOnWatch, nextPlanState, type PlanState } from './watchCard';
 import {
   AVOID_WINDOW, BENCHMARKS, BIKE_PHASES, HARD_WINDOW_DAYS, RIDES, SHIFTS, ZONES,
   type BenchId,
@@ -135,21 +134,31 @@ export function VikingApp({ userId }: { userId: string }) {
   );
 }
 
-/** Jarvis's plan (`plan/current`), reloaded when the app comes back to the front.
- *  undefined while the first load is in flight, null when there is none. */
-function usePlan(uid: string): PlanCurrent | null | undefined {
-  const [plan, setPlan] = useState<PlanCurrent | null | undefined>(undefined);
+/** Jarvis's plan (`plan/current`), reloaded when the app comes back to the front or back online (see PlanState). */
+function usePlan(uid: string): PlanState {
+  const [plan, setPlan] = useState<PlanState>(undefined);
   useEffect(() => {
     let live = true;
     const load = async () => {
-      const { data, error } = await supabase.from('viking_docs').select('data')
-        .eq('user_id', uid).eq('coll', 'plan').eq('doc_id', 'current').maybeSingle();
-      if (live && !error) setPlan(((data as { data?: PlanCurrent } | null)?.data) ?? null);
+      let res: { data: unknown; error: unknown };
+      try {
+        res = await supabase.from('viking_docs').select('data')
+          .eq('user_id', uid).eq('coll', 'plan').eq('doc_id', 'current').maybeSingle();
+      } catch (error) {
+        res = { data: null, error };
+      }
+      if (live) setPlan((prev) => nextPlanState(prev, res));
     };
     void load();
     const onVisible = () => { if (document.visibilityState === 'visible') void load(); };
+    const onOnline = () => { void load(); };
     document.addEventListener('visibilitychange', onVisible);
-    return () => { live = false; document.removeEventListener('visibilitychange', onVisible); };
+    window.addEventListener('online', onOnline);
+    return () => {
+      live = false;
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', onOnline);
+    };
   }, [uid]);
   return plan;
 }
@@ -164,7 +173,7 @@ function SyncDot({ sync }: { sync: SyncState }) {
 }
 
 // ── Today ───────────────────────────────────────────────────────────────────
-function TodayTab({ ctx, loaded, plan }: { ctx: Ctx; loaded: boolean; plan: PlanCurrent | null | undefined }) {
+function TodayTab({ ctx, loaded, plan }: { ctx: Ctx; loaded: boolean; plan: PlanState }) {
   const { v, data, put, toast, T } = ctx;
   const t = dn(T), C = v.cfg, wk = v.weekOf(T), ph = v.phaseOf(T);
   const needsSetup = loaded && !data.settings;
@@ -261,14 +270,14 @@ function TodayTab({ ctx, loaded, plan }: { ctx: Ctx; loaded: boolean; plan: Plan
 }
 
 /** "Next on your watch": the first training day in Jarvis's plan, with its top targets. */
-function WatchCard({ plan, T, note }: { plan: PlanCurrent | null | undefined; T: string; note: string }) {
+function WatchCard({ plan, T, note }: { plan: PlanState; T: string; note: string }) {
   const c = plan === undefined ? null : nextOnWatch(plan, T);
   const when = (d: string) => (d === T ? 'Today' : d === iso(dn(T) + 1) ? 'Tomorrow' : fmtD(d));
   return (
     <div className="card watch">
       <div className="card-head"><div className="label">Next on your watch</div>{c && 'date' in c && <span className="label num">{when(c.date)}</span>}</div>
       {c === null ? <p className="muted small">Checking Jarvis’s plan…</p>
-        : 'none' in c ? <p className="muted small">{c.none === 'no-plan' ? 'Jarvis hasn’t built a plan yet.' : 'Only rest days are planned for now.'}</p>
+        : 'none' in c ? <p className="muted small">{{ 'no-plan': 'Jarvis hasn’t built a plan yet.', rest: 'Only rest days are planned for now.', offline: 'Can’t reach the server to load Jarvis’s plan. It loads when you’re back online.' }[c.none]}</p>
           : (
             <>
               <div className="sess">{c.title}</div>
