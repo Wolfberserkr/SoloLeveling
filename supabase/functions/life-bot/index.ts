@@ -13,14 +13,14 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { advanceDue, formatMoney, hhmm, isConfidentQuickLog, localParts, parseQuickLog, safeTz, toAwgMinor, escapeHtml } from '../_shared/lifeLogic.ts';
 import { converse, type Attachment, type Db } from './agent.ts';
 import { addTasks, completeTask, tomorrowSameTime } from './tasks.ts';
-import { answerCallback, downloadFile, dropButtonRow, sendMessage, settleButtons, typing } from './telegram.ts';
+import { answerCallback, downloadFile, sendMessage, setButtonRows, settleButtons, typing } from './telegram.ts';
 import { tick } from './tick.ts';
 import { bookJob, liveEvents, undoJob } from './calendar.ts';
 import { bookedText, busyFromEvents, eventTitle, OFFER_TTL_MS, slotLabel } from '../_shared/scheduling.ts';
 import { clearPlanHash, createDoc, getDoc, loadData, putDoc, vikingOn } from './viking.ts';
 import type { PlanState } from '../_shared/viking/engine.ts';
 import type { WorkoutDoc } from '../_shared/viking/logic.ts';
-import { confirmReps, dayName } from '../_shared/viking/recap.ts';
+import { confirmReps, dayName, rowsAfterTap, type TgRows } from '../_shared/viking/recap.ts';
 import { skipTicks, swapDays } from '../_shared/viking/moves.ts';
 import type { SessionKey } from '../_shared/viking/data.ts';
 import { shortName } from '../_shared/viking/garminImport.ts';
@@ -311,6 +311,8 @@ async function handleCallback(cb: Row) {
       if (profErr) throw new Error(`life_profile read failed: ${profErr.message}`);
       if (!vikingOn(prof?.prefs)) return answerCallback(String(cb.id), 'Viking training is switched off');
       const rebuild = () => clearPlanHash(db, uid).catch((err) => console.error('life-bot: plan/current hash not cleared', err));
+      // A confirm or skip tap takes only its own family's rows; the message settles once none are left.
+      const rowsLeft = () => rowsAfterTap(((cb.message as Row)?.reply_markup as { inline_keyboard?: TgRows } | undefined)?.inline_keyboard, String(cb.data));
 
       // A stall suggestion: the tick folds plan/decision-<id> into plan/state; never write plan/state here.
       if (kind === 'vk' && (verb === 'ok' || verb === 'no')) {
@@ -331,8 +333,7 @@ async function handleCallback(cb: Row) {
         if (!docId || !doc) return answerCallback(String(cb.id), 'Already gone');
         await putDoc(db, uid, 'workouts', docId, confirmReps(doc, verb === 'all' ? 'all' : verb));
         await rebuild();
-        if (verb === 'all') await settleButtons(chatId, messageId, '✅ All confirmed');
-        else await dropButtonRow(chatId, messageId, (cb.message as Row).reply_markup as never, String(cb.data), '✅ Reps confirmed');
+        await setButtonRows(chatId, messageId, rowsLeft(), verb === 'all' ? '✅ All confirmed' : '✅ Reps confirmed');
         return answerCallback(String(cb.id));
       }
 
@@ -353,18 +354,13 @@ async function handleCallback(cb: Row) {
         const ticks = skipTicks(D, date, days, Date.now());
         const written: number[] = [];
         for (const t of ticks) if (await createDoc(db, uid, 'cycle', t.id, t.doc)) written.push(t.doc.day);
-        // The tapped row goes; "all" takes every skip row with it, and the confirm rows (if any) stay.
-        const markup = (cb.message as Row).reply_markup as { inline_keyboard?: Array<Array<{ callback_data?: string }>> } | undefined;
-        const kb = verb !== 'all' ? markup : {
-          inline_keyboard: (markup?.inline_keyboard ?? []).filter((row) => !row.some((b) => b.callback_data?.startsWith(`vks:${id}:`) && b.callback_data !== cb.data)),
-        };
         if (!written.length) {
-          await dropButtonRow(chatId, messageId, kb as never, String(cb.data), '✅ Already done');
+          await setButtonRows(chatId, messageId, rowsLeft(), '✅ Already done');
           return answerCallback(String(cb.id), 'Already done');
         }
         await rebuild();
         const names = written.map(dayName).join(', ');
-        await dropButtonRow(chatId, messageId, kb as never, String(cb.data), `✖️ Skipped ${names}`);
+        await setButtonRows(chatId, messageId, rowsLeft(), `✖️ Skipped ${names}`);
         return answerCallback(String(cb.id), `Skipped ${names}`);
       }
       return answerCallback(String(cb.id));

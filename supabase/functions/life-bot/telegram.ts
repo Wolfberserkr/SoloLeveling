@@ -55,14 +55,10 @@ export const answerCallback = (id: string, text?: string) =>
 export const settleButtons = (chatId: number, messageId: number, status: string) =>
   call('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [[{ text: status, callback_data: 'noop' }]] } }).catch(() => {});
 
-type TgMarkup = { inline_keyboard?: Array<Array<{ text?: string; callback_data?: string }>> } | null | undefined;
-
-/** Take the tapped button's row off a message's keyboard (its current
- *  `reply_markup`). When at most one row is left (the "All" button), settle
- *  the message to `lastStatus` instead. */
-export async function dropButtonRow(chatId: number, messageId: number, replyMarkup: TgMarkup, data: string, lastStatus = '✅ Done'): Promise<void> {
-  const rows = (replyMarkup?.inline_keyboard ?? []).filter((row) => !row.some((b) => b.callback_data === data));
-  if (rows.length <= 1) { await settleButtons(chatId, messageId, lastStatus); return; }
+/** Put `rows` back on a message's keyboard; with none left, settle the
+ *  message to `lastStatus` instead. */
+export async function setButtonRows(chatId: number, messageId: number, rows: Array<Array<{ text?: string; callback_data?: string }>>, lastStatus: string): Promise<void> {
+  if (!rows.length) { await settleButtons(chatId, messageId, lastStatus); return; }
   await call('editMessageReplyMarkup', { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: rows } }).catch(() => {});
 }
 

@@ -108,6 +108,19 @@ export function confirmKeyboard(r: ImportResult, activityId: string): Keyboard |
   ];
 }
 
+/** A message's keyboard as Telegram returns it in `reply_markup`. */
+export type TgRows = Array<Array<{ text?: string; callback_data?: string }>>;
+
+/** The rows left after a confirm (`vr:`) or skip (`vks:`) tap. Each family
+ *  (kind plus activity) takes only its own rows: an "all" tap every row of
+ *  its family, any other tap just its row. [] means settle the message. */
+export function rowsAfterTap(rows: TgRows | undefined, data: string): TgRows {
+  const cut = data.lastIndexOf(':');
+  const family = data.slice(0, cut + 1), all = data.slice(cut + 1) === 'all';
+  return (rows ?? []).filter((row) => !row.some((b) =>
+    b.callback_data === data || (all && !!b.callback_data?.startsWith(family))));
+}
+
 /** The owner confirmed the planned reps: they count as recorded from now on. */
 export function confirmReps(doc: WorkoutDoc, ex: string | 'all'): WorkoutDoc {
   return {

@@ -4,8 +4,8 @@ import { emptyData, type VikingData } from '../supabase/functions/_shared/viking
 import { importStrength, type GarminIn, type ImportResult } from '../supabase/functions/_shared/viking/garminImport.ts';
 import type { Progress } from '../supabase/functions/_shared/viking/targets.ts';
 import {
-  confirmKeyboard, confirmReps, newLapLine, recapText, resultFromDoc, rideSwapText, skipKeyboard, suggestionKeyboard,
-  swapLine,
+  confirmKeyboard, confirmReps, newLapLine, recapText, resultFromDoc, rideSwapText, rowsAfterTap, skipKeyboard,
+  suggestionKeyboard, swapLine,
 } from '../supabase/functions/_shared/viking/recap.ts';
 
 const load = (f: string) => JSON.parse(readFileSync(`tests/fixtures/${f}`, 'utf8')) as GarminIn;
@@ -69,6 +69,30 @@ it('confirmKeyboard: one row per exercise with assumed reps, then all', () => {
   expect(confirmKeyboard(many, 'x')!.length).toBeLessThanOrEqual(5);
   const counted = { ...LA(), doc: confirmReps(LA().doc, 'all') };
   expect(confirmKeyboard(counted, 'x')).toBeNull();
+});
+// A recap with assumed reps and a swap: confirm rows, then skip rows, as Telegram returns them.
+const tg = (data: string) => [{ text: data, callback_data: data }];
+const mixed = () => [tg('vr:9:squat'), tg('vr:9:all'), tg('vks:9:3'), tg('vks:9:4'), tg('vks:9:all')];
+it('rowsAfterTap: "All as planned" takes the confirm rows only; the skip rows stay', () => {
+  expect(rowsAfterTap(mixed(), 'vr:9:all')).toEqual([tg('vks:9:3'), tg('vks:9:4'), tg('vks:9:all')]);
+});
+it('rowsAfterTap: "Skip all" takes the skip rows only, even a lone confirm row', () => {
+  expect(rowsAfterTap(mixed(), 'vks:9:all')).toEqual([tg('vr:9:squat'), tg('vr:9:all')]);
+  expect(rowsAfterTap([tg('vr:9:all'), tg('vks:9:3'), tg('vks:9:4'), tg('vks:9:all')], 'vks:9:all')).toEqual([tg('vr:9:all')]);
+  expect(rowsAfterTap([tg('vr:9:all'), tg('vks:9:3')], 'vks:9:3')).toEqual([tg('vr:9:all')]);
+});
+it('rowsAfterTap: a single tap takes its own row only', () => {
+  expect(rowsAfterTap(mixed(), 'vr:9:squat')).toEqual([tg('vr:9:all'), tg('vks:9:3'), tg('vks:9:4'), tg('vks:9:all')]);
+  expect(rowsAfterTap(mixed(), 'vks:9:3')).toEqual([tg('vr:9:squat'), tg('vr:9:all'), tg('vks:9:4'), tg('vks:9:all')]);
+});
+it('rowsAfterTap: another activity\'s rows are not the same family', () => {
+  expect(rowsAfterTap([tg('vr:9:all'), tg('vr:8:all')], 'vr:9:all')).toEqual([tg('vr:8:all')]);
+});
+it('rowsAfterTap: the last row taken → [] (settle the message)', () => {
+  expect(rowsAfterTap([tg('vr:9:squat'), tg('vr:9:all')], 'vr:9:all')).toEqual([]);
+  expect(rowsAfterTap([tg('vks:9:3')], 'vks:9:3')).toEqual([]);
+  expect(rowsAfterTap([tg('vks:9:all')], 'vks:9:all')).toEqual([]);
+  expect(rowsAfterTap(undefined, 'vr:9:all')).toEqual([]);
 });
 it('confirmReps: drops reps from est on that exercise only, and empty est', () => {
   const doc = confirmReps(LA().doc, 'squat');
