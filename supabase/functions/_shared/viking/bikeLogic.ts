@@ -44,7 +44,7 @@ export function lap(ticks: CycleDoc[]): Lap {
     const i = t.day - 1;
     if (i < 0 || i > 7) return;
     if (n === 0) fresh(t.day);
-    else if (!open().length) boxes = emptyLap();
+    else if (!open().length) { boxes = emptyLap(); passed = []; }
     else if (boxes[i].status !== 'open') {
       passed = open().map((b) => b.day);
       fresh(t.day);

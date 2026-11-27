@@ -258,6 +258,13 @@ describe('lap', () => {
     expect(b.current().day).toBe(1);
   });
 
+  it('lap: a rollover clears passed', () => {
+    expect(L(1, 2, 4, 1).lap().passed).toEqual([3, 5, 6, 7, 8]);
+    const b = L(1, 2, 4, 1, 2, 3, 4, 5, 6, 7, 8, 1);
+    expect(b.lap().passed).toEqual([]);
+    expect(b.current().day).toBe(2);
+  });
+
   it('lap: no ticks', () => {
     expect(B(data({ workouts: { w: wo(day(0), 'UA') } })).current()).toEqual({ day: 2, lastDate: null });
   });
