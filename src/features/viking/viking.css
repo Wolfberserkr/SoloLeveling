@@ -73,6 +73,10 @@
 /* next session */
 .vk .next { display:flex; align-items:center; gap:14px; justify-content:space-between; flex-wrap:wrap; }
 .vk .next .sess { font:700 40px/0.95 var(--display); letter-spacing:.03em; text-transform:uppercase; }
+.vk .watch .sess { font:700 32px/1 var(--display); letter-spacing:.03em; text-transform:uppercase; margin-top:6px; }
+.vk .watch .list { margin-top:10px; }
+.vk .watch .li span:last-child { text-align:right; white-space:nowrap; }
+.vk .watch .swap { margin-top:8px; color:var(--warn); }
 
 /* bike plan: cycle card + ride cards */
 .vk .rides { margin-top:12px; display:flex; flex-direction:column; }
@@ -133,10 +137,10 @@
 
 /* plan items */
 .vk .items { display:flex; flex-direction:column; }
-.vk .item { display:grid; grid-template-columns:28px 1fr auto; gap:10px; align-items:center; padding-block:10px; border:0; border-top:1px solid var(--line); cursor:pointer; background:none; color:inherit; text-align:left; font:inherit; width:100%; }
+.vk .item { display:grid; grid-template-columns:28px 1fr auto; gap:10px; align-items:center; padding-block:10px; border:0; border-top:1px solid var(--line); background:none; color:inherit; text-align:left; font:inherit; width:100%; }
 .vk .item:first-child { border-top:0; }
 .vk .box { width:24px; height:24px; border-radius:6px; border:2px solid var(--line); display:grid; place-items:center; color:transparent; }
-.vk .item[aria-pressed="true"] .box { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
+.vk .item[data-on] .box { background:var(--accent); border-color:var(--accent); color:var(--on-accent); }
 .vk .item .m { font-variant-numeric:tabular-nums; font-size:13px; color:var(--muted); text-align:right; }
 .vk .bar { height:10px; border-radius:5px; background:var(--sunk); overflow:hidden; position:relative; }
 .vk .bar i { display:block; height:100%; background:var(--accent); border-radius:5px; }

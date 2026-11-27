@@ -123,11 +123,11 @@ Training is recorded on the Garmin watch, not typed into the app.
 - **life-bot's minute tick** imports those activities into `workouts`, ticks the cycle, sends the
   recap, and keeps `plan/current` (the next 7 days with ready-made Garmin workouts), `plan/state`
   and `plan/weekly` (for the Saturday briefing). Rules: `supabase/functions/_shared/viking/`.
-- **The app logger stays for now.** The Viking app still works as before, as a manual fallback.
-  PR 2 makes it read-only (charts, history, Settings and the benchmark retest stay), once the
-  Garmin flow has run well for a few days.
-- **Ascend** is retired in PR 2 as well: the chooser, the `/ascend` pages and its
-  `ascend-reminders` cron job go. Its code and tables are kept.
+- **The app is read-only** (PR 2). It shows charts, history, the cycle and a "Next on your
+  watch" card from `plan/current`; only Settings and the benchmark retest are typed in.
+- **Ascend is retired** (PR 2): the chooser and the `/ascend` pages are gone, and migration
+  0038 unschedules its `ascend-reminders` cron job. Its code and tables are kept. The saved job
+  is in `life/routines/previous/ascend-cron.sql` (put the `CRON_SECRET` back in before running it).
 
 **Go live**, after PR 1 is merged and deployed (the switch is still off, so nothing has changed yet):
 
@@ -172,7 +172,7 @@ workouts alone. The data written so far stays.
    review scheduled tasks (the weekly one back to `CRON_TZ=America/Aruba 47 18 * * 0`, Sundays 18:47).
 3. If PR 2 is merged, revert it and run `life/routines/previous/ascend-cron.sql`.
 
-The old routine then schedules the library workouts again, and the app logger works as before. The
+The old routine then schedules the library workouts again, and (with PR 2 reverted) the app logger works as before. The
 data written so far stays.
 
 ## Tasks vs events

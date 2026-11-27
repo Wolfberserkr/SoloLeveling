@@ -152,6 +152,35 @@ describe('coach', () => {
   it('reminds to weigh in when today has no weight', () => {
     expect(viking(data()).coach(START).map((f) => f.t)).toContain('Weigh in today');
   });
+
+  it('coach({garmin:true}) drops input nags and kcal buttons', () => {
+    const empty = viking(data()).coach(START, { garmin: true }).map((f) => f.t);
+    expect(empty).not.toContain('Weigh in today');
+    expect(empty).not.toContain('Measure your waist');
+    const flags = viking(data({ weights: weights(21, 0.25) })).coach(day(20), { garmin: true });
+    const act = flags.find((f) => f.t === 'Losing too fast');
+    expect(act).toBeDefined();
+    expect(act!.adj).toBeUndefined();
+    expect(act!.al).toBeUndefined();
+    expect(flags.some((f) => f.adj !== undefined || f.al !== undefined)).toBe(false);
+  });
+
+  it('coach({garmin:true}) words the deload for the watch', () => {
+    const T = day(5 * 7); // week 6
+    const dl = viking(data()).coach(T, { garmin: true }).find((f) => f.t === 'Deload week');
+    expect(dl?.b).toBe('Same exercises and weights, half the sets. The watch shows them halved.');
+    expect(viking(data()).coach(T).find((f) => f.t === 'Deload week')?.b).toContain('The logger halves them');
+  });
+
+  it('coach({garmin:true}) says Jarvis offers the reset for stuck exercises', () => {
+    const e = (kg: number) => [{ ex: 'bench', sets: [{ kg, reps: 5 }, { kg, reps: 5 }, { kg, reps: 5 }] }];
+    const workouts = {
+      a: workout(day(0), 'UA', e(80)), b: workout(day(3), 'UA', e(80)),
+      c: workout(day(7), 'UA', e(80)), d: workout(day(10), 'UA', e(80)),
+    };
+    const stuck = viking(data({ workouts })).coach(day(11), { garmin: true }).find((f) => f.t === 'Stuck exercises');
+    expect(stuck?.b).toMatch(/no progress in 3 sessions\. Jarvis will offer a reset on Telegram\.$/);
+  });
 });
 
 describe('checkpoint corridor', () => {

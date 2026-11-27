@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import '@fontsource/barlow-condensed/latin-500.css';
 import '@fontsource/barlow-condensed/latin-600.css';
 import '@fontsource/barlow-condensed/latin-700.css';
@@ -10,25 +9,22 @@ import '@fontsource/ibm-plex-mono/latin-400.css';
 import '@fontsource/ibm-plex-mono/latin-500.css';
 import './viking.css';
 import { supabase } from '@/lib/supabase';
-import { setPortal } from '@/lib/portal';
 import {
-  CPS, EXBY, ORDER, PHASES, PHASE_KEYS, PLAN_ITEMS, PROTEIN, SESS, SUPPS, autoPhase,
-  type PhaseKey, type SessionKey,
+  CPS, EXBY, ORDER, PHASES, PHASE_KEYS, PLAN_ITEMS, PROTEIN, SESS, autoPhase,
 } from './vikingData';
 import {
   best, defaultSettings, dn, fmtD, fmtDY, iso, k1, num, sum, thou, todayISO, viking,
-  type BenchDoc, type Flag, type RideDoc, type Settings, type Viking, type VikingData,
+  type BenchDoc, type Flag, type Settings, type Viking, type VikingData,
 } from './vikingLogic';
 import { useVikingData, type SyncState } from './vikingDb';
 import { Chart, dateTicks } from './Chart';
+import { nextOnWatch } from './watchCard';
+import type { PlanCurrent } from '../../../supabase/functions/_shared/viking/planner.ts';
 import {
   AVOID_WINDOW, BENCHMARKS, BIKE_PHASES, HARD_WINDOW_DAYS, RIDES, SHIFTS, ZONES,
-  type BenchId, type RideCode,
+  type BenchId,
 } from './bikePlan';
-import {
-  bike, codesFor, cycleDay, dayOfSession, mmss, parseTime, prescribe, zoneLabel,
-  type Bike, type Rx,
-} from './bikeLogic';
+import { bike, mmss, parseTime, zoneLabel, type Bike, type Rx } from './bikeLogic';
 
 type Put = ReturnType<typeof useVikingData>['put'];
 type Del = ReturnType<typeof useVikingData>['del'];
@@ -44,20 +40,6 @@ function readTab(): Tab {
     if (TABS.some(([k]) => k === t)) return t as Tab;
   } catch { /* default */ }
   return 'today';
-}
-
-/** Local input text that follows the saved value until the user edits it. */
-function useSynced(value: number | string | undefined | null) {
-  const src = value === undefined || value === null ? '' : String(value);
-  const [text, setText] = useState(src);
-  const dirty = useRef(false);
-  useEffect(() => { if (!dirty.current) setText(src); }, [src]);
-  return {
-    text,
-    set: (s: string) => { dirty.current = true; setText(s); },
-    clean: () => { dirty.current = false; },
-    reset: (s: string) => { dirty.current = false; setText(s); },
-  };
 }
 
 /** Delete button that needs a second tap within 3 s. */
@@ -84,7 +66,6 @@ const Tile = ({ lbl, v, u, sub }: { lbl: string; v: React.ReactNode; u: string; 
 
 // ═══════════════════════════════════════════════════════════════════════════
 export function VikingApp({ userId }: { userId: string }) {
-  const navigate = useNavigate();
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout>>();
   const toast = (m: string) => {
@@ -95,13 +76,11 @@ export function VikingApp({ userId }: { userId: string }) {
   const { data, loaded, sync, put, del } = useVikingData(userId, toast);
   const v = useMemo(() => viking(data), [data]);
   const b = useMemo(() => bike(v), [v]);
-  const [rideCode, setRideCode] = useState<RideCode | null>(null);
   const [tab, setTab] = useState<Tab>(readTab);
   const [sheet, setSheet] = useState(false);
   const [T, setT] = useState(todayISO());
-  const logger = useLogger(userId, v);
+  const plan = usePlan(userId);
 
-  useEffect(() => { setPortal('viking'); }, []);
   // Roll the day over at midnight and when the app comes back to the front.
   useEffect(() => {
     const tick = () => setT(todayISO());
@@ -133,14 +112,13 @@ export function VikingApp({ userId }: { userId: string }) {
 
       <main className="wrap">
         {sync === 'offline' && (
-          <div className="banner">Can’t reach the server. You’re seeing the last saved copy; new entries may not save until you’re back online.</div>
+          <div className="banner">Can’t reach the server. You’re seeing the last saved copy.</div>
         )}
-        {tab === 'today' && <TodayTab ctx={ctx} loaded={loaded} onLog={() => { logger.pick(v.nextSession()); showTab('train'); }}
-          onRide={(c) => { setRideCode(c); showTab('ride'); }} />}
-        {tab === 'train' && <TrainTab ctx={ctx} logger={logger} />}
+        {tab === 'today' && <TodayTab ctx={ctx} loaded={loaded} plan={plan} />}
+        {tab === 'train' && <TrainTab ctx={ctx} />}
         {tab === 'body' && <BodyTab ctx={ctx} />}
         {tab === 'fuel' && <FuelTab ctx={ctx} />}
-        {tab === 'ride' && <RideTab key={rideCode ?? ''} ctx={ctx} initCode={rideCode} />}
+        {tab === 'ride' && <RideTab ctx={ctx} />}
       </main>
 
       <nav className="tabs" aria-label="Sections"><div className="tabs-in" role="tablist">
@@ -150,13 +128,30 @@ export function VikingApp({ userId }: { userId: string }) {
       </div></nav>
 
       {sheet && (
-        <SettingsSheet ctx={ctx} onClose={() => setSheet(false)}
-          onAscend={() => { setPortal('ascend'); navigate('/ascend'); }}
-          onSignOut={() => { setPortal(null); void supabase.auth.signOut(); }} />
+        <SettingsSheet ctx={ctx} onClose={() => setSheet(false)} onSignOut={() => { void supabase.auth.signOut(); }} />
       )}
       {toastMsg && <div className="toast" role="status" aria-live="polite">{toastMsg}</div>}
     </div>
   );
+}
+
+/** Jarvis's plan (`plan/current`), reloaded when the app comes back to the front.
+ *  undefined while the first load is in flight, null when there is none. */
+function usePlan(uid: string): PlanCurrent | null | undefined {
+  const [plan, setPlan] = useState<PlanCurrent | null | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    const load = async () => {
+      const { data, error } = await supabase.from('viking_docs').select('data')
+        .eq('user_id', uid).eq('coll', 'plan').eq('doc_id', 'current').maybeSingle();
+      if (live && !error) setPlan(((data as { data?: PlanCurrent } | null)?.data) ?? null);
+    };
+    void load();
+    const onVisible = () => { if (document.visibilityState === 'visible') void load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { live = false; document.removeEventListener('visibilitychange', onVisible); };
+  }, [uid]);
+  return plan;
 }
 
 function SyncDot({ sync }: { sync: SyncState }) {
@@ -169,7 +164,7 @@ function SyncDot({ sync }: { sync: SyncState }) {
 }
 
 // ── Today ───────────────────────────────────────────────────────────────────
-function TodayTab({ ctx, loaded, onLog, onRide }: { ctx: Ctx; loaded: boolean; onLog: () => void; onRide: (c: RideCode | null) => void }) {
+function TodayTab({ ctx, loaded, plan }: { ctx: Ctx; loaded: boolean; plan: PlanCurrent | null | undefined }) {
   const { v, data, put, toast, T } = ctx;
   const t = dn(T), C = v.cfg, wk = v.weekOf(T), ph = v.phaseOf(T);
   const needsSetup = loaded && !data.settings;
@@ -183,16 +178,10 @@ function TodayTab({ ctx, loaded, onLog, onRide }: { ctx: Ctx; loaded: boolean; o
       toast(`Week 1 starts ${fmtD(setupDate)}`);
   }
 
-  // Next session
-  const nx = v.nextSession();
+  // Sessions so far (the plan itself, spacing included, comes from Jarvis)
   const W = v.sorted('workouts');
-  const days = new Set(W.map((w) => w.date));
   const n7 = W.filter((w) => dn(w.date) > t - 7 && dn(w.date) <= t).length;
-  let note = `${n7} of 4 sessions in the last 7 days.`;
-  if (days.has(T)) note = 'Session logged today. ' + note;
-  else if (days.has(iso(t - 1)) && days.has(iso(t - 2))) note = 'Lifted the last two days: take today off lifting (an easy ride is fine). ' + note;
-  if (nx[0] === 'L' && v.sorted('rides').some((r) => r.type === 'hard' && (r.date === T || r.date === iso(t - 1))))
-    note += ' Hard ride in the last 24 h: give your legs a day before this one.';
+  const note = `${W.some((w) => w.date === T) ? 'Session recorded today. ' : ''}${n7} of 4 sessions in the last 7 days.`;
 
   // Tiles
   const a0 = v.avg7(t), a1 = v.avg7(t - 7);
@@ -201,36 +190,7 @@ function TodayTab({ ctx, loaded, onLog, onRide }: { ctx: Ctx; loaded: boolean; o
   for (let d = t - 6; d <= t; d++) { const n = v.nutTotals(iso(d)); if (n) pdays.push(n.p); }
   const dW = a0 && a1 ? a0 - a1 : null;
 
-  const flags = v.coach(T);
-
-  // Weigh-in + check-in
-  const wi = useSynced(data.weights[T]?.kg);
-  const rc = data.recovery[T] ?? { date: T };
-  const sleep = useSynced(rc.sleep);
-  const steps = useSynced(rc.steps);
-  const rideToday = v.sorted('rides').some((r) => r.date === T);
-
-  async function saveWeigh() {
-    const w = num(wi.text);
-    if (!(w > 30 && w < 300)) { toast('Enter your weight in kg, e.g. 101.4'); return; }
-    if (await put('weights', T, { date: T, kg: w })) { wi.clean(); toast('Weigh-in saved'); }
-  }
-  async function saveCheckin() {
-    const s = num(sleep.text), st = num(steps.text);
-    if (!Number.isFinite(s) && !Number.isFinite(st)) { toast('Enter sleep hours or steps.'); return; }
-    const doc = { ...rc, date: T };
-    if (Number.isFinite(s)) doc.sleep = s;
-    if (Number.isFinite(st)) doc.steps = Math.round(st);
-    if (await put('recovery', T, doc)) { sleep.clean(); steps.clean(); toast('Check-in saved'); }
-  }
-  function toggleSupp(k: string) {
-    const doc = { ...rc, date: T, supps: { ...(rc.supps ?? {}), [k]: !rc.supps?.[k] } };
-    void put('recovery', T, doc);
-  }
-  async function adjust(by: number) {
-    const next: Settings = { ...C, kcalAdjust: (num(C.kcalAdjust) || 0) + by, adjDate: T };
-    if (await put('settings', 'settings', next)) toast(`Calorie target ${by > 0 ? 'raised' : 'lowered'} by ${Math.abs(by)} kcal`);
-  }
+  const flags = v.coach(T, { garmin: true });
 
   return (
     <section className="stack">
@@ -268,169 +228,67 @@ function TodayTab({ ctx, loaded, onLog, onRide }: { ctx: Ctx; loaded: boolean; o
         </div>
       </div>
 
-      <div className="card">
-        <div className="label">Next session</div>
-        <div className="next" style={{ marginTop: 4 }}>
-          <div><div className="sess">{SESS[nx].n}</div><p className="muted small">{SESS[nx].sub}</p></div>
-          <button type="button" className="btn" onClick={onLog}>Log it</button>
-        </div>
-        <p className="small" style={{ marginTop: 8 }}>{note}</p>
-      </div>
+      <WatchCard plan={plan} T={T} note={note} />
 
-      {!needsSetup && <CycleCard ctx={ctx} onRide={onRide} />}
+      {!needsSetup && <CycleCard ctx={ctx} />}
 
       <div className="tiles">
         <Tile lbl="Weight 7-day" v={a0 ? k1(a0) : '—'} u="kg"
           sub={dW === null ? 'Needs 3+ weigh-ins a week' : <><span className={dW <= 0 ? 'down' : 'up'}>{dW <= 0 ? '−' : '+'}{k1(Math.abs(dW))} kg</span> vs last week</>} />
         <Tile lbl="Waist" v={lw ? k1(lw.cm) : '—'} u="cm"
-          sub={lw ? (pw ? <><span className={lw.cm <= pw.cm ? 'down' : 'up'}>{lw.cm <= pw.cm ? '−' : '+'}{k1(Math.abs(lw.cm - pw.cm))}</span> since {fmtD(pw.date)}</> : `On ${fmtD(lw.date)}`) : 'Measure weekly'} />
+          sub={lw ? (pw ? <><span className={lw.cm <= pw.cm ? 'down' : 'up'}>{lw.cm <= pw.cm ? '−' : '+'}{k1(Math.abs(lw.cm - pw.cm))}</span> since {fmtD(pw.date)}</> : `On ${fmtD(lw.date)}`) : 'No measurement yet'} />
         <Tile lbl="Sessions" v={n7} u="/ 4" sub="Last 7 days" />
         <Tile lbl="Protein" v={pdays.length ? Math.round(sum(pdays) / pdays.length) : '—'} u="g"
-          sub={pdays.length ? `7-day average · goal ${PROTEIN}` : 'Log meals in Fuel'} />
+          sub={pdays.length ? `7-day average · goal ${PROTEIN}` : 'No meals logged'} />
       </div>
 
       <div className="card">
         <div className="card-head"><h2>Coach</h2><span className="label">From the plan's rules</span></div>
         <div className="flags">
-          {needsSetup ? <p className="muted small">Set your start date above and the coach starts reading your log.</p>
+          {needsSetup ? <p className="muted small">Set your start date above and the coach starts reading your data.</p>
             : flags.length ? flags.map((f, i) => (
               <div key={i} className="flag">
                 <span className={`tag ${f.l}`}>{{ act: 'Act', warn: 'Watch', info: 'Note', good: 'Good' }[f.l]}</span>
                 <b>{f.t}</b>
                 <p>{f.b}</p>
-                {f.adj && <button type="button" className="btn sm ghost" onClick={() => void adjust(f.adj!)}>{f.al}</button>}
               </div>
-            )) : <p className="muted small">Nothing to flag. Keep logging.</p>}
+            )) : <p className="muted small">Nothing to flag.</p>}
         </div>
       </div>
 
-      <div className="card">
-        <div className="card-head"><h2>Morning weigh-in</h2><span className="label num">{fmtD(T)}</span></div>
-        <div className="row">
-          <div className="field"><label htmlFor="wiKg">Weight (kg)</label><input id="wiKg" inputMode="decimal" placeholder="e.g. 101.4" value={wi.text} onChange={(e) => wi.set(e.target.value)} /></div>
-          <button type="button" className="btn" onClick={() => void saveWeigh()}>Save</button>
-        </div>
-      </div>
-
-      <div className="card">
-        <div className="card-head"><h2>Daily check-in</h2><span className="label">Recovery</span></div>
-        <div className="row">
-          <div className="field"><label htmlFor="ciSleep">Sleep (h)</label><input id="ciSleep" inputMode="decimal" placeholder="7.5" value={sleep.text} onChange={(e) => sleep.set(e.target.value)} /></div>
-          <div className="field"><label htmlFor="ciSteps">Steps</label><input id="ciSteps" inputMode="numeric" placeholder="8000" value={steps.text} onChange={(e) => steps.set(e.target.value)} /></div>
-          <button type="button" className="btn" onClick={() => void saveCheckin()}>Save</button>
-        </div>
-        <div className="label" style={{ marginBlock: '14px 8px' }}>Supplements taken</div>
-        <div className="chips">
-          {SUPPS.filter(([k]) => k !== 'electro' || rideToday).map(([k, n]) => (
-            <button key={k} type="button" className="chipbtn" aria-pressed={!!rc.supps?.[k]} onClick={() => toggleSupp(k)}>{n}</button>
-          ))}
-        </div>
-      </div>
     </section>
   );
 }
 
-// ── Train: logger state (drafts survive reloads, per user) ──────────────────
-type Row = { kg: string; reps: string };
-type Draft = { date: string; deload: boolean | null; rows: Record<string, Row[]>; added?: Record<string, number> };
-type Drafts = Partial<Record<SessionKey, Draft>>;
-
-function useLogger(uid: string, v: Viking) {
-  const key = `viking_drafts_v1_${uid}`;
-  const [drafts, setDrafts] = useState<Drafts>(() => {
-    try { return (JSON.parse(localStorage.getItem(key) ?? '{}') as Drafts) ?? {}; } catch { return {}; }
-  });
-  const [picked, setPicked] = useState<SessionKey | null>(null);
-  useEffect(() => {
-    const id = setTimeout(() => { try { localStorage.setItem(key, JSON.stringify(drafts)); } catch { /* fine */ } }, 300);
-    return () => clearTimeout(id);
-  }, [drafts, key]);
-
-  const sess = picked ?? v.nextSession();
-  const draft: Draft = drafts[sess] ?? { date: todayISO(), deload: null, rows: {} };
-  const wk = v.weekOf(draft.date), ph = v.phaseOf(draft.date);
-  const deload = draft.deload ?? v.isDeloadWeek(wk);
-
-  /** Every exercise's rows, sized to this week's prescription and pre-filled
-   *  with the suggested weight. */
-  function rowsFor(d: Draft, sk: SessionKey, dl: boolean, p: PhaseKey): Record<string, Row[]> {
-    const out: Record<string, Row[]> = {};
-    for (const ex of SESS[sk].ex) {
-      const n = v.setCount(ex, sk, p, dl) + (d.added?.[ex.k] ?? 0);
-      const hi = v.exHint(ex);
-      const rows = (d.rows[ex.k] ?? []).map((r) => ({ ...r }));
-      while (rows.length < n) rows.push({ kg: hi.kg === '' ? '' : String(hi.kg), reps: '' });
-      while (rows.length > n && !rows[rows.length - 1].reps) rows.pop();
-      out[ex.k] = rows;
-    }
-    return out;
-  }
-  const rows = rowsFor(draft, sess, deload, ph);
-
-  function update(fn: (d: Draft) => Draft) {
-    setDrafts((all) => ({ ...all, [sess]: fn({ ...draft, rows }) }));
-  }
-
-  return {
-    sess, draft, rows, wk, ph, deload,
-    pick: (s: SessionKey) => setPicked(s),
-    setDate: (date: string) => update((d) => ({ ...d, date })),
-    setDeload: (on: boolean) => update((d) => ({ ...d, deload: on })),
-    setCell: (k: string, i: number, f: keyof Row, val: string) =>
-      update((d) => ({ ...d, rows: { ...d.rows, [k]: d.rows[k].map((r, j) => (j === i ? { ...r, [f]: val } : r)) } })),
-    addSet: (k: string) =>
-      update((d) => {
-        const list = d.rows[k] ?? [];
-        return {
-          ...d,
-          rows: { ...d.rows, [k]: [...list, { kg: list.length ? list[list.length - 1].kg : '', reps: '' }] },
-          added: { ...(d.added ?? {}), [k]: (d.added?.[k] ?? 0) + 1 },
-        };
-      }),
-    /** Saved: drop this draft and move on to the next session in the rotation. */
-    finish: (sk: SessionKey) => {
-      setDrafts((all) => { const n = { ...all }; delete n[sk]; return n; });
-      setPicked(ORDER[(ORDER.indexOf(sk) + 1) % 4]);
-    },
-    load: (sk: SessionKey, d: Draft) => { setDrafts((all) => ({ ...all, [sk]: d })); setPicked(sk); },
-  };
+/** "Next on your watch": the first training day in Jarvis's plan, with its top targets. */
+function WatchCard({ plan, T, note }: { plan: PlanCurrent | null | undefined; T: string; note: string }) {
+  const c = plan === undefined ? null : nextOnWatch(plan, T);
+  const when = (d: string) => (d === T ? 'Today' : d === iso(dn(T) + 1) ? 'Tomorrow' : fmtD(d));
+  return (
+    <div className="card watch">
+      <div className="card-head"><div className="label">Next on your watch</div>{c && 'date' in c && <span className="label num">{when(c.date)}</span>}</div>
+      {c === null ? <p className="muted small">Checking Jarvis’s plan…</p>
+        : 'none' in c ? <p className="muted small">{c.none === 'no-plan' ? 'Jarvis hasn’t built a plan yet.' : 'Only rest days are planned for now.'}</p>
+          : (
+            <>
+              <div className="sess">{c.title}</div>
+              <p className="muted small">{c.sub}</p>
+              {c.rows.length > 0 && (
+                <div className="list">
+                  {c.rows.map((r) => <div key={r.name} className="li"><span>{r.name}</span><span>{r.rx}</span></div>)}
+                </div>
+              )}
+              {c.reason && <p className="small swap">{c.reason}</p>}
+            </>
+          )}
+      <p className="small" style={{ marginTop: 8 }}>{note}</p>
+    </div>
+  );
 }
-type Logger = ReturnType<typeof useLogger>;
 
-function TrainTab({ ctx, logger }: { ctx: Ctx; logger: Logger }) {
-  const { v, b, put, del, toast } = ctx;
-  const { sess, draft, rows, wk, ph, deload } = logger;
-  const nx = v.nextSession();
-  const extra: string[] = [];
-  if (ph === '2' || ph === 'B' || ph === '3') extra.push('+1 set on laterals, rows and arms');
-  if (ph === '4') extra.push('+1 set on upper-body work');
-  const guide = `Week ${wk} · ${PHASES[ph].n}. `
-    + (wk <= 4 ? 'Stay at 3 reps in reserve while you learn the lifts.' : 'Work at 2–3 reps in reserve; the last set of each exercise can go to 1.')
-    + (extra.length ? ' Volume: ' + extra.join(', ') + '.' : '')
-    + (deload ? ' Deload: half the sets, same weights.' : '')
-    + ' Warm up 5 min on the bike, then 2–3 build-up sets on the first lift.';
-
-  async function save() {
-    const entries: Array<{ ex: string; sets: Array<{ kg: number; reps: number }> }> = [];
-    for (const ex of SESS[sess].ex) {
-      const sets = (rows[ex.k] ?? [])
-        .filter((r) => num(r.reps) > 0)
-        .map((r) => ({ kg: Number.isFinite(num(r.kg)) ? num(r.kg) : 0, reps: num(r.reps) }));
-      if (sets.length) entries.push({ ex: ex.k, sets });
-    }
-    if (!entries.length) { toast('Enter reps for at least one set first.'); return; }
-    const ok = await put('workouts', `${draft.date}_${sess}`, {
-      date: draft.date, session: sess, week: wk, phase: ph, deload, entries, savedAt: Date.now(),
-    });
-    if (!ok) return;
-    // The session's cycle day is done; a back-filled older session leaves the cycle alone.
-    const lastTick = b.current().lastDate;
-    if (!lastTick || draft.date >= lastTick) await tickCycle(ctx, dayOfSession(sess), 'done', draft.date);
-    logger.finish(sess);
-    window.scrollTo(0, 0);
-    toast(`${SESS[sess].n} saved · ${sum(entries.map((e) => e.sets.length))} sets`);
-  }
-
+// ── Train: progress and history (sessions come from the watch) ──────────────
+function TrainTab({ ctx }: { ctx: Ctx }) {
+  const { v } = ctx;
   // Lift progress
   const have = Object.keys(v.H).filter((k) => EXBY[k]);
   const opts = ORDER.flatMap((sk) => SESS[sk].ex.filter((e) => have.includes(e.k)).map((e) => e.k));
@@ -442,62 +300,14 @@ function TrainTab({ ctx, logger }: { ctx: Ctx; logger: Logger }) {
   return (
     <section className="stack">
       <div className="card">
-        <div className="seg" role="group" aria-label="Session">
-          {ORDER.map((k) => (
-            <button key={k} type="button" aria-pressed={k === sess} onClick={() => logger.pick(k)}>
-              {SESS[k].n}{k === nx && <span className="nx">Next</span>}
-            </button>
-          ))}
-        </div>
-        <div className="row" style={{ marginTop: 12 }}>
-          <div className="field"><label htmlFor="lgDate">Date</label>
-            <input id="lgDate" type="date" value={draft.date} onChange={(e) => e.target.value && logger.setDate(e.target.value)} /></div>
-          <div className="field" style={{ flex: '0 1 150px' }}><span className="flabel">Deload</span>
-            <div className="seg">
-              <button type="button" aria-pressed={!deload} onClick={() => logger.setDeload(false)}>Off</button>
-              <button type="button" aria-pressed={deload} onClick={() => logger.setDeload(true)}>On</button>
-            </div>
-          </div>
-        </div>
-        <p className="guide" style={{ marginTop: 12 }}>{guide}</p>
-      </div>
-
-      <div className="card">
-        {SESS[sess].ex.map((ex) => {
-          const list = rows[ex.k] ?? [];
-          const hi = v.exHint(ex);
-          const h = v.H[ex.k], last = h?.[h.length - 1];
-          const unit = ex.u ?? 'reps';
-          const range = ex.r[0] === ex.r[1] ? `${ex.r[0]}` : `${ex.r[0]}–${ex.r[1]}`;
-          return (
-            <div key={ex.k} className="ex">
-              <div className="ex-head"><h3>{ex.n}</h3><span className="rx">{v.setCount(ex, sess, ph, deload)} × {range}{ex.u === 'm' ? ' m' : ''} · {ex.rest}</span></div>
-              {ex.note && <p className="ex-note">{ex.note}</p>}
-              <div className={`hint ${hi.c}`}>{hi.t}</div>
-              {last && <div className="last">Last {fmtD(last.date)}: {last.sets.map((s) => `${s.kg}×${s.reps}`).join(' · ')}</div>}
-              <div className="sets">
-                <span className="hd">Set</span><span className="hd">kg</span><span className="hd">{unit}</span>
-                {list.map((r, i) => (
-                  <SetRow key={i} i={i} r={r} exName={ex.n} unit={unit} ph={`${ex.r[0]}–${ex.r[1]}`}
-                    onChange={(f, val) => logger.setCell(ex.k, i, f, val)} />
-                ))}
-              </div>
-              <button type="button" className="addset" onClick={() => logger.addSet(ex.k)}>+ Add set</button>
-            </div>
-          );
-        })}
-      </div>
-      <div className="savebar"><button type="button" className="btn wide" onClick={() => void save()}>Save session</button></div>
-
-      <div className="card">
         <div className="card-head"><h2>Lift progress</h2><span className="label">Est. 1-rep max</span></div>
         <div className="field" style={{ marginBottom: 10 }}>
           <label htmlFor="liftSel">Exercise</label>
           <select id="liftSel" disabled={!opts.length} value={cur ?? ''} onChange={(e) => setLiftSel(e.target.value)}>
-            {opts.length ? opts.map((k) => <option key={k} value={k}>{EXBY[k].n}</option>) : <option value="">No lifts logged yet</option>}
+            {opts.length ? opts.map((k) => <option key={k} value={k}>{EXBY[k].n}</option>) : <option value="">No lifts recorded yet</option>}
           </select>
         </div>
-        {cur ? <LiftChart v={v} k={cur} /> : <div className="empty">Log a session and each lift gets a strength line here. Strength going up while weight goes down means you are keeping muscle.</div>}
+        {cur ? <LiftChart v={v} k={cur} /> : <div className="empty">Each session from the watch adds to a strength line here. Strength going up while weight goes down means you are keeping muscle.</div>}
       </div>
 
       <div className="card">
@@ -516,41 +326,18 @@ function TrainTab({ ctx, logger }: { ctx: Ctx; logger: Logger }) {
                   <div key={e.ex}>{EXBY[e.ex]?.n ?? e.ex}: {e.sets.map((s) => `${s.kg}×${s.reps}`).join(' · ')}</div>
                 ))}
               </div>
-              <div className="acts">
-                <button type="button" className="btn sm ghost" onClick={() => {
-                  const r: Record<string, Row[]> = {};
-                  for (const e of x.entries ?? []) r[e.ex] = e.sets.map((s) => ({ kg: String(s.kg), reps: String(s.reps) }));
-                  logger.load(x.session, { date: x.date, deload: !!x.deload, rows: r });
-                  window.scrollTo(0, 0);
-                  toast(`Editing ${SESS[x.session].n} from ${fmtD(x.date)}`);
-                }}>Edit</button>
-                <ConfirmButton className="btn sm danger" confirmLabel="Tap again to delete"
-                  onConfirm={() => { void del('workouts', x.id); toast('Session deleted'); }} />
-              </div>
             </details>
           );
-        }) : <div className="empty">Saved sessions show up here with every set, and the logger uses them to suggest your next weights.</div>}
+        }) : <div className="empty">Sessions you record on the watch show up here with every set, after Jarvis imports them.</div>}
+        <p className="muted small" style={{ marginTop: 10 }}>To fix a session, tell Jarvis on Telegram what you actually did.</p>
       </div>
     </section>
   );
 }
 
-function SetRow({ i, r, exName, unit, ph, onChange }: {
-  i: number; r: Row; exName: string; unit: string; ph: string; onChange: (f: keyof Row, v: string) => void;
-}) {
-  return (
-    <>
-      <span className="n">{i + 1}</span>
-      <input inputMode="decimal" value={r.kg} aria-label={`${exName} set ${i + 1} kg`} onChange={(e) => onChange('kg', e.target.value)} />
-      <input inputMode="numeric" className={r.reps ? 'done' : ''} value={r.reps} placeholder={ph}
-        aria-label={`${exName} set ${i + 1} ${unit}`} onChange={(e) => onChange('reps', e.target.value)} />
-    </>
-  );
-}
-
 function LiftChart({ v, k }: { v: Viking; k: string }) {
   const pts = v.H[k].map((x) => [dn(x.date), best(x.sets) ?? NaN] as [number, number]).filter((p) => Number.isFinite(p[1]));
-  if (!pts.length) return <div className="empty">No sets logged for this lift yet.</div>;
+  if (!pts.length) return <div className="empty">No sets recorded for this lift yet.</div>;
   const ys = pts.map((p) => p[1]), x0 = pts[0][0], x1 = Math.max(pts[pts.length - 1][0], x0 + 7);
   const pad = Math.max(2, (Math.max(...ys) - Math.min(...ys)) * 0.15);
   return (
@@ -566,17 +353,13 @@ function LiftChart({ v, k }: { v: Viking; k: string }) {
 
 // ── Body ────────────────────────────────────────────────────────────────────
 function BodyTab({ ctx }: { ctx: Ctx }) {
-  const { v, put, del, toast, T } = ctx;
+  const { v, T } = ctx;
   const t = dn(T), W = v.sorted('weights');
   const [range, setRange] = useState(90);
-  const [bwDate, setBwDate] = useState(T);
-  const [bwKg, setBwKg] = useState('');
-  const [wsDate, setWsDate] = useState(T);
-  const [wsCm, setWsCm] = useState('');
 
   let weightChart: JSX.Element;
   if (!W.length) {
-    weightChart = <div className="empty">Weigh in each morning and this fills with your daily weights, the 7-day average and the corridor to each checkpoint.</div>;
+    weightChart = <div className="empty">Weigh-ins from Garmin fill this with your daily weights, the 7-day average and the corridor to each checkpoint.</div>;
   } else {
     const first = dn(W[0].date), x0 = range ? Math.max(first, t - range + 1) : first, x1 = Math.max(t, x0 + 6);
     const pts = W.map((w) => [dn(w.date), w.kg] as [number, number]).filter((p) => p[0] >= x0 && p[0] <= x1);
@@ -594,7 +377,7 @@ function BodyTab({ ctx }: { ctx: Ctx }) {
 
   const WS = v.sorted('waist');
   let waistChart: JSX.Element;
-  if (!WS.length) waistChart = <div className="empty">One measurement a week builds this line. The waist is the tiebreaker when the scale stalls.</div>;
+  if (!WS.length) waistChart = <div className="empty">No waist measurements yet. The waist is the tiebreaker when the scale stalls.</div>;
   else {
     const pts = WS.map((w) => [dn(w.date), w.cm] as [number, number]), ys = pts.map((p) => p[1]);
     const x0 = pts[0][0], x1 = Math.max(pts[pts.length - 1][0], x0 + 7);
@@ -602,17 +385,6 @@ function BodyTab({ ctx }: { ctx: Ctx }) {
       <Chart h={140} x0={x0} x1={x1} y0={Math.floor(Math.min(...ys) - 1)} y1={Math.ceil(Math.max(...ys) + 1)} xt={dateTicks(x0, x1, 3)} aria="Waist"
         layers={[{ type: 'line', pts }, { type: 'dots', pts, cls: 'acc', r: 3 }, { type: 'end', pt: pts[pts.length - 1] }]} />
     );
-  }
-
-  async function saveWeight() {
-    const kg = num(bwKg);
-    if (!bwDate || !(kg > 30 && kg < 300)) { toast('Pick a date and enter weight in kg.'); return; }
-    if (await put('weights', bwDate, { date: bwDate, kg })) { setBwKg(''); toast(`Saved ${k1(kg)} kg for ${fmtD(bwDate)}`); }
-  }
-  async function saveWaist() {
-    const cm = num(wsCm);
-    if (!wsDate || !(cm > 40 && cm < 200)) { toast('Pick a date and enter your waist in cm.'); return; }
-    if (await put('waist', wsDate, { date: wsDate, cm })) { setWsCm(''); toast('Waist saved'); }
   }
 
   const s = dn(v.cfg.startDate), cur = v.avg7(t);
@@ -631,32 +403,20 @@ function BodyTab({ ctx }: { ctx: Ctx }) {
       </div>
 
       <div className="card">
-        <div className="card-head"><h2>Log weight</h2></div>
-        <div className="row">
-          <div className="field"><label htmlFor="bwDate">Date</label><input id="bwDate" type="date" value={bwDate} onChange={(e) => setBwDate(e.target.value)} /></div>
-          <div className="field"><label htmlFor="bwKg">Weight (kg)</label><input id="bwKg" inputMode="decimal" value={bwKg} onChange={(e) => setBwKg(e.target.value)} /></div>
-          <button type="button" className="btn" onClick={() => void saveWeight()}>Save</button>
-        </div>
-        <div className="list" style={{ marginTop: 12 }}>
-          {W.slice(-7).reverse().map((w) => (
-            <div key={w.id} className="li"><span>{fmtD(w.date)}</span><span>{k1(w.kg)} kg</span>
-              <ConfirmButton className="x" onConfirm={() => void del('weights', w.id)} /></div>
-          ))}
+        <div className="card-head"><h2>Recent weigh-ins</h2><span className="label">From Garmin</span></div>
+        <div className="list">
+          {W.length ? W.slice(-7).reverse().map((w) => (
+            <div key={w.id} className="li"><span>{fmtD(w.date)}</span><span>{k1(w.kg)} kg</span></div>
+          )) : <p className="muted small">No weigh-ins yet.</p>}
         </div>
       </div>
 
       <div className="card">
         <div className="card-head"><h2>Waist at the navel</h2><span className="label">Weekly, same morning</span></div>
         {waistChart}
-        <div className="row" style={{ marginTop: 12 }}>
-          <div className="field"><label htmlFor="wsDate">Date</label><input id="wsDate" type="date" value={wsDate} onChange={(e) => setWsDate(e.target.value)} /></div>
-          <div className="field"><label htmlFor="wsCm">Waist (cm)</label><input id="wsCm" inputMode="decimal" value={wsCm} onChange={(e) => setWsCm(e.target.value)} /></div>
-          <button type="button" className="btn" onClick={() => void saveWaist()}>Save</button>
-        </div>
         <div className="list" style={{ marginTop: 12 }}>
           {WS.slice(-4).reverse().map((w) => (
-            <div key={w.id} className="li"><span>{fmtD(w.date)}</span><span>{k1(w.cm)} cm</span>
-              <ConfirmButton className="x" onConfirm={() => void del('waist', w.id)} /></div>
+            <div key={w.id} className="li"><span>{fmtD(w.date)}</span><span>{k1(w.cm)} cm</span></div>
           ))}
         </div>
       </div>
@@ -709,32 +469,16 @@ function BodyTab({ ctx }: { ctx: Ctx }) {
 
 // ── Fuel ────────────────────────────────────────────────────────────────────
 function FuelTab({ ctx }: { ctx: Ctx }) {
-  const { v, data, put, toast, T } = ctx;
+  const { v, data, T } = ctx;
   const [day, setDay] = useState(T);
   const doc = data.nutrition[day] ?? { date: day };
   const tot = v.nutTotals(day) ?? { kcal: 0, p: 0, water: NaN };
   const tgt = v.kcalTarget(day), ph = v.phaseOf(day), adj = num(v.cfg.kcalAdjust) || 0;
-  const fk = useSynced(doc.extraKcal);
-  const fp = useSynced(doc.extraProtein);
-  const fw = useSynced(doc.water);
-
-  function changeDay(d: string) {
-    if (!d) return;
-    setDay(d);
-    const n = data.nutrition[d];
-    fk.reset(n?.extraKcal != null ? String(n.extraKcal) : '');
-    fp.reset(n?.extraProtein != null ? String(n.extraProtein) : '');
-    fw.reset(n?.water != null ? String(n.water) : '');
-  }
-  function toggle(k: string) {
-    void put('nutrition', day, { ...doc, date: day, items: { ...(doc.items ?? {}), [k]: !doc.items?.[k] } });
-  }
-  async function saveExtras() {
-    const k = num(fk.text), p = num(fp.text), w = num(fw.text);
-    const next = { ...doc, date: day, extraKcal: Number.isFinite(k) ? k : 0, extraProtein: Number.isFinite(p) ? p : 0 };
-    if (Number.isFinite(w)) next.water = w; else delete next.water;
-    if (await put('nutrition', day, next)) { fk.clean(); fp.clean(); fw.clean(); toast('Extras saved'); }
-  }
+  const step = (by: number) => { const d = iso(dn(day) + by); if (d <= T) setDay(d); };
+  const extras = [
+    num(doc.extraKcal) > 0 && `${thou(num(doc.extraKcal))} kcal`,
+    num(doc.extraProtein) > 0 && `${Math.round(num(doc.extraProtein))} g protein`,
+  ].filter(Boolean).join(' · ');
 
   const Meter = ({ lbl, val, goal, unit, sub }: { lbl: string; val: number; goal: number; unit: string; sub: string }) => {
     const pct = Math.min(100, goal ? (val / goal) * 100 : 0);
@@ -759,8 +503,10 @@ function FuelTab({ ctx }: { ctx: Ctx }) {
   return (
     <section className="stack">
       <div className="card">
-        <div className="row" style={{ alignItems: 'center' }}>
-          <div className="field"><label htmlFor="fuDate">Day</label><input id="fuDate" type="date" value={day} onChange={(e) => changeDay(e.target.value)} /></div>
+        <div className="card-head">
+          <button type="button" className="btn sm ghost" aria-label="Previous day" onClick={() => step(-1)}>‹</button>
+          <span className="label num">{day === T ? 'Today' : fmtD(day)}</span>
+          <button type="button" className="btn sm ghost" aria-label="Next day" disabled={day >= T} onClick={() => step(1)}>›</button>
         </div>
         <div className="stack" style={{ gap: 12, marginTop: 14 }}>
           <Meter lbl="Calories" val={tot.kcal} goal={tgt} unit="kcal"
@@ -771,26 +517,17 @@ function FuelTab({ ctx }: { ctx: Ctx }) {
       </div>
 
       <div className="card">
-        <div className="card-head"><h2>The plan's day</h2><span className="label">Tap what you ate</span></div>
+        <div className="card-head"><h2>The plan's day</h2><span className="label">Ticked = eaten</span></div>
         <div className="items">
           {PLAN_ITEMS.map((it) => (
-            <button key={it.k} type="button" className="item" aria-pressed={!!doc.items?.[it.k]} onClick={() => toggle(it.k)}>
+            <div key={it.k} className="item" data-on={doc.items?.[it.k] ? '' : undefined}>
               <span className="box"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7" /></svg></span>
               <span><b>{it.n}</b><br /><span className="muted small">{it.sub}</span></span>
               <span className="m">{it.kcal} kcal<br />{it.p} g</span>
-            </button>
+            </div>
           ))}
         </div>
-      </div>
-
-      <div className="card">
-        <div className="card-head"><h2>Extras</h2><span className="label">Anything off-plan</span></div>
-        <div className="row">
-          <div className="field"><label htmlFor="fuK">kcal</label><input id="fuK" inputMode="numeric" placeholder="0" value={fk.text} onChange={(e) => fk.set(e.target.value)} /></div>
-          <div className="field"><label htmlFor="fuP">Protein (g)</label><input id="fuP" inputMode="numeric" placeholder="0" value={fp.text} onChange={(e) => fp.set(e.target.value)} /></div>
-          <div className="field"><label htmlFor="fuW">Water (L)</label><input id="fuW" inputMode="decimal" placeholder="3.5" value={fw.text} onChange={(e) => fw.set(e.target.value)} /></div>
-        </div>
-        <button type="button" className="btn wide" style={{ marginTop: 12 }} onClick={() => void saveExtras()}>Save extras</button>
+        {extras && <p className="small muted" style={{ marginTop: 10 }}>Extras: {extras}</p>}
       </div>
 
       <div className="card">
@@ -803,19 +540,13 @@ function FuelTab({ ctx }: { ctx: Ctx }) {
             <Chart h={140} x0={x0 - 0.6} x1={t + 0.6} y0={0} y1={Math.max(PROTEIN, ...pr.map((p) => p[1])) * 1.1} xt={dateTicks(x0, t, 3)} aria="Protein per day"
               layers={[{ type: 'bars', pts: pr }, { type: 'hline', y: PROTEIN, label: `${PROTEIN} g` }]} />
           </>
-        ) : <div className="empty">Tick off meals above and the last two weeks of calories and protein build here.</div>}
+        ) : <div className="empty">No meals logged in the last two weeks.</div>}
       </div>
     </section>
   );
 }
 
 // ── Bike plan: the 8-day cycle ──────────────────────────────────────────────
-/** Tick a cycle day off as done or skipped; the cycle moves to the next day. */
-function tickCycle(ctx: Ctx, day: number, status: 'done' | 'skip', date = ctx.T) {
-  const now = Date.now();
-  return ctx.put('cycle', `${date}_${now.toString(36)}`, { date, day, status, savedAt: now });
-}
-
 function FlagList({ flags }: { flags: Flag[] }) {
   if (!flags.length) return null;
   return (
@@ -849,18 +580,13 @@ function RideCard({ rx }: { rx: Rx }) {
   );
 }
 
-function CycleCard({ ctx, onRide }: { ctx: Ctx; onRide: (c: RideCode | null) => void }) {
-  const { v, b, del, toast, T } = ctx;
+function CycleCard({ ctx }: { ctx: Ctx }) {
+  const { v, b, T } = ctx;
   const P = b.today(T);
   const last = v.sorted('cycle').slice(-1)[0];
   const due = b.retestDue(T);
   const flags = [...P.flags];
   if (due) flags.push({ l: 'info', t: 'Benchmark retest', b: `Deload week ${due.wk} is ending: ride the aerobic and climb test segments and log them under Ride → Benchmarks.` });
-
-  async function tick(status: 'done' | 'skip') {
-    if (await tickCycle(ctx, P.day, status))
-      toast(`Day ${P.day} ${status === 'done' ? 'done' : 'skipped'} · next: day ${(P.day % 8) + 1}`);
-  }
 
   return (
     <div className="card">
@@ -878,7 +604,6 @@ function CycleCard({ ctx, onRide }: { ctx: Ctx; onRide: (c: RideCode | null) => 
               : P.rx.length ? (P.optional ? 'Optional ride' : P.cd.note ?? 'Ride day') : P.cd.note ?? 'Full rest'}
           </p>
         </div>
-        {P.rx.length > 0 && <button type="button" className="btn" onClick={() => onRide(P.rx[0].code)}>Log ride</button>}
       </div>
 
       {P.rx.length > 0 && (
@@ -893,13 +618,9 @@ function CycleCard({ ctx, onRide }: { ctx: Ctx; onRide: (c: RideCode | null) => 
       )}
       <FlagList flags={flags} />
 
-      <div className="row" style={{ marginTop: 12 }}>
-        <button type="button" className="btn ghost" style={{ flex: 1 }} onClick={() => void tick('skip')}>Skip day</button>
-        <button type="button" className="btn" style={{ flex: 1 }} onClick={() => void tick('done')}>Day done</button>
-      </div>
-      <p className="muted small" style={{ marginTop: 8 }}>
-        The cycle runs in order: saving a gym session or a ride ticks its day off, missed days don't shift it.
-        {last && <> Last: day {last.day} {last.status === 'skip' ? 'skipped' : 'done'} {fmtD(last.date)} · <ConfirmButton className="linkbtn" label="Undo" onConfirm={() => void del('cycle', last.id)} /></>}
+      <p className="muted small" style={{ marginTop: 12 }}>
+        The cycle runs in order and waits for you: Jarvis ticks a day off when the watch records its session or ride, so a missed day slides instead of being skipped.
+        {last && <> Last: day {last.day} {last.status === 'skip' ? 'skipped' : 'done'} {fmtD(last.date)}.</>}
       </p>
       <details className="more">
         <summary>When to ride · phase progression</summary>
@@ -916,7 +637,7 @@ function CycleCard({ ctx, onRide }: { ctx: Ctx; onRide: (c: RideCode | null) => 
 }
 
 // ── Ride ────────────────────────────────────────────────────────────────────
-function RideTab({ ctx, initCode }: { ctx: Ctx; initCode: RideCode | null }) {
+function RideTab({ ctx }: { ctx: Ctx }) {
   const [view, setView] = useState<'rides' | 'bench'>('rides');
   return (
     <section className="stack">
@@ -924,57 +645,17 @@ function RideTab({ ctx, initCode }: { ctx: Ctx; initCode: RideCode | null }) {
         <button type="button" aria-pressed={view === 'rides'} onClick={() => setView('rides')}>Rides</button>
         <button type="button" aria-pressed={view === 'bench'} onClick={() => setView('bench')}>Benchmarks</button>
       </div>
-      {view === 'rides' ? <RidesView ctx={ctx} initCode={initCode} /> : <BenchView ctx={ctx} />}
+      {view === 'rides' ? <RidesView ctx={ctx} /> : <BenchView ctx={ctx} />}
     </section>
   );
 }
 
-function RidesView({ ctx, initCode }: { ctx: Ctx; initCode: RideCode | null }) {
-  const { v, b, data, put, del, toast, T } = ctx;
+function RidesView({ ctx }: { ctx: Ctx }) {
+  const { v, b, data, T } = ctx;
   const t = dn(T), R = v.sorted('rides');
   const sl: number[] = [];
   for (let d = t - 6; d <= t; d++) { const r = data.recovery[iso(d)]; if (r && Number.isFinite(num(r.sleep))) sl.push(num(r.sleep)); }
   const Wk = b.week(T);
-  const cur = b.current(), cd = cycleDay(cur.day);
-
-  const [date, setDate] = useState(T);
-  const ph = v.phaseOf(date || T), wk = v.weekOf(date || T), deload = v.isDeloadWeek(wk);
-  const open = codesFor(ph);
-  const [code, setCode] = useState<RideCode>(initCode && open.includes(initCode) ? initCode : 'E1');
-  const [min, setMin] = useState('');
-  const [km, setKm] = useState('');
-  const [hr, setHr] = useState('');
-  const [maxHr, setMaxHr] = useState('');
-  const [cad, setCad] = useState('');
-  const [z2, setZ2] = useState('');
-  const [notes, setNotes] = useState('');
-  const [strava, setStrava] = useState('');
-  // Tick today's cycle day with the ride when it's a ride-only day.
-  const [tickIt, setTickIt] = useState(!cd.gym && cd.day !== 8);
-  const code_ = open.includes(code) ? code : 'E1';
-  const rx = prescribe(code_, wk, ph, deload);
-  const m = num(min);
-  const pending = b.rideFlags({ date: date || T, code: code_, type: RIDES[code_].hard ? 'hard' : 'easy', minutes: m > 0 ? m : 0 }, T, true);
-
-  async function save() {
-    if (!date || !(m > 0)) { toast('Pick a date and enter the ride length in minutes.'); return; }
-    const now = Date.now();
-    const doc: RideDoc = { date, code: code_, type: RIDES[code_].hard ? 'hard' : 'easy', minutes: Math.round(m), savedAt: now };
-    const n = (s: string) => num(s);
-    if (Number.isFinite(n(hr))) doc.hr = Math.round(n(hr));
-    if (Number.isFinite(n(maxHr))) doc.maxHr = Math.round(n(maxHr));
-    if (Number.isFinite(n(cad))) doc.cadence = Math.round(n(cad));
-    if (Number.isFinite(n(km))) doc.km = Math.round(n(km) * 10) / 10;
-    if (Number.isFinite(n(z2))) doc.z2 = Math.round(n(z2));
-    if (notes.trim()) doc.notes = notes.trim().slice(0, 500);
-    if (strava.trim()) doc.strava = strava.trim().slice(0, 200);
-    if (!(await put('rides', `${date}_${now.toString(36)}`, doc))) return;
-    if (tickIt) await tickCycle(ctx, cur.day, 'done', date);
-    setMin(''); setKm(''); setHr(''); setMaxHr(''); setCad(''); setZ2(''); setNotes(''); setStrava('');
-    setTickIt(false);
-    toast(pending.length ? `Ride saved · ${pending[0].t.toLowerCase()}` : 'Ride saved');
-  }
-
   const x0 = t - 13, sp: Array<[number, number, string]> = [], stp: Array<[number, number, string]> = [];
   for (let d = x0; d <= t; d++) {
     const r = data.recovery[iso(d)];
@@ -991,42 +672,7 @@ function RidesView({ ctx, initCode }: { ctx: Ctx; initCode: RideCode | null }) {
         <Tile lbl="Hard rides" v={Wk.hard} u={`/ ${Wk.cap}`}
           sub={Wk.hard > Wk.cap ? <span className="up">Over the cap</span> : `Rolling ${HARD_WINDOW_DAYS} days`} />
         <Tile lbl="Ride time" v={Math.round(Wk.minutes / 6) / 10} u="h" sub={`${Wk.rides} ride${Wk.rides === 1 ? '' : 's'} · plan ${fmtRange(Wk.ridesTarget)} / cycle`} />
-        <Tile lbl="Sleep" v={sl.length ? k1(sum(sl) / sl.length) : '—'} u="h" sub={sl.length ? '7-day average' : 'Log in Today'} />
-      </div>
-
-      <div className="card">
-        <div className="card-head"><h2>Log a ride</h2>{deload && <span className="st warn">Deload week</span>}</div>
-        <div className="chips" role="group" aria-label="Ride">
-          {open.map((c) => (
-            <button key={c} type="button" className="chipbtn" aria-pressed={c === code_} onClick={() => setCode(c)}>
-              {c} · {RIDES[c].n}
-            </button>
-          ))}
-        </div>
-        <p className="guide" style={{ marginTop: 10 }}>
-          <b>{zoneLabel(rx.zones)}</b> · {fmtRange(rx.min)} min. {rx.from ? `Deload: ride it as E1, ${rx.min[1]} min max.` : rx.detail}
-        </p>
-        <div className="row" style={{ marginTop: 12 }}>
-          <div className="field"><label htmlFor="rdDate">Date</label><input id="rdDate" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
-          <div className="field"><label htmlFor="rdMin">Minutes</label><input id="rdMin" inputMode="numeric" placeholder={String(rx.min[0])} value={min} onChange={(e) => setMin(e.target.value)} /></div>
-          <div className="field"><label htmlFor="rdKm">Distance (km)</label><input id="rdKm" inputMode="decimal" placeholder="25" value={km} onChange={(e) => setKm(e.target.value)} /></div>
-        </div>
-        <div className="row" style={{ marginTop: 10 }}>
-          <div className="field"><label htmlFor="rdHr">Avg HR</label><input id="rdHr" inputMode="numeric" placeholder="125" value={hr} onChange={(e) => setHr(e.target.value)} /></div>
-          <div className="field"><label htmlFor="rdMax">Max HR</label><input id="rdMax" inputMode="numeric" placeholder="160" value={maxHr} onChange={(e) => setMaxHr(e.target.value)} /></div>
-          <div className="field"><label htmlFor="rdCad">Cadence</label><input id="rdCad" inputMode="numeric" placeholder="85" value={cad} onChange={(e) => setCad(e.target.value)} /></div>
-        </div>
-        <div className="row" style={{ marginTop: 10 }}>
-          <div className="field"><label htmlFor="rdZ2">Min in Z2</label><input id="rdZ2" inputMode="numeric" placeholder="optional" value={z2} onChange={(e) => setZ2(e.target.value)} /></div>
-          <div className="field" style={{ flex: '2 1 200px' }}><label htmlFor="rdStrava">Strava link</label><input id="rdStrava" inputMode="url" placeholder="optional" value={strava} onChange={(e) => setStrava(e.target.value)} /></div>
-        </div>
-        <div className="field" style={{ marginTop: 10 }}><label htmlFor="rdNotes">Notes</label><input id="rdNotes" placeholder="Skill focus, how it felt…" value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
-        <label className="check" style={{ marginTop: 12 }}>
-          <input type="checkbox" checked={tickIt} onChange={(e) => setTickIt(e.target.checked)} />
-          <span>Tick off cycle day {cur.day} ({cd.gym ? SESS[cd.gym].n : cd.ride.length ? 'ride day' : 'rest'})</span>
-        </label>
-        <FlagList flags={pending} />
-        <button type="button" className="btn wide" style={{ marginTop: 12 }} onClick={() => void save()}>Save ride</button>
+        <Tile lbl="Sleep" v={sl.length ? k1(sum(sl) / sl.length) : '—'} u="h" sub={sl.length ? '7-day average' : 'From Garmin'} />
       </div>
 
       <div className="card">
@@ -1048,7 +694,6 @@ function RidesView({ ctx, initCode }: { ctx: Ctx; initCode: RideCode | null }) {
                 </div>
                 <div className="acts">
                   {r.strava && /^https?:\/\//.test(r.strava) && <a className="btn sm ghost" href={r.strava} target="_blank" rel="noreferrer">Strava</a>}
-                  <ConfirmButton className="btn sm danger" onConfirm={() => void del('rides', r.id)} />
                 </div>
               </details>
             );
@@ -1070,13 +715,13 @@ function RidesView({ ctx, initCode }: { ctx: Ctx; initCode: RideCode | null }) {
         {sp.length ? (
           <Chart h={130} x0={x0 - 0.6} x1={t + 0.6} y0={0} y1={Math.max(9.5, ...sp.map((p) => p[1]))} xt={dateTicks(x0, t, 3)} aria="Sleep hours"
             layers={[{ type: 'bars', pts: sp }, { type: 'hline', y: 7, label: '7 h' }]} />
-        ) : <div className="empty">Log sleep in the daily check-in on Today.</div>}
+        ) : <div className="empty">Sleep from Garmin lands here after each sync.</div>}
         <div className="card-head" style={{ marginTop: 14 }}><h2>Steps</h2><span className="label">7,000–10,000 on non-ride days</span></div>
         {stp.length ? (
           <Chart h={130} x0={x0 - 0.6} x1={t + 0.6} y0={0} y1={Math.max(10000, ...stp.map((p) => p[1])) * 1.08} xt={dateTicks(x0, t, 3)}
             yFmt={(n) => (n >= 1000 ? `${n / 1000}k` : String(n))} aria="Steps"
             layers={[{ type: 'bars', pts: stp }, { type: 'hline', y: 7000, label: '7,000' }]} />
-        ) : <div className="empty">Steps from the daily check-in land here. The Garmin shows them each evening.</div>}
+        ) : <div className="empty">Steps from Garmin land here after each sync.</div>}
       </div>
     </>
   );
@@ -1171,8 +816,8 @@ function BenchView({ ctx }: { ctx: Ctx }) {
 }
 
 // ── Settings sheet ──────────────────────────────────────────────────────────
-function SettingsSheet({ ctx, onClose, onAscend, onSignOut }: {
-  ctx: Ctx; onClose: () => void; onAscend: () => void; onSignOut: () => void;
+function SettingsSheet({ ctx, onClose, onSignOut }: {
+  ctx: Ctx; onClose: () => void; onSignOut: () => void;
 }) {
   const { v, put, toast, T } = ctx;
   const C = v.cfg;
@@ -1222,7 +867,7 @@ function SettingsSheet({ ctx, onClose, onAscend, onSignOut }: {
           </div>
           <div className="field"><label htmlFor="stAdj">Calorie adjustment (kcal)</label>
             <input id="stAdj" inputMode="numeric" value={adj} onChange={(e) => setAdj(e.target.value)} />
-            <p className="muted small">Added to every phase target. The coach's "Add 200" and "Cut 150" buttons change this.</p>
+            <p className="muted small">Added to every phase target. When the coach suggests a change, set it here.</p>
           </div>
           <div className="row">
             <button type="button" className="btn ghost" style={{ flex: 1 }} onClick={onClose}>Cancel</button>
@@ -1230,7 +875,6 @@ function SettingsSheet({ ctx, onClose, onAscend, onSignOut }: {
           </div>
           <hr />
           <div className="row">
-            <button type="button" className="btn ghost" style={{ flex: 1 }} onClick={onAscend}>Switch to Ascend</button>
             <button type="button" className="btn danger" style={{ flex: 1 }} onClick={onSignOut}>Sign out</button>
           </div>
         </div>

@@ -6,8 +6,7 @@ import { supabase } from '@/lib/supabase';
 import { SystemErrorBoundary } from '@/components/system/ErrorBoundary';
 import { GlitchText } from '@/components/system/GlitchText';
 import { isResetAccount } from '@/features/reset/resetAccounts';
-import { getPortal, setPortal } from '@/lib/portal';
-import { PortalChooser } from '@/features/portal/PortalChooser';
+import { setPortal } from '@/lib/portal';
 import { LoginPage } from '@/features/auth/LoginPage';
 
 // D's Reset portal — lazy so it never weighs on the main bundle.
@@ -17,10 +16,6 @@ const ResetApp = lazy(() =>
 // Project Viking — the 52-week training plan (the System side of the site).
 const VikingApp = lazy(() =>
   import('@/features/viking/VikingApp').then((m) => ({ default: m.VikingApp })),
-);
-// Ascend (the life RPG) — lazy, its own light theme and data; it only shares sign-in.
-const AscendApp = lazy(() =>
-  import('@/features/ascend/AscendApp').then((m) => ({ default: m.AscendApp })),
 );
 
 function BootScreen() {
@@ -34,17 +29,13 @@ function BootScreen() {
   );
 }
 
-/** After sign-in: the chooser first (once per launch), then Project Viking. */
+/** After sign-in: Project Viking. (Ascend is retired; its code and tables stay.) */
 function MainGate({ userId }: { userId: string }) {
-  const [portal, setLocalPortal] = useState(getPortal());
-  if (portal === 'viking') {
-    return (
-      <Suspense fallback={<BootScreen />}>
-        <VikingApp userId={userId} />
-      </Suspense>
-    );
-  }
-  return <PortalChooser onViking={() => setLocalPortal('viking')} />;
+  return (
+    <Suspense fallback={<BootScreen />}>
+      <VikingApp userId={userId} />
+    </Suspense>
+  );
 }
 
 export default function App() {
@@ -58,7 +49,7 @@ export default function App() {
     });
     const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
       setSession(s);
-      // next sign-in starts at the Viking / Ascend chooser
+      // clears the old chooser's stored pick (harmless now the chooser is gone)
       if (event === 'SIGNED_OUT') setPortal(null);
     });
     return () => sub.subscription.unsubscribe();
@@ -67,7 +58,7 @@ export default function App() {
   if (!ready) return <BootScreen />;
 
   // Reset-portal accounts (D) get an entirely separate light-themed workout
-  // app — the chooser, Viking and Ascend never mount for them.
+  // app — Viking never mounts for them.
   const reset = session != null && isResetAccount(session.user.email);
 
   return (
@@ -86,18 +77,7 @@ export default function App() {
       ) : (
         <Routes>
           <Route path="/login" element={session ? <Navigate to="/" replace /> : <LoginPage />} />
-          <Route
-            path="/ascend/*"
-            element={
-              session ? (
-                <Suspense fallback={<BootScreen />}>
-                  <AscendApp userId={session.user.id} />
-                </Suspense>
-              ) : (
-                <Navigate to="/login" replace />
-              )
-            }
-          />
+          <Route path="/ascend/*" element={<Navigate to="/" replace />} />
           <Route
             path="/*"
             element={session ? <MainGate key={session.user.id} userId={session.user.id} /> : <Navigate to="/login" replace />}
