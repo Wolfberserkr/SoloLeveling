@@ -167,8 +167,8 @@ comparison false. Drop the flag. The checklist replaces it.
 
 ### Pins: moving days ahead of time
 
-- `plan/state.pins: Record<date, day>`, at most one box per date and one date per
-  box.
+- Pins live in their own doc, `plan/pins: Record<date, day>` (see *Decisions from
+  the builder check*), with at most one box per date and one date per box.
 - **`planAhead`** walks its 7 dates and simulates the lap:
   - A date with a pin whose box is still open (and not placed yet) places that box.
   - Any other date places the first open box that is neither pinned to a later date
@@ -271,6 +271,60 @@ comparison false. Drop the flag. The checklist replaces it.
 - Existing tests that assume "next = the day after the last tick" while ticks are
   in order stay green unchanged. Any that encode the old realign-drops-days
   behaviour are updated, and the change is named in the commit.
+
+### Decisions from the builder check
+
+These are Claude's calls unless marked as the owner's.
+
+- **A pinned box is that date's box.** When a date has a pin whose box is open,
+  `gymTick`, `rideTick` and `endOfDay` treat the pinned box as that date's first
+  open box. So:
+  - a pinned session done on its date is a normal tick, with no swap message;
+  - a pinned ride on a gym-day cycle fills its own box;
+  - a pinned rest settles as `done` at the end of its date.
+  The pin is then dropped because its box is filled.
+- **A move to a day already done this lap is refused.** `viking_move` replies with
+  the reason and what's next ("Upper A is done this lap; next is Lower B"). Moves
+  never close a lap. Only a session the watch records can start a new lap, as now.
+  Pins are `date → day` for the current lap. A pin for a box of the next lap is
+  allowed only when the 7-day preview shows that lap starting before the pin's
+  date. Otherwise it's refused.
+- **The ride-first wait never stalls for long.** "Garmin has delivered date d"
+  means either of these is later than the end of d (local):
+  - the latest `plan/garmin[*].mirroredAt`;
+  - the `insertedAt` of any `garmin_in` dated after d (the sync's step 7 copies
+    every strength session of the window in one pass, so a later one proves the
+    earlier ones were copied).
+  - **While waiting**, the stream stops at d's end-of-day item. Items dated after
+    d wait too, so nothing is decided against later ticks and no back-dated tick
+    is ever inserted.
+  - **The wait is capped**: 12 h after the end of d, Jarvis decides with what it
+    has, and logs that the cap was hit.
+  - The wait only happens on a date where he rode on a gym day with no gym
+    workout, so normal days never wait.
+- **A tick is never inserted before a later one.**
+  - A skip tap fills only boxes that are still open, and dates its ticks the
+    latest tick's date (savedAt after it). A box filled since the swap message
+    is left alone, and the tap answers "already done".
+  - A `viking_fix` that creates a session on a date before the latest tick fills
+    its box only if that box is open, and never starts a new lap from there.
+- **Which box a ride-first swap fills depends on the ride.** A ride of at least
+  45 min on a gym day with no gym workout counts:
+  - hard (by code, else by `type`) → the first open hard-ride box (3, or 7 from
+    phase 2);
+  - otherwise → the first open easy box (6, or the day-3/7 box when the planner
+    would swap it to E1 anyway).
+  - Shorter rides, and rides with no matching open box, stay extras.
+  - 45 min is the bottom of the shortest planned ride that isn't optional (H2/H3).
+    An R1 spin is always optional, so it never fills a box.
+- **Pins and skip decisions are separate docs**, not `plan/state`. The tick writes
+  `plan/state` whole and would race a chat-side write. Pins go in `plan/pins`
+  (`{[date]: day}`, written only by `viking_move` and read by the tick). The engine
+  drops expired or filled pins by writing that doc too, in the same tick that
+  reads it. `viking_move` writes with a jsonb merge, and the tick removes keys one
+  at a time (`data - '<date>'`), so neither loses the other's change. Skip taps
+  write `cycle` ticks directly, which is safe because ids are deterministic and
+  the tick re-reads cycle docs every run.
 
 ## Rollout
 
